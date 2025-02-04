@@ -1,0 +1,14 @@
+cargo-features = ["per-package-target"]
+
+[package]
+name = "kernel"
+version.workspace = true
+edition.workspace = true
+forced-target = "riscv64gc-unknown-none-elf"
+
+[lib]
+crate-type = ["staticlib"]
+test = false
+bench = false
+
+[dependencies]
