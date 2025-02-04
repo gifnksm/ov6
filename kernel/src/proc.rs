@@ -10,6 +10,7 @@ mod ffi {
 
     unsafe extern "C" {
         pub type Proc;
+        pub fn cpuid() -> c_int;
         pub fn mycpu() -> *mut Cpu;
         pub fn either_copyin(dst: *mut c_void, user_src: c_int, src: u64, len: u64) -> c_int;
         pub fn either_copyout(user_dst: c_int, dst: u64, src: *const c_void, len: u64) -> c_int;
@@ -18,6 +19,8 @@ mod ffi {
         pub fn wakeup(chan: *const c_void);
         pub fn killed(p: *mut Proc) -> c_int;
         pub fn procdump();
+        pub fn procinit();
+        pub fn scheduler() -> !;
     }
 }
 
@@ -76,6 +79,10 @@ impl Cpu {
     }
 }
 
+pub fn cpuid() -> i32 {
+    unsafe { ffi::cpuid() }
+}
+
 pub unsafe fn either_copyin(
     dst: *mut u8,
     user_src: bool,
@@ -99,10 +106,18 @@ pub fn sleep<T>(chan: *const c_void, lock: &mut MutexGuard<T>) {
     unsafe { ffi::sleep(chan, ptr::from_ref(lock.spinlock()).cast_mut()) }
 }
 
-pub(crate) fn wakeup(chan: *const c_void) {
+pub fn wakeup(chan: *const c_void) {
     unsafe { ffi::wakeup(chan) }
 }
 
-pub(crate) fn dump() {
+pub fn dump() {
     unsafe { ffi::procdump() }
+}
+
+pub fn init() {
+    unsafe { ffi::procinit() }
+}
+
+pub fn scheduler() -> ! {
+    unsafe { ffi::scheduler() }
 }
