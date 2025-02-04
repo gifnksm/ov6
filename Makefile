@@ -6,7 +6,6 @@ OBJS = \
   $K/entry.o \
   $K/start.o \
   $K/uart.o \
-  $K/kalloc.o \
   $K/string.o \
   $K/vm.o \
   $K/proc.o \

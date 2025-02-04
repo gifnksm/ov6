@@ -9,13 +9,14 @@ use core::{
 
 mod console;
 mod file;
+mod kalloc;
+mod memlayout;
 mod print;
 mod proc;
 mod spinlock;
 mod uart;
 
 unsafe extern "C" {
-    fn kinit();
     fn kvminit();
     fn kvminithart();
     fn trapinit();
@@ -39,8 +40,8 @@ extern "C" fn main() -> ! {
         println!();
         println!("xv6 kernel is booting");
         println!();
+        kalloc::init(); // physical page allocator
         unsafe {
-            kinit(); // physical page allocator
             kvminit(); // create kernel page table
             kvminithart(); // turn on paging
             proc::init(); // process table
