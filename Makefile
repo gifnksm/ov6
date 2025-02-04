@@ -5,7 +5,6 @@ R=target/riscv64gc-unknown-none-elf/release
 OBJS = \
   $K/entry.o \
   $K/start.o \
-  $K/console.o \
   $K/printf.o \
   $K/uart.o \
   $K/kalloc.o \

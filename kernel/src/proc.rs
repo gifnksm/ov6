@@ -1,12 +1,37 @@
-use core::ffi::c_int;
+use core::{
+    ffi::{c_int, c_void},
+    ptr,
+};
 
 mod ffi {
+    use crate::spinlock::SpinLock;
 
     use super::*;
 
     unsafe extern "C" {
         pub type Proc;
         pub fn mycpu() -> *mut Cpu;
+        pub fn either_copyin(dst: *mut c_void, user_src: c_int, src: u64, len: u64) -> c_int;
+        pub fn either_copyout(user_dst: c_int, dst: u64, src: *const c_void, len: u64) -> c_int;
+        pub fn myproc() -> *mut Proc;
+        pub fn sleep(chan: *const c_void, lk: *mut SpinLock);
+        pub fn wakeup(chan: *const c_void);
+        pub fn killed(p: *mut Proc) -> c_int;
+        pub fn procdump();
+    }
+}
+
+pub use ffi::Proc;
+
+use crate::spinlock::MutexGuard;
+
+impl Proc {
+    pub fn myproc() -> *mut Self {
+        unsafe { ffi::myproc() }
+    }
+
+    pub fn killed(&self) -> bool {
+        unsafe { ffi::killed(self as *const _ as *mut _) != 0 }
     }
 }
 
@@ -49,4 +74,35 @@ impl Cpu {
     pub fn mycpu() -> *mut Self {
         unsafe { ffi::mycpu() }
     }
+}
+
+pub unsafe fn either_copyin(
+    dst: *mut u8,
+    user_src: bool,
+    src: usize,
+    len: usize,
+) -> Result<(), ()> {
+    if unsafe { ffi::either_copyin(dst.cast(), user_src as c_int, src as u64, len as u64) } < 0 {
+        return Err(());
+    }
+    Ok(())
+}
+
+pub fn either_copyout(user_dst: bool, dst: usize, src: *const u8, len: usize) -> Result<(), ()> {
+    if unsafe { ffi::either_copyout(user_dst.into(), dst as u64, src.cast(), len as u64) } < 0 {
+        return Err(());
+    }
+    Ok(())
+}
+
+pub fn sleep<T>(chan: *const c_void, lock: &mut MutexGuard<T>) {
+    unsafe { ffi::sleep(chan, ptr::from_ref(lock.spinlock()).cast_mut()) }
+}
+
+pub(crate) fn wakeup(chan: *const c_void) {
+    unsafe { ffi::wakeup(chan) }
+}
+
+pub(crate) fn dump() {
+    unsafe { ffi::procdump() }
 }

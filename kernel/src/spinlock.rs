@@ -11,7 +11,7 @@ use riscv::register::sstatus;
 use crate::proc::Cpu;
 
 #[repr(C)]
-struct SpinLock {
+pub struct SpinLock {
     locked: AtomicU32,
     name: UnsafeCell<*const c_char>,
     cpu: UnsafeCell<*mut Cpu>,
@@ -166,6 +166,12 @@ impl<T> Deref for MutexGuard<'_, T> {
 impl<T> DerefMut for MutexGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.lock.value.get() }
+    }
+}
+
+impl<T> MutexGuard<'_, T> {
+    pub unsafe fn spinlock(&self) -> &SpinLock {
+        &self.lock.lock
     }
 }
 
