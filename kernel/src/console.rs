@@ -56,7 +56,7 @@ mod ffi {
 ///
 /// Called by printf(), and to echo input characters,
 /// but not from write().
-fn put_char(c: char) {
+pub fn put_char(c: char) {
     uart::putc_sync(c);
 }
 
