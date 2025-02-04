@@ -9,7 +9,6 @@ OBJS = \
   $K/printf.o \
   $K/uart.o \
   $K/kalloc.o \
-  $K/spinlock.o \
   $K/string.o \
   $K/main.o \
   $K/vm.o \

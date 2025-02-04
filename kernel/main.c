@@ -16,8 +16,6 @@ main()
     printf("\n");
     printf("xv6 kernel is booting\n");
     printf("\n");
-    int rust_hello();
-    rust_hello();
     kinit();         // physical page allocator
     kvminit();       // create kernel page table
     kvminithart();   // turn on paging
