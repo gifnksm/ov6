@@ -157,7 +157,7 @@ fn read(user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize, ()> {
 /// `uartintr()` calls this for input character.
 /// Do erase/kill processing, append to `cons.buf`,
 /// wake up `read()` if a whole line has arrived.
-fn handle_interrupt(c: u8) {
+pub fn handle_interrupt(c: u8) {
     let mut cons = CONS.lock();
 
     match c {

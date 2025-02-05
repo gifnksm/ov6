@@ -3,7 +3,6 @@ U=user
 R=target/riscv64gc-unknown-none-elf/release
 
 OBJS = \
-  $K/uart.o \
   $K/string.o \
   $K/vm.o \
   $K/proc.o \

@@ -25,5 +25,10 @@
 // the kernel expects there to be RAM
 // for use by the kernel and user pages
 // from physical address 0x80000000 to PHYSTOP.
+
+// qemu puts UART registers here in physical memory.
+pub const UART0: usize = 0x1000_0000;
+// pub const UART0_IRQ: usize = 10;
+
 pub const KERN_BASE: usize = 0x8000_0000;
 pub const PHYS_TOP: usize = KERN_BASE + 128 * 1024 * 1024;

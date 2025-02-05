@@ -3,6 +3,7 @@
 use core::{
     ffi::{CStr, c_char, c_int, c_long, c_longlong, c_uint, c_ulong, c_ulonglong, c_void},
     fmt::{self, Write as _},
+    hint,
     sync::atomic::{AtomicBool, Ordering},
 };
 
@@ -11,9 +12,7 @@ use crate::{
     spinlock::{Mutex, MutexGuard},
 };
 
-#[allow(non_upper_case_globals)]
-#[unsafe(no_mangle)]
-static mut panicked: i32 = 0;
+pub static PANICKED: AtomicBool = AtomicBool::new(false);
 
 mod ffi {
     use super::*;
@@ -89,10 +88,10 @@ macro_rules! println {
 fn panic(info: &core::panic::PanicInfo) -> ! {
     PRINT.locking.store(false, Ordering::Relaxed);
     println!("panic: {info}");
-    unsafe {
-        panicked = 1; // freeze uart output from other CPUs
+    PANICKED.store(true, Ordering::Relaxed); // freeze uart output from other CPUs
+    loop {
+        hint::spin_loop();
     }
-    loop {}
 }
 
 /// Print to the console.
