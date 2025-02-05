@@ -1,8 +1,13 @@
+        # Workaround for spurious LLVM error
+        # See also:
+        #  - <https://github.com/rust-embedded/riscv/issues/175>
+        #  - <https://github.com/rust-embedded/riscv/pull/176>
+.attribute arch, "rv64g"
         # qemu -kernel loads the kernel at 0x80000000
         # and causes each hart (i.e. CPU) to jump there.
         # kernel.ld causes the following code to
         # be placed at 0x80000000.
-.section .text
+.section .text.init
 .global _entry
 _entry:
         # set up a stack for C.

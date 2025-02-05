@@ -8,6 +8,7 @@ use core::{
 };
 
 mod console;
+mod entry;
 mod file;
 mod kalloc;
 mod memlayout;
