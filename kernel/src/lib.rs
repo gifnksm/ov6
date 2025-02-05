@@ -12,9 +12,11 @@ mod entry;
 mod file;
 mod kalloc;
 mod memlayout;
+mod param;
 mod print;
 mod proc;
 mod spinlock;
+mod start;
 mod uart;
 
 unsafe extern "C" {
@@ -34,7 +36,6 @@ unsafe extern "C" {
 static STARTED: AtomicBool = AtomicBool::new(false);
 
 // start() jumps here in supervisor mode on all CPUs.
-#[unsafe(no_mangle)]
 extern "C" fn main() -> ! {
     if proc::cpuid() == 0 {
         console::init();
