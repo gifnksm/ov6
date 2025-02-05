@@ -3,12 +3,12 @@
 #![no_std]
 
 use core::{
+    arch::global_asm,
     hint,
     sync::atomic::{AtomicBool, Ordering},
 };
 
 mod console;
-mod entry;
 mod file;
 mod kalloc;
 mod memlayout;
@@ -18,6 +18,13 @@ mod proc;
 mod spinlock;
 mod start;
 mod uart;
+
+global_asm!(
+    include_str!("entry.s"),
+    STACK0 = sym self::start::STACK0,
+    STACK_SIZE = const self::start::STACK_SIZE,
+    start = sym self::start::start,
+);
 
 unsafe extern "C" {
     fn kvminit();
