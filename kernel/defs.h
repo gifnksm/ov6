@@ -17,10 +17,6 @@ void            bwrite(struct buf*);
 void            bpin(struct buf*);
 void            bunpin(struct buf*);
 
-// console.c
-void            consoleintr(int);
-void            consputc(int);
-
 // exec.c
 int             exec(char*, char**);
 
@@ -146,11 +142,7 @@ extern struct spinlock tickslock;
 void            usertrapret(void);
 
 // uart.c
-void            uartinit(void);
-void            uartintr(void);
-void            uartputc(int);
-void            uartputc_sync(int);
-int             uartgetc(void);
+void uartintr(void);
 
 // vm.c
 void            kvminit(void);

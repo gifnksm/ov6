@@ -27,31 +27,6 @@ const CTRL_U: u8 = ctrl(b'U');
 const CTRL_D: u8 = ctrl(b'D');
 const CTRL_P: u8 = ctrl(b'P');
 
-mod ffi {
-    use super::*;
-
-    const BACKSPACE: c_int = 0x100;
-
-    #[unsafe(no_mangle)]
-    extern "C" fn consputc(c: c_int) {
-        if c == BACKSPACE {
-            put_backspace();
-        } else {
-            put_char(c as u8 as char);
-        }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn consoleintr(c: c_int) {
-        handle_interrupt(c as u8);
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn consoleinit() {
-        init()
-    }
-}
-
 /// Send one character to the UART.
 ///
 /// Called by printf(), and to echo input characters,
