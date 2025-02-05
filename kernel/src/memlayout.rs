@@ -3,7 +3,7 @@
 //! qemu -machine virt is set up like this,
 //! based on qemu's hw/riscv/virt.c:
 //!
-//! ```
+//! ```text
 //! 00001000 -- boot ROM, provided by qemu
 //! 02000000 -- CLINT
 //! 0C000000 -- PLIC
@@ -16,7 +16,7 @@
 //!
 //! the kernel uses physical memory thus:
 //!
-//! ```
+//! ```text
 //! 80000000 -- entry.S, then kernel text and data
 //! end -- start of kernel page allocation area
 //! PHYSTOP -- end RAM used by the kernel
