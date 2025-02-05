@@ -68,9 +68,7 @@ impl SpinLock {
     fn acquire(&self) {
         push_off(); // disable interrupts to avoid deadlock.
 
-        if self.holding() {
-            panic!();
-        }
+        assert!(!self.holding());
 
         // `Ordering::Acquire` tells the compiler and the processor to not move loads or stores
         // past this point, to ensure that the critical section's memory
@@ -86,9 +84,7 @@ impl SpinLock {
 
     /// Releases the lock.
     fn release(&self) {
-        if !self.holding() {
-            panic!();
-        }
+        assert!(self.holding());
 
         unsafe {
             *self.cpu.get() = ptr::null_mut();
@@ -194,12 +190,8 @@ pub fn push_off() {
 pub fn pop_off() {
     unsafe {
         let c = Cpu::mycpu();
-        if sstatus::read().sie() {
-            panic!("interruptible");
-        }
-        if (*c).noff < 1 {
-            panic!();
-        }
+        assert!(!sstatus::read().sie());
+        assert!((*c).noff > 0);
         (*c).noff -= 1;
         if (*c).noff == 0 && (*c).intena != 0 {
             sstatus::set_sie();
