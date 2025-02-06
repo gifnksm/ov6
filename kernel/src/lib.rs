@@ -18,6 +18,7 @@ mod proc;
 mod spinlock;
 mod start;
 mod uart;
+mod vm;
 
 global_asm!(
     include_str!("entry.s"),
@@ -27,8 +28,6 @@ global_asm!(
 );
 
 unsafe extern "C" {
-    fn kvminit();
-    fn kvminithart();
     fn trapinit();
     fn trapinithart();
     fn plicinit();
@@ -50,9 +49,9 @@ extern "C" fn main() -> ! {
         println!("xv6 kernel is booting");
         println!();
         kalloc::init(); // physical page allocator
+        vm::kernel::init(); // create kernel page table
+        vm::kernel::init_hart(); // turn on paging
         unsafe {
-            kvminit(); // create kernel page table
-            kvminithart(); // turn on paging
             proc::init(); // process table
             trapinit(); // trap vectors
             trapinithart(); // install kernel trap vector
@@ -70,8 +69,8 @@ extern "C" fn main() -> ! {
             hint::spin_loop();
         }
         println!("hart {} starting", proc::cpuid());
+        vm::kernel::init_hart(); // turn on paging
         unsafe {
-            kvminithart(); // turn on paging
             trapinithart(); // install kernel trap vector
             plicinithart(); // ask PLIC for device interrupts
         }

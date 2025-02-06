@@ -6,7 +6,11 @@
 
 use core::{ffi::c_void, ptr};
 
-use crate::{memlayout::PHYS_TOP, spinlock::Mutex};
+use crate::{
+    memlayout::PHYS_TOP,
+    spinlock::Mutex,
+    vm::{self, PAGE_SIZE},
+};
 
 mod ffi {
     use super::*;
@@ -22,21 +26,16 @@ mod ffi {
     }
 }
 
-pub const PAGE_SIZE: usize = 4096; // bytes per page
-
-pub const fn page_roundup(addr: usize) -> usize {
-    (addr + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
-}
-
-unsafe extern "C" {
-    /// FIrst address after kernel.
-    ///
-    /// defined by `kernel.ld`
-    #[link_name = "end"]
-    static mut END: [u8; 0];
-}
-
+/// First address after kernel.
 const fn end() -> *mut c_void {
+    unsafe extern "C" {
+        /// First address after kernel.
+        ///
+        /// defined by `kernel.ld`
+        #[link_name = "end"]
+        static mut END: [u8; 0];
+    }
+
     (&raw mut END).cast()
 }
 
@@ -60,7 +59,7 @@ pub fn init() {
 
 unsafe fn free_range(pa_start: *mut c_void, pa_end: *mut c_void) {
     unsafe {
-        let mut p = ptr::without_provenance_mut::<c_void>(page_roundup(pa_start.addr()));
+        let mut p = ptr::without_provenance_mut::<c_void>(vm::page_roundup(pa_start.addr()));
         while p.byte_add(PAGE_SIZE) <= pa_end {
             kfree(p);
             p = p.byte_add(PAGE_SIZE);

@@ -1,6 +1,6 @@
 use core::{
     ffi::{c_int, c_void},
-    ptr,
+    ptr::{self},
 };
 
 mod ffi {
@@ -10,6 +10,7 @@ mod ffi {
 
     unsafe extern "C" {
         pub type Proc;
+        pub fn proc_mapstacks(kpgtbl: *mut PageTable);
         pub fn cpuid() -> c_int;
         pub fn mycpu() -> *mut Cpu;
         pub fn either_copyin(dst: *mut c_void, user_src: c_int, src: u64, len: u64) -> c_int;
@@ -26,7 +27,7 @@ mod ffi {
 
 pub use ffi::Proc;
 
-use crate::spinlock::MutexGuard;
+use crate::{spinlock::MutexGuard, vm::PageTable};
 
 impl Proc {
     pub fn myproc() -> *mut Self {
@@ -120,4 +121,8 @@ pub fn init() {
 
 pub fn scheduler() -> ! {
     unsafe { ffi::scheduler() }
+}
+
+pub fn map_stacks(kpgtbl: &mut PageTable) {
+    unsafe { ffi::proc_mapstacks(ptr::from_mut(kpgtbl)) }
 }

@@ -12,4 +12,5 @@ test = false
 bench = false
 
 [dependencies]
+bitflags = "2.8.0"
 riscv.workspace = true
