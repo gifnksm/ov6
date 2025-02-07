@@ -398,7 +398,7 @@ impl PageTable {
             "remap on the already mapped address: va={va:?}"
         );
 
-        *pte = PtEntry::new(pa.phys_page_num(), 0, perm | PtEntryFlags::V);
+        *pte = PtEntry::new(pa.phys_page_num(), perm | PtEntryFlags::V);
         Ok(())
     }
 
@@ -508,7 +508,7 @@ impl PageTable {
                 }
 
                 pt = Self::allocate().ok()?;
-                *pte = PtEntry::new(pt.as_ref().phys_page_num(), 0, PtEntryFlags::V);
+                *pte = PtEntry::new(pt.as_ref().phys_page_num(), PtEntryFlags::V);
             }
 
             Some(pt.as_mut().entry_mut(0, va))
@@ -632,9 +632,15 @@ impl Drop for UnmapPages<'_> {
 struct PtEntry(usize);
 
 impl PtEntry {
-    fn new(ppn: PhysPageNum, rsv: usize, flags: PtEntryFlags) -> Self {
-        assert_eq!(rsv & 0b11, rsv, "rsv: {rsv:#x}");
-        let bits = (ppn.0 << 10) | ((rsv & 0b11) << 8) | (flags.bits() & 0xFF);
+    const FLAGS_MASK: usize = 0x3FF;
+
+    fn new(ppn: PhysPageNum, flags: PtEntryFlags) -> Self {
+        assert_eq!(
+            flags.bits() & Self::FLAGS_MASK,
+            flags.bits(),
+            "flags: {flags:#x}={flags:?}"
+        );
+        let bits = (ppn.0 << 10) | (flags.bits() & 0x3FF);
         Self(bits)
     }
 
@@ -669,19 +675,14 @@ impl PtEntry {
         self.phys_page_num().phys_addr()
     }
 
-    // /// Returns software reserved bits (RSV)
-    // fn rsv(&self) -> usize {
-    //     (self.0 >> 8) & 0b11
-    // }
-
     /// Returns page table entry flags
     fn flags(&self) -> PtEntryFlags {
-        PtEntryFlags::from_bits_retain(self.0 & 0xFF)
+        PtEntryFlags::from_bits_retain(self.0 & Self::FLAGS_MASK)
     }
 
     /// Sets page table entry flags.
     fn set_flags(&mut self, flags: PtEntryFlags) {
-        self.0 &= !0xFF;
+        self.0 &= !&Self::FLAGS_MASK;
         self.0 |= flags.bits();
     }
 
