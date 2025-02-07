@@ -43,7 +43,7 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn walkaddr(pagetable: *mut PageTable, va: u64) -> u64 {
-        let pa = unsafe { (*pagetable).walk_addr(VirtAddr(va as usize)) };
+        let pa = unsafe { (*pagetable).resolve_user_virtual_address(VirtAddr(va as usize)) };
         pa.map(|pa| pa.0 as u64).unwrap_or(0)
     }
 
@@ -120,7 +120,7 @@ mod ffi {
     #[unsafe(no_mangle)]
     extern "C" fn uvmclear(pagetable: *mut PageTable, va: u64) {
         let pagetable = unsafe { pagetable.as_mut().unwrap() };
-        user::clear(pagetable, VirtAddr(va as usize));
+        user::forbide_user_access(pagetable, VirtAddr(va as usize));
     }
 
     #[unsafe(no_mangle)]
@@ -351,7 +351,7 @@ impl PageTable {
     ///     12..=20 -- 9 bits of level-0 index.
     ///      0..=11 -- 12 bits byte offset with the page.
     /// ```
-    fn index(level: usize, va: VirtAddr) -> usize {
+    fn entry_index(level: usize, va: VirtAddr) -> usize {
         assert!(level <= 2);
         let shift = PAGE_SHIFT + (9 * level);
         (va.0 >> shift) & 0x1ff
@@ -367,18 +367,6 @@ impl PageTable {
         self.phys_addr().phys_page_num()
     }
 
-    /// Returns the reference to PTE for a given virtual address.
-    fn entry(&self, level: usize, va: VirtAddr) -> &PtEntry {
-        let index = Self::index(level, va);
-        &self.0[index]
-    }
-
-    /// Returns the mutable reference to PTE for a given virtual address.
-    fn entry_mut(&mut self, level: usize, va: VirtAddr) -> &mut PtEntry {
-        let index = Self::index(level, va);
-        &mut self.0[index]
-    }
-
     /// Creates PTE for virtual address `va` that refer to
     /// physical addresses `pa`.
     ///
@@ -388,18 +376,15 @@ impl PageTable {
     /// allocate a needed page-table page.
     fn map_page(&mut self, va: VirtAddr, pa: PhysAddr, perm: PtEntryFlags) -> Result<(), ()> {
         assert_eq!(va.0 % PAGE_SIZE, 0, "va={va:?}");
+        assert!(perm.intersects(PtEntryFlags::RWX), "perm={perm:?}");
 
-        let Some(pte) = self.walk_and_insert(va) else {
-            return Err(());
-        };
-
-        assert!(
-            !pte.is_valid(),
-            "remap on the already mapped address: va={va:?}"
-        );
-
-        *pte = PtEntry::new(pa.phys_page_num(), perm | PtEntryFlags::V);
-        Ok(())
+        self.update_level0_entry(va, true, |pte| {
+            assert!(
+                !pte.is_valid(),
+                "remap on the already mapped address: va={va:?}"
+            );
+            *pte = PtEntry::new(pa.phys_page_num(), perm | PtEntryFlags::V);
+        })
     }
 
     /// Creates PTEs for virtual addresses starting at `va` that refer to
@@ -440,12 +425,14 @@ impl PageTable {
     fn upmap_page(&mut self, va: VirtAddr) -> PhysAddr {
         assert_eq!(va.0 % PAGE_SIZE, 0, "va={va:?}");
 
-        let pte = self.walk_mut(va).unwrap();
-        assert!(pte.is_valid());
-        assert!(pte.is_leaf(), "{:?}", pte.flags());
-        let pa = pte.phys_addr();
-        pte.clear();
-        pa
+        self.update_level0_entry(va, false, |pte| {
+            assert!(pte.is_valid());
+            assert!(pte.is_leaf(), "{:?}", pte.flags());
+            let pa = pte.phys_addr();
+            pte.clear();
+            pa
+        })
+        .unwrap()
     }
 
     /// Unmaps the pages of memory starting at virtual address `va` and
@@ -458,60 +445,71 @@ impl PageTable {
         }
     }
 
-    /// Returns the address of the PTE in the page table that corredponds to virtual address `va`.
-    fn walk(&self, va: VirtAddr) -> Option<&PtEntry> {
+    /// Returns the leaf PTE in the page tables that corredponds to virtual address `va`.
+    fn find_leaf_entry(&self, va: VirtAddr) -> Option<&PtEntry> {
         assert!(va < VirtAddr::MAX);
 
         let mut pt = self;
         for level in (1..=2).rev() {
-            let pte = pt.entry(level, va);
+            let index = Self::entry_index(level, va);
+            let pte = &pt.0[index];
             if pte.is_valid() {
+                assert!(pte.is_non_leaf());
                 pt = unsafe { pte.phys_addr().as_ptr::<PageTable>().as_ref().unwrap() };
                 continue;
             }
             return None;
         }
 
-        Some(pt.entry(0, va))
-    }
-
-    /// Returns the address of the PTE in the page table that corredponds to virtual address `va`.
-    fn walk_mut(&mut self, va: VirtAddr) -> Option<&mut PtEntry> {
-        assert!(va < VirtAddr::MAX);
-
-        let mut pt = self;
-        for level in (1..=2).rev() {
-            let pte = pt.entry_mut(level, va);
-            if pte.is_valid() {
-                pt = unsafe { pte.phys_addr().as_mut_ptr::<PageTable>().as_mut() };
-                continue;
-            }
+        let index = Self::entry_index(0, va);
+        let pte = &pt.0[index];
+        if !pte.is_leaf() {
             return None;
         }
-
-        Some(pt.entry_mut(0, va))
+        Some(pte)
     }
 
-    /// Returns the address of the PTE in the page table that corredponds to virtual address `va`.
+    /// Updates the level-0 PTE in the page tables that corredponds to virtual address `va`.
     ///
-    /// If PTE does not exists, create any required page-table pages.
-    fn walk_and_insert(&mut self, va: VirtAddr) -> Option<&mut PtEntry> {
+    /// If `insert_new_table` is `true`, it will allocate new page-table pages if needed.
+    ///
+    /// Updated PTE must be leaf PTE or invalid.
+    fn update_level0_entry<T, F>(
+        &mut self,
+        va: VirtAddr,
+        insert_new_table: bool,
+        f: F,
+    ) -> Result<T, ()>
+    where
+        F: for<'a> FnOnce(&'a mut PtEntry) -> T,
+    {
         assert!(va < VirtAddr::MAX);
 
         unsafe {
             let mut pt = NonNull::new(&raw mut *self).unwrap();
             for level in (1..=2).rev() {
-                let pte = pt.as_mut().entry_mut(level, va);
+                let index = Self::entry_index(level, va);
+                let pte = &mut pt.as_mut().0[index];
                 if pte.is_valid() {
+                    assert!(pte.is_non_leaf());
                     pt = (*pte).phys_addr().as_mut_ptr();
                     continue;
                 }
 
-                pt = Self::allocate().ok()?;
+                if !insert_new_table {
+                    return Err(());
+                }
+
+                pt = Self::allocate()?;
                 *pte = PtEntry::new(pt.as_ref().phys_page_num(), PtEntryFlags::V);
             }
 
-            Some(pt.as_mut().entry_mut(0, va))
+            let index = Self::entry_index(0, va);
+            let pte = &mut pt.as_mut().0[index];
+            let res = f(pte);
+            // cannot change PTE to non-leaf (level0 PTE must be invalid or leaf)
+            assert!(!pte.is_non_leaf());
+            Ok(res)
         }
     }
 
@@ -519,13 +517,14 @@ impl PageTable {
     /// or `None` if not mapped.
     ///
     /// Can only be used to look up user pages.
-    fn walk_addr(&self, va: VirtAddr) -> Option<PhysAddr> {
+    fn resolve_user_virtual_address(&self, va: VirtAddr) -> Option<PhysAddr> {
         if va >= VirtAddr::MAX {
             return None;
         }
 
-        let pte = self.walk(va)?;
-        if !pte.is_valid() || !pte.is_user() {
+        let pte = self.find_leaf_entry(va)?;
+        assert!(pte.is_valid() && pte.is_leaf());
+        if !pte.is_user() {
             return None;
         }
 
@@ -540,7 +539,7 @@ impl PageTable {
             if !pte.is_valid() {
                 continue;
             }
-            assert!(!pte.is_leaf());
+            assert!(pte.is_non_leaf());
             let mut child_ptr = pte.phys_addr().as_mut_ptr::<PageTable>();
             {
                 let child = unsafe { child_ptr.as_mut() };
@@ -659,10 +658,14 @@ impl PtEntry {
         self.flags().contains(PtEntryFlags::U)
     }
 
-    /// Returns `true` if this page is a leaf node.
+    /// Returns `true` if this page is a valid leaf entry.
     fn is_leaf(&self) -> bool {
-        self.flags()
-            .intersects(PtEntryFlags::R | PtEntryFlags::W | PtEntryFlags::X)
+        self.is_valid() && self.flags().intersects(PtEntryFlags::RWX)
+    }
+
+    /// Returns `true` if this page is a valid  non-leaf entry.
+    fn is_non_leaf(&self) -> bool {
+        self.is_valid() && !self.is_leaf()
     }
 
     /// Returns physical page number (PPN)
@@ -859,8 +862,8 @@ mod user {
     pub(super) fn copy(old: &PageTable, new: &mut PageTable, sz: usize) -> Result<(), ()> {
         let res = (|| {
             for va in (0..sz).step_by(PAGE_SIZE) {
-                let pte = old.walk(VirtAddr(va)).unwrap();
-                assert!(pte.is_valid());
+                let pte = old.find_leaf_entry(VirtAddr(va)).ok_or(va)?;
+                assert!(pte.is_valid() && pte.is_leaf());
                 let src_pa = pte.phys_addr();
                 let flags = pte.flags();
                 let Some(dst) = kalloc::alloc_page() else {
@@ -891,11 +894,14 @@ mod user {
     /// Marks a PTE invalid for user access.
     ///
     /// Used by exec for the user stackguard page.
-    pub(super) fn clear(pagetable: &mut PageTable, va: VirtAddr) {
-        let pte = pagetable.walk_mut(va).unwrap();
-        let mut flags = pte.flags();
-        flags.remove(PtEntryFlags::U);
-        pte.set_flags(flags);
+    pub(super) fn forbide_user_access(pagetable: &mut PageTable, va: VirtAddr) {
+        pagetable
+            .update_level0_entry(va, false, |pte| {
+                let mut flags = pte.flags();
+                flags.remove(PtEntryFlags::U);
+                pte.set_flags(flags);
+            })
+            .unwrap();
     }
 }
 
@@ -914,8 +920,9 @@ fn copy_out(
             return Err(());
         }
 
-        let pte = pagetable.walk(va0).ok_or(())?;
-        if !pte.is_valid() || !pte.is_user() || !pte.is_writable() {
+        let pte = pagetable.find_leaf_entry(va0).ok_or(())?;
+        assert!(pte.is_valid() && pte.is_leaf());
+        if !pte.is_user() || !pte.is_writable() {
             return Err(());
         }
 
@@ -951,7 +958,7 @@ fn copy_in(
 ) -> Result<(), ()> {
     while len > 0 {
         let va0 = src_va.page_rounddown();
-        let pa0 = pagetable.walk_addr(va0).ok_or(())?;
+        let pa0 = pagetable.resolve_user_virtual_address(va0).ok_or(())?;
         let offset = src_va.0 - va0.0;
         let mut n = PAGE_SIZE - offset;
         if n > len {
@@ -983,7 +990,7 @@ fn copy_instr(
 
     while !got_null && max > 0 {
         let va0 = src_va.page_rounddown();
-        let pa0 = pagetable.walk_addr(va0).ok_or(())?;
+        let pa0 = pagetable.resolve_user_virtual_address(va0).ok_or(())?;
 
         let offset = src_va.0 - va0.0;
         let mut n = PAGE_SIZE - offset;
