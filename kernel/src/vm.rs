@@ -171,7 +171,7 @@ mod ffi {
         let pagetable = unsafe { pagetable.as_ref().unwrap() };
         match super::copy_instr(
             pagetable,
-            dst.cast(),
+            NonNull::new(dst.cast()).unwrap(),
             VirtAddr(src_va as usize),
             max as usize,
         ) {
@@ -313,8 +313,8 @@ impl PhysAddr {
         ptr::without_provenance(self.0)
     }
 
-    fn as_mut_ptr<T>(&self) -> *mut T {
-        ptr::without_provenance_mut(self.0)
+    fn as_mut_ptr<T>(&self) -> NonNull<T> {
+        NonNull::new(ptr::without_provenance_mut(self.0)).unwrap()
     }
 
     fn phys_page_num(&self) -> PhysPageNum {
@@ -332,14 +332,11 @@ pub struct PageTable([PtEntry; 512]);
 impl PageTable {
     /// Allocates a new empty page table.
     fn allocate() -> Result<NonNull<Self>, ()> {
-        let pt = kalloc::kalloc().cast::<Self>();
-        if pt.is_null() {
-            return Err(());
-        }
+        let pt = kalloc::alloc_page().ok_or(())?.cast::<Self>();
         unsafe {
             pt.write_bytes(0, 1);
         }
-        Ok(NonNull::new(pt).unwrap())
+        Ok(pt)
     }
 
     /// Returns the page table index that corresponds to virtual address `va`
@@ -486,7 +483,7 @@ impl PageTable {
         for level in (1..=2).rev() {
             let pte = pt.entry_mut(level, va);
             if pte.is_valid() {
-                pt = unsafe { pte.phys_addr().as_mut_ptr::<PageTable>().as_mut().unwrap() };
+                pt = unsafe { pte.phys_addr().as_mut_ptr::<PageTable>().as_mut() };
                 continue;
             }
             return None;
@@ -502,19 +499,19 @@ impl PageTable {
         assert!(va < VirtAddr::MAX);
 
         unsafe {
-            let mut pt = &raw mut *self;
+            let mut pt = NonNull::new(&raw mut *self).unwrap();
             for level in (1..=2).rev() {
-                let pte = (*pt).entry_mut(level, va);
-                if (*pte).is_valid() {
+                let pte = pt.as_mut().entry_mut(level, va);
+                if pte.is_valid() {
                     pt = (*pte).phys_addr().as_mut_ptr();
                     continue;
                 }
 
-                pt = Self::allocate().ok()?.as_ptr();
-                *pte = PtEntry::new((*pt).phys_page_num(), 0, PtEntryFlags::V);
+                pt = Self::allocate().ok()?;
+                *pte = PtEntry::new(pt.as_ref().phys_page_num(), 0, PtEntryFlags::V);
             }
 
-            Some((*pt).entry_mut(0, va))
+            Some(pt.as_mut().entry_mut(0, va))
         }
     }
 
@@ -544,12 +541,12 @@ impl PageTable {
                 continue;
             }
             assert!(!pte.is_leaf());
-            let child_ptr = pte.phys_addr().as_mut_ptr::<PageTable>();
+            let mut child_ptr = pte.phys_addr().as_mut_ptr::<PageTable>();
             {
-                let child = unsafe { child_ptr.as_mut().unwrap() };
+                let child = unsafe { child_ptr.as_mut() };
                 child.free_descendant();
             }
-            kalloc::kfree(child_ptr.cast());
+            kalloc::free_page(child_ptr.cast());
             pte.clear();
         }
     }
@@ -731,7 +728,7 @@ mod user {
     pub(super) fn unmap(pagetable: &mut PageTable, va: VirtAddr, npages: usize, do_free: bool) {
         for pa in pagetable.unmap_pages(va, npages) {
             if do_free {
-                kalloc::kfree(pa.as_mut_ptr());
+                kalloc::free_page(pa.as_mut_ptr());
             }
         }
     }
@@ -751,12 +748,12 @@ mod user {
         assert!(sz < PAGE_SIZE, "sz={sz:#x}");
 
         unsafe {
-            let mem = kalloc::kalloc().cast::<u8>();
-            ptr::write_bytes(mem, 0, PAGE_SIZE);
+            let mem = kalloc::alloc_page().unwrap().cast::<u8>();
+            mem.write_bytes(0, PAGE_SIZE);
             pagetable
-                .map_page(VirtAddr(0), PhysAddr(mem.addr()), PtEntryFlags::URWX)
+                .map_page(VirtAddr(0), PhysAddr(mem.addr().get()), PtEntryFlags::URWX)
                 .unwrap();
-            ptr::copy(src, mem, sz);
+            mem.as_ptr().copy_from(src, sz);
         }
     }
 
@@ -776,19 +773,22 @@ mod user {
 
         let oldsz = page_roundup(oldsz);
         for va in (oldsz..newsz).step_by(PAGE_SIZE) {
-            let mem = kalloc::kalloc().cast::<u8>();
-            if mem.is_null() {
+            let Some(mem) = kalloc::alloc_page().map(|p| p.cast::<u8>()) else {
                 dealloc(pagetable, va, oldsz);
                 return Err(());
-            }
+            };
             unsafe {
                 mem.write_bytes(0, PAGE_SIZE);
             }
             if pagetable
-                .map_page(VirtAddr(va), PhysAddr(mem.addr()), xperm | PtEntryFlags::UR)
+                .map_page(
+                    VirtAddr(va),
+                    PhysAddr(mem.addr().get()),
+                    xperm | PtEntryFlags::UR,
+                )
                 .is_err()
             {
-                kalloc::kfree(mem.cast());
+                kalloc::free_page(mem.cast());
                 dealloc(pagetable, va, oldsz);
                 return Err(());
             }
@@ -822,9 +822,10 @@ mod user {
     /// All leaf mappings must already have been removed.
     pub(super) unsafe fn free_walk(pagetable_addr: usize) {
         unsafe {
-            let pagetable_ptr = ptr::without_provenance_mut::<PageTable>(pagetable_addr);
-            pagetable_ptr.as_mut().unwrap().free_descendant();
-            kalloc::kfree(pagetable_ptr.cast());
+            let mut pagetable_ptr =
+                NonNull::new(ptr::without_provenance_mut::<PageTable>(pagetable_addr)).unwrap();
+            pagetable_ptr.as_mut().free_descendant();
+            kalloc::free_page(pagetable_ptr.cast());
         }
     }
 
@@ -861,15 +862,16 @@ mod user {
                 assert!(pte.is_valid());
                 let src_pa = pte.phys_addr();
                 let flags = pte.flags();
-                let dst = kalloc::kalloc();
-                if dst.is_null() {
+                let Some(dst) = kalloc::alloc_page() else {
                     return Err(va);
-                }
+                };
                 unsafe {
-                    ptr::copy::<u8>(src_pa.as_ptr(), dst.cast(), PAGE_SIZE);
+                    dst.cast::<u8>()
+                        .as_ptr()
+                        .copy_from(src_pa.as_ptr(), PAGE_SIZE);
                 }
                 if new
-                    .map_page(VirtAddr(va), PhysAddr(dst.addr()), flags)
+                    .map_page(VirtAddr(va), PhysAddr(dst.addr().get()), flags)
                     .is_err()
                 {
                     return Err(va);
@@ -923,7 +925,10 @@ fn copy_out(
             n = len;
         }
         unsafe {
-            ptr::copy(src, pa0.as_mut_ptr::<u8>().byte_add(offset), n);
+            pa0.as_mut_ptr::<u8>()
+                .byte_add(offset)
+                .as_ptr()
+                .copy_from(src, n);
 
             len -= n;
             src = src.byte_add(n);
@@ -952,7 +957,7 @@ fn copy_in(
             n = len;
         }
         unsafe {
-            ptr::copy(pa0.as_mut_ptr::<u8>().byte_add(offset), dst, n);
+            dst.copy_from(pa0.as_mut_ptr::<u8>().byte_add(offset).as_ptr(), n);
 
             len -= n;
             dst = dst.byte_add(n);
@@ -969,7 +974,7 @@ fn copy_in(
 /// until a '\0', or max.
 fn copy_instr(
     pagetable: &PageTable,
-    mut dst: *mut u8,
+    mut dst: NonNull<u8>,
     mut src_va: VirtAddr,
     mut max: usize,
 ) -> Result<(), ()> {
@@ -988,12 +993,12 @@ fn copy_instr(
         unsafe {
             let mut p = pa0.as_mut_ptr::<u8>().byte_add(offset);
             while n > 0 {
-                if *p == 0 {
-                    *dst = 0;
+                if p.read() == b'\0' {
+                    dst.write(b'\0');
                     got_null = true;
                     break;
                 }
-                *dst = *p;
+                dst.write(p.read());
                 n -= 1;
                 max -= 1;
                 p = p.add(1);
