@@ -1,0 +1,7 @@
+[files]
+extend-exclude = ["*.c", "*.h", "README"]
+
+[default.extend-words]
+# acronyms
+sie = "sie"
+thr = "thr"

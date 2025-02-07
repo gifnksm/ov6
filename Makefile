@@ -151,6 +151,14 @@ clean:
 	$(UPROGS)
 	cargo clean
 
+check: cargo-clippy typos
+
+cargo-clippy:
+	cargo clippy --workspace --all-targets
+
+typos:
+	typos
+
 # try to generate a unique GDB port
 GDBPORT = $(shell expr `id -u` % 5000 + 25000)
 # QEMU's gdb stub command line changed in 0.11
@@ -177,4 +185,4 @@ qemu-gdb: $K/kernel .gdbinit fs.img
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
 FORCE:
-.PHONY: FORCE clean qemu qemu-gdb tags
+.PHONY: FORCE clean qemu qemu-gdb tags check cargo-clippy typos

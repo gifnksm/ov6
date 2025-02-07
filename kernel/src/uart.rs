@@ -159,7 +159,7 @@ pub fn putc(c: char) {
 /// to echo characters.
 ///
 /// It spins waiting for the uart's
-/// output register to be emtpy.
+/// output register to be empty.
 pub fn putc_sync(c: char) {
     spinlock::push_off();
 

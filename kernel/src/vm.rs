@@ -370,13 +370,13 @@ impl PageTable {
         self.phys_addr().phys_page_num()
     }
 
-    /// Retruns the reference to PTE for a given virtual address.
+    /// Returns the reference to PTE for a given virtual address.
     fn entry(&self, level: usize, va: VirtAddr) -> &PtEntry {
         let index = Self::index(level, va);
         &self.0[index]
     }
 
-    /// Retruns the mutable reference to PTE for a given virtual address.
+    /// Returns the mutable reference to PTE for a given virtual address.
     fn entry_mut(&mut self, level: usize, va: VirtAddr) -> &mut PtEntry {
         let index = Self::index(level, va);
         &mut self.0[index]
@@ -576,7 +576,7 @@ bitflags! {
 
         /// Executable Bit of page table entry.
         ///
-        /// If set, the CPU can executes the instuctions on this virtual address.
+        /// If set, the CPU can executes the instructions on this virtual address.
         const X = 1 << 3;
 
         /// UserMode Bit of page table entry.
@@ -677,7 +677,7 @@ impl PtEntry {
     //     (self.0 >> 8) & 0b11
     // }
 
-    /// Retuns page table entry flags
+    /// Returns page table entry flags
     fn flags(&self) -> PtEntryFlags {
         PtEntryFlags::from_bits_retain(self.0 & 0xFF)
     }
@@ -763,7 +763,7 @@ mod user {
     /// Allocates PTEs and physical memory to grow process from `oldsz` to `newsz`,
     /// which need not be page aligned.
     ///
-    /// Returnes new size.
+    /// Returns new size.
     pub(super) fn alloc(
         pagetable: &mut PageTable,
         oldsz: usize,
@@ -887,7 +887,7 @@ mod user {
 
     /// Marks a PTE invalid for user access.
     ///
-    /// Used by exec fo the user stackguard page.
+    /// Used by exec for the user stackguard page.
     pub(super) fn clear(pagetable: &mut PageTable, va: VirtAddr) {
         let pte = pagetable.walk_mut(va).unwrap();
         let mut flags = pte.flags();

@@ -63,7 +63,7 @@ struct Context {
 /// Per-CPU state.
 #[repr(C)]
 pub struct Cpu {
-    /// The process running on thie Cpu, or null.
+    /// The process running on this Cpu, or null.
     proc: *mut ffi::Proc,
     /// swtch() here to enter scheduler()
     context: Context,

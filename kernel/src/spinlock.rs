@@ -129,7 +129,7 @@ impl<T> Mutex<T> {
         }
     }
 
-    /// Aquires the lock.
+    /// Acquires the lock.
     ///
     /// Loops (spins) until the lock is acquired.
     pub fn lock(&self) -> MutexGuard<T> {
