@@ -1,5 +1,6 @@
 use core::{
     ffi::{c_int, c_void},
+    num::NonZero,
     ops::Range,
     ptr::{self, NonNull},
     sync::atomic::{AtomicUsize, Ordering},
@@ -214,6 +215,61 @@ pub const fn page_rounddown(addr: usize) -> usize {
     addr & !(PAGE_SIZE - 1)
 }
 
+pub trait PageRound {
+    fn page_roundup(&self) -> Self;
+    fn page_rounddown(&self) -> Self;
+}
+
+impl PageRound for usize {
+    fn page_roundup(&self) -> Self {
+        page_roundup(*self)
+    }
+
+    fn page_rounddown(&self) -> Self {
+        page_rounddown(*self)
+    }
+}
+
+impl PageRound for NonZero<usize> {
+    fn page_roundup(&self) -> Self {
+        NonZero::new(page_roundup(self.get())).unwrap()
+    }
+
+    fn page_rounddown(&self) -> Self {
+        NonZero::new(page_rounddown(self.get())).unwrap()
+    }
+}
+
+impl<T> PageRound for NonNull<T> {
+    fn page_roundup(&self) -> Self {
+        self.map_addr(|a| a.page_roundup())
+    }
+
+    fn page_rounddown(&self) -> Self {
+        self.map_addr(|a| a.page_rounddown())
+    }
+}
+
+impl PageRound for VirtAddr {
+    fn page_roundup(&self) -> Self {
+        Self(self.0.page_roundup())
+    }
+
+    fn page_rounddown(&self) -> Self {
+        Self(self.0.page_rounddown())
+    }
+}
+
+impl PageRound for PhysAddr {
+    fn page_roundup(&self) -> Self {
+        Self(self.0.page_roundup())
+    }
+
+    fn page_rounddown(&self) -> Self {
+        Self(self.0.page_rounddown())
+    }
+}
+
 /// Makes a direct-map page table for the kernel.
 fn make_kernel_pt() -> &'static mut PageTable {
     use PtEntryFlags as F;
@@ -291,14 +347,6 @@ impl VirtAddr {
 
     pub const fn byte_sub(&self, offset: usize) -> Self {
         Self(self.0 - offset)
-    }
-
-    // pub const fn page_roundup(&self) -> Self {
-    //     Self(page_roundup(self.0))
-    // }
-
-    pub const fn page_rounddown(&self) -> Self {
-        Self(page_rounddown(self.0))
     }
 }
 

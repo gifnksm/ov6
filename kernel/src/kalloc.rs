@@ -12,7 +12,7 @@ use core::{
 use crate::{
     memlayout::PHYS_TOP,
     spinlock::Mutex,
-    vm::{self, PAGE_SIZE},
+    vm::{PAGE_SIZE, PageRound as _},
 };
 
 mod ffi {
@@ -57,13 +57,11 @@ unsafe impl Send for Run {}
 static FREE_LIST: Mutex<Run> = Mutex::new(Run { next: None });
 
 pub fn init() {
-    unsafe { free_range(end(), top()) }
-}
+    let pa_start = end();
+    let pa_end = top();
 
-unsafe fn free_range(pa_start: NonNull<c_void>, pa_end: NonNull<c_void>) {
     unsafe {
-        let addr = vm::page_roundup(pa_start.addr().get());
-        let mut p = NonNull::new(ptr::without_provenance_mut::<c_void>(addr)).unwrap();
+        let mut p = pa_start.page_roundup();
         while p.byte_add(PAGE_SIZE) <= pa_end {
             free_page(p);
             p = p.byte_add(PAGE_SIZE);
