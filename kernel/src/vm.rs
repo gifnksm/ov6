@@ -16,7 +16,7 @@ use crate::{
 };
 
 mod ffi {
-    use core::ffi::c_char;
+    use core::{ffi::c_char, slice};
 
     use super::*;
 
@@ -44,7 +44,8 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn walkaddr(pagetable: *mut PageTable, va: u64) -> u64 {
-        let pa = unsafe { (*pagetable).resolve_user_virtual_address(VirtAddr(va as usize)) };
+        let pa =
+            unsafe { (*pagetable).resolve_virtual_address(VirtAddr(va as usize), PtEntryFlags::U) };
         pa.map(|pa| pa.0 as u64).unwrap_or(0)
     }
 
@@ -82,7 +83,8 @@ mod ffi {
     #[unsafe(no_mangle)]
     extern "C" fn uvmfirst(pagetable: *mut PageTable, src: *const u8, sz: u64) {
         let pagetable = unsafe { pagetable.as_mut().unwrap() };
-        user::first(pagetable, src, sz as usize);
+        let src = unsafe { slice::from_raw_parts(src, sz as usize) };
+        user::first(pagetable, src);
     }
 
     #[unsafe(no_mangle)]
@@ -132,12 +134,8 @@ mod ffi {
         len: u64,
     ) -> c_int {
         let pagetable = unsafe { pagetable.as_ref().unwrap() };
-        match super::copy_out(
-            pagetable,
-            VirtAddr(dst_va as usize),
-            src.cast(),
-            len as usize,
-        ) {
+        let src = unsafe { slice::from_raw_parts(src, len as usize) };
+        match super::copy_out(pagetable, VirtAddr(dst_va as usize), src) {
             Ok(()) => 0,
             Err(()) => -1,
         }
@@ -151,12 +149,8 @@ mod ffi {
         len: u64,
     ) -> c_int {
         let pagetable = unsafe { pagetable.as_ref().unwrap() };
-        match super::copy_in(
-            pagetable,
-            dst.cast(),
-            VirtAddr(src_va as usize),
-            len as usize,
-        ) {
+        let dst = unsafe { slice::from_raw_parts_mut(dst.cast(), len as usize) };
+        match super::copy_in(pagetable, dst, VirtAddr(src_va as usize)) {
             Ok(()) => 0,
             Err(()) => -1,
         }
@@ -170,12 +164,8 @@ mod ffi {
         max: u64,
     ) -> c_int {
         let pagetable = unsafe { pagetable.as_ref().unwrap() };
-        match super::copy_instr(
-            pagetable,
-            NonNull::new(dst.cast()).unwrap(),
-            VirtAddr(src_va as usize),
-            max as usize,
-        ) {
+        let dst = unsafe { slice::from_raw_parts_mut(dst.cast(), max as usize) };
+        match super::copy_in_str(pagetable, dst, VirtAddr(src_va as usize)) {
             Ok(()) => 0,
             Err(()) => -1,
         }
@@ -563,20 +553,25 @@ impl PageTable {
 
     /// Looks up a virtual address, returns the physical address,
     /// or `None` if not mapped.
-    ///
-    /// Can only be used to look up user pages.
-    fn resolve_user_virtual_address(&self, va: VirtAddr) -> Option<PhysAddr> {
+    fn resolve_virtual_address(&self, va: VirtAddr, flags: PtEntryFlags) -> Option<PhysAddr> {
         if va >= VirtAddr::MAX {
             return None;
         }
 
         let pte = self.find_leaf_entry(va)?;
         assert!(pte.is_valid() && pte.is_leaf());
-        if !pte.is_user() {
+        if !pte.flags().contains(flags) {
             return None;
         }
 
         Some(pte.phys_addr())
+    }
+
+    /// Fetches the page that is mapped at virtual address `va`.
+    fn fetch_page(&self, va: VirtAddr, flags: PtEntryFlags) -> Option<&mut [u8; PAGE_SIZE]> {
+        let pa = self.resolve_virtual_address(va, flags)?;
+        let page = unsafe { pa.as_mut_ptr::<[u8; PAGE_SIZE]>().as_mut() };
+        Some(page)
     }
 
     /// Recursively frees page-table pages.
@@ -647,6 +642,7 @@ bitflags! {
         const RX = Self::R.bits() | Self::X.bits();
         const RWX = Self::R.bits() | Self::W.bits() | Self::X.bits();
         const UR = Self::U.bits() | Self::R.bits();
+        const UW = Self::U.bits() | Self::W.bits();
         const URW = Self::U.bits() | Self::RW.bits();
         const URX = Self::U.bits() | Self::RX.bits();
         const URWX = Self::U.bits() | Self::RWX.bits();
@@ -694,16 +690,6 @@ impl PtEntry {
     /// Returns `true` if this page is valid
     fn is_valid(&self) -> bool {
         self.flags().contains(PtEntryFlags::V)
-    }
-
-    /// Returns `true` is this page is writable
-    fn is_writable(&self) -> bool {
-        self.flags().contains(PtEntryFlags::W)
-    }
-
-    /// Returns `true` if this page is available for userspace.
-    fn is_user(&self) -> bool {
-        self.flags().contains(PtEntryFlags::U)
     }
 
     /// Returns `true` if this page is a valid leaf entry.
@@ -769,6 +755,8 @@ pub mod kernel {
 }
 
 mod user {
+    use core::slice;
+
     use super::*;
 
     /// Removes npages of mappings starting from `va``.
@@ -796,16 +784,16 @@ mod user {
     ///
     /// For the very first process.
     /// `sz` must be less than a page.
-    pub(super) fn first(pagetable: &mut PageTable, src: *const u8, sz: usize) {
-        assert!(sz < PAGE_SIZE, "sz={sz:#x}");
+    pub(super) fn first(pagetable: &mut PageTable, src: &[u8]) {
+        assert!(src.len() < PAGE_SIZE, "src.len()={:#x}", src.len());
 
         unsafe {
             let mem = kalloc::alloc_page().unwrap().cast::<u8>();
-            mem.write_bytes(0, PAGE_SIZE);
             pagetable
                 .map_page(VirtAddr(0), PhysAddr(mem.addr().get()), PtEntryFlags::URWX)
                 .unwrap();
-            mem.as_ptr().copy_from(src, sz);
+            mem.write_bytes(0, PAGE_SIZE);
+            slice::from_raw_parts_mut(mem.as_ptr(), src.len()).copy_from_slice(src);
         }
     }
 
@@ -882,8 +870,6 @@ mod user {
     }
 
     /// Frees user memory pages, then free page-table pages.
-    ///
-    ///
     pub(super) unsafe fn free(pagetable_addr: usize, sz: usize) {
         {
             let pagetable = unsafe {
@@ -956,40 +942,23 @@ mod user {
 /// Copies from kernel to user.
 ///
 /// Copies `len`` bytes from `src`` to virtual address `dst_va` in a given page table.
-fn copy_out(
-    pagetable: &PageTable,
-    mut dst_va: VirtAddr,
-    mut src: *const u8,
-    mut len: usize,
-) -> Result<(), ()> {
-    while len > 0 {
+fn copy_out(pagetable: &PageTable, mut dst_va: VirtAddr, mut src: &[u8]) -> Result<(), ()> {
+    while !src.is_empty() {
         let va0 = dst_va.page_rounddown();
         if va0 >= VirtAddr::MAX {
             return Err(());
         }
-
-        let pte = pagetable.find_leaf_entry(va0).ok_or(())?;
-        assert!(pte.is_valid() && pte.is_leaf());
-        if !pte.is_user() || !pte.is_writable() {
-            return Err(());
-        }
-
-        let pa0 = pte.phys_addr();
         let offset = dst_va.0 - va0.0;
         let mut n = PAGE_SIZE - offset;
-        if n > len {
-            n = len;
+        if n > src.len() {
+            n = src.len();
         }
-        unsafe {
-            pa0.as_mut_ptr::<u8>()
-                .byte_add(offset)
-                .as_ptr()
-                .copy_from(src, n);
 
-            len -= n;
-            src = src.byte_add(n);
-            dst_va = va0.byte_add(PAGE_SIZE);
-        }
+        let dst_page = pagetable.fetch_page(va0, PtEntryFlags::UW).ok_or(())?;
+        let dst = &mut dst_page[offset..][..n];
+        dst.copy_from_slice(&src[..n]);
+        src = &src[n..];
+        dst_va = va0.byte_add(PAGE_SIZE);
     }
 
     Ok(())
@@ -998,27 +967,19 @@ fn copy_out(
 /// Copies from user to kernel.
 ///
 /// Copies `len` bytes to `dst` from virtual address `src_va` in a given page table.
-fn copy_in(
-    pagetable: &PageTable,
-    mut dst: *mut u8,
-    mut src_va: VirtAddr,
-    mut len: usize,
-) -> Result<(), ()> {
-    while len > 0 {
+fn copy_in(pagetable: &PageTable, mut dst: &mut [u8], mut src_va: VirtAddr) -> Result<(), ()> {
+    while !dst.is_empty() {
         let va0 = src_va.page_rounddown();
-        let pa0 = pagetable.resolve_user_virtual_address(va0).ok_or(())?;
         let offset = src_va.0 - va0.0;
         let mut n = PAGE_SIZE - offset;
-        if n > len {
-            n = len;
+        if n > dst.len() {
+            n = dst.len();
         }
-        unsafe {
-            dst.copy_from(pa0.as_mut_ptr::<u8>().byte_add(offset).as_ptr(), n);
-
-            len -= n;
-            dst = dst.byte_add(n);
-            src_va = va0.byte_add(PAGE_SIZE);
-        }
+        let src_page = pagetable.fetch_page(va0, PtEntryFlags::UR).ok_or(())?;
+        let src = &src_page[offset..][..n];
+        dst[..n].copy_from_slice(src);
+        dst = &mut dst[n..];
+        src_va = va0.byte_add(PAGE_SIZE);
     }
 
     Ok(())
@@ -1028,42 +989,30 @@ fn copy_in(
 ///
 /// Copies bytes to `dst` from virtual address `src_va` in a given page table,
 /// until a '\0', or max.
-fn copy_instr(
-    pagetable: &PageTable,
-    mut dst: NonNull<u8>,
-    mut src_va: VirtAddr,
-    mut max: usize,
-) -> Result<(), ()> {
-    let mut got_null = false;
-
-    while !got_null && max > 0 {
+fn copy_in_str(pagetable: &PageTable, mut dst: &mut [u8], mut src_va: VirtAddr) -> Result<(), ()> {
+    while !dst.is_empty() {
         let va0 = src_va.page_rounddown();
-        let pa0 = pagetable.resolve_user_virtual_address(va0).ok_or(())?;
+        let src_page = pagetable.fetch_page(va0, PtEntryFlags::UR).ok_or(())?;
 
         let offset = src_va.0 - va0.0;
         let mut n = PAGE_SIZE - offset;
-        if n > max {
-            n = max;
+        if n > dst.len() {
+            n = dst.len();
         }
 
-        unsafe {
-            let mut p = pa0.as_mut_ptr::<u8>().byte_add(offset);
-            while n > 0 {
-                if p.read() == b'\0' {
-                    dst.write(b'\0');
-                    got_null = true;
-                    break;
-                }
-                dst.write(p.read());
-                n -= 1;
-                max -= 1;
-                p = p.add(1);
-                dst = dst.add(1);
+        let mut p = &src_page[offset..];
+        while n > 0 {
+            if p[0] == b'\0' {
+                dst[0] = b'\0';
+                return Ok(());
             }
-
-            src_va = va0.byte_add(PAGE_SIZE);
+            dst[0] = p[0];
+            n -= 1;
+            p = &p[1..];
+            dst = &mut dst[1..];
         }
-    }
 
-    if got_null { Ok(()) } else { Err(()) }
+        src_va = va0.byte_add(PAGE_SIZE);
+    }
+    Err(())
 }
