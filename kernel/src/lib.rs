@@ -1,5 +1,6 @@
 #![feature(c_variadic)]
 #![feature(extern_types)]
+#![feature(naked_functions)]
 #![feature(non_null_from_ref)]
 #![no_std]
 
@@ -21,6 +22,7 @@ mod print;
 mod proc;
 mod spinlock;
 mod start;
+mod switch;
 mod syscall;
 mod trap;
 mod uart;

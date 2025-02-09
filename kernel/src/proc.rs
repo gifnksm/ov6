@@ -17,7 +17,7 @@ use crate::{
     param::{NCPU, NOFILE, NPROC, ROOTDEV},
     println,
     spinlock::{self, MutexGuard, SpinLock},
-    trap,
+    switch, trap,
     vm::{self, PAGE_SIZE, PageTable, PhysAddr, PtEntryFlags, VirtAddr},
 };
 
@@ -163,11 +163,6 @@ mod ffi {
             Err(()) => -1,
         }
     }
-
-    unsafe extern "C" {
-        #[link_name = "swtch"]
-        pub fn switch(old: *mut Context, new: *mut Context);
-    }
 }
 
 pub const TRAMPOLINE_CODE: *const c_void = {
@@ -196,23 +191,23 @@ pub const USERRET_CODE: *const c_void = {
 
 /// Saved registers for kernel context switches.
 #[repr(C)]
-struct Context {
-    ra: u64,
-    sp: u64,
+pub struct Context {
+    pub ra: u64,
+    pub sp: u64,
 
     // callee-saved
-    s0: u64,
-    s1: u64,
-    s2: u64,
-    s3: u64,
-    s4: u64,
-    s5: u64,
-    s6: u64,
-    s7: u64,
-    s8: u64,
-    s9: u64,
-    s10: u64,
-    s11: u64,
+    pub s0: u64,
+    pub s1: u64,
+    pub s2: u64,
+    pub s3: u64,
+    pub s4: u64,
+    pub s5: u64,
+    pub s6: u64,
+    pub s7: u64,
+    pub s8: u64,
+    pub s9: u64,
+    pub s10: u64,
+    pub s11: u64,
 }
 
 impl Context {
@@ -245,7 +240,7 @@ impl Context {
 pub struct Cpu {
     /// The process running on this Cpu, or null.
     proc: Option<NonNull<Proc>>,
-    /// swtch() here to enter scheduler()
+    /// switch() here to enter scheduler()
     context: Context,
     /// Depth of `push_off()` nesting.
     pub noff: c_int,
@@ -821,7 +816,7 @@ fn wait(addr: VirtAddr) -> Result<ProcId, ()> {
                 continue;
             }
 
-            // Make sure the child isn't still in `exit()` or `swtch()``.
+            // Make sure the child isn't still in `exit()` or `switch()``.
             pp.lock.acquire();
 
             have_kids = true;
@@ -894,7 +889,7 @@ pub fn scheduler() -> ! {
             p.state = ProcState::Running;
             unsafe {
                 (*cpu).proc = Some(NonNull::from_mut(p));
-                ffi::switch(&mut (*cpu).context, &mut p.context);
+                switch::switch(&mut (*cpu).context, &mut p.context);
             }
 
             // Process is done running for now.
@@ -933,7 +928,7 @@ fn sched() {
 
     let intena = unsafe { Cpu::mycpu().as_ref().unwrap() }.intena;
     unsafe {
-        ffi::switch(&mut p.context, &mut (*Cpu::mycpu()).context);
+        switch::switch(&mut p.context, &mut (*Cpu::mycpu()).context);
     }
     unsafe { Cpu::mycpu().as_mut().unwrap() }.intena = intena;
 }
