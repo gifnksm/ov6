@@ -21,7 +21,6 @@ use crate::{
 };
 
 static mut CPUS: [Cpu; NCPU] = [const { Cpu::zero() }; NCPU];
-#[unsafe(export_name = "proc")]
 pub static mut PROC: [Proc; NPROC] = [const { Proc::new() }; NPROC];
 pub static mut INITPROC: Option<NonNull<Proc>> = None;
 
@@ -34,7 +33,6 @@ pub struct ProcId(i32);
 ///
 /// Helps obey the memory model when using `Proc::parent`.
 /// Must be acquired before any `Proc::lock`.
-#[unsafe(export_name = "wait_lock")]
 static WAIT_LOCK: SpinLock = SpinLock::new(c"wait_lock");
 
 mod ffi {
@@ -50,6 +48,7 @@ mod ffi {
     extern "C" fn mycpu() -> *mut Cpu {
         super::Cpu::mycpu()
     }
+
     #[unsafe(no_mangle)]
     extern "C" fn myproc() -> *mut Proc {
         super::Proc::myproc().map_or(ptr::null_mut(), ptr::from_mut)
