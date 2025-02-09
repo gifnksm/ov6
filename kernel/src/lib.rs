@@ -1,5 +1,6 @@
 #![feature(c_variadic)]
 #![feature(extern_types)]
+#![feature(non_null_from_ref)]
 #![no_std]
 
 use core::{
@@ -10,13 +11,16 @@ use core::{
 
 mod console;
 mod file;
+mod fs;
 mod kalloc;
+mod log;
 mod memlayout;
 mod param;
 mod print;
 mod proc;
 mod spinlock;
 mod start;
+mod trap;
 mod uart;
 mod vm;
 
@@ -36,7 +40,6 @@ unsafe extern "C" {
     fn iinit();
     fn fileinit();
     fn virtio_disk_init();
-    fn userinit();
 }
 
 static STARTED: AtomicBool = AtomicBool::new(false);
@@ -51,8 +54,8 @@ extern "C" fn main() -> ! {
         kalloc::init(); // physical page allocator
         vm::kernel::init(); // create kernel page table
         vm::kernel::init_hart(); // turn on paging
+        proc::init(); // process table
         unsafe {
-            proc::init(); // process table
             trapinit(); // trap vectors
             trapinithart(); // install kernel trap vector
             plicinit(); // set up interrupt controller
@@ -61,7 +64,7 @@ extern "C" fn main() -> ! {
             iinit(); // inode table
             fileinit(); // file table
             virtio_disk_init(); // emulated hard disk
-            userinit(); // first user process
+            proc::user_init(); // first user process
             STARTED.store(true, Ordering::Release);
         }
     } else {

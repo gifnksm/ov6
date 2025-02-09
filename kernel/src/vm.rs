@@ -21,70 +21,10 @@ mod ffi {
     use super::*;
 
     #[unsafe(no_mangle)]
-    extern "C" fn mappages(
-        pagetable: *mut PageTable,
-        va: u64,
-        size: u64,
-        pa: u64,
-        perm: c_int,
-    ) -> c_int {
-        let res = unsafe {
-            (*pagetable).map_pages(
-                VirtAddr(va as usize),
-                size as usize,
-                PhysAddr(pa as usize),
-                PtEntryFlags::from_bits_retain(perm as usize),
-            )
-        };
-        match res {
-            Ok(()) => 0,
-            Err(()) => -1,
-        }
-    }
-
-    #[unsafe(no_mangle)]
     extern "C" fn walkaddr(pagetable: *mut PageTable, va: u64) -> u64 {
         let pa =
             unsafe { (*pagetable).resolve_virtual_address(VirtAddr(va as usize), PtEntryFlags::U) };
         pa.map(|pa| pa.0 as u64).unwrap_or(0)
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn kvmmap(kpgtbl: *mut PageTable, va: u64, pa: u64, sz: u64, perm: c_int) {
-        let kpgtbl = unsafe { kpgtbl.as_mut().unwrap() };
-        kpgtbl
-            .map_pages(
-                VirtAddr(va as usize),
-                sz as usize,
-                PhysAddr(pa as usize),
-                PtEntryFlags::from_bits_retain(perm as usize),
-            )
-            .unwrap();
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn uvmunmap(pagetable: *mut PageTable, va: u64, npages: u64, do_free: c_int) {
-        let pagetable = unsafe { &mut (*pagetable) };
-        user::unmap(
-            pagetable,
-            VirtAddr(va as usize),
-            npages as usize,
-            do_free != 0,
-        );
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn uvmcreate() -> *mut PageTable {
-        user::create()
-            .map(NonNull::as_ptr)
-            .unwrap_or(ptr::null_mut())
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn uvmfirst(pagetable: *mut PageTable, src: *const u8, sz: u64) {
-        let pagetable = unsafe { pagetable.as_mut().unwrap() };
-        let src = unsafe { slice::from_raw_parts(src, sz as usize) };
-        user::first(pagetable, src);
     }
 
     #[unsafe(no_mangle)]
@@ -97,27 +37,6 @@ mod ffi {
             PtEntryFlags::from_bits_retain(xperm as usize),
         )
         .unwrap_or(0) as u64
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn uvmdealloc(pagetable: *mut PageTable, oldsz: u64, newsz: u64) -> u64 {
-        let pagetable = unsafe { pagetable.as_mut().unwrap() };
-        user::dealloc(pagetable, oldsz as usize, newsz as usize) as u64
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn uvmfree(pagetable: *mut PageTable, sz: u64) {
-        unsafe { user::free(pagetable.addr(), sz as usize) }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn uvmcopy(old: *mut PageTable, new: *mut PageTable, sz: u64) -> c_int {
-        let old = unsafe { old.as_ref().unwrap() };
-        let new = unsafe { new.as_mut().unwrap() };
-        match user::copy(old, new, sz as usize) {
-            Ok(()) => 0,
-            Err(()) => -1,
-        }
     }
 
     #[unsafe(no_mangle)]
@@ -331,12 +250,20 @@ impl VirtAddr {
     /// that have the high bit set.
     pub const MAX: Self = Self(1 << (9 * 3 + PAGE_SHIFT - 1));
 
+    pub const fn new(addr: usize) -> Self {
+        Self(addr)
+    }
+
     pub const fn byte_add(&self, offset: usize) -> Self {
         Self(self.0 + offset)
     }
 
     pub const fn byte_sub(&self, offset: usize) -> Self {
         Self(self.0 - offset)
+    }
+
+    pub const fn addr(&self) -> usize {
+        self.0
     }
 }
 
@@ -347,6 +274,10 @@ impl PhysPageNum {
 }
 
 impl PhysAddr {
+    pub const fn new(addr: usize) -> Self {
+        Self(addr)
+    }
+
     fn as_ptr<T>(&self) -> *const T {
         ptr::without_provenance(self.0)
     }
@@ -412,7 +343,7 @@ impl PageTable {
     ///
     /// Returns `Ok(())` on success, `Err(())` if `walk()` couldn't
     /// allocate a needed page-table page.
-    fn map_page(&mut self, va: VirtAddr, pa: PhysAddr, perm: PtEntryFlags) -> Result<(), ()> {
+    pub fn map_page(&mut self, va: VirtAddr, pa: PhysAddr, perm: PtEntryFlags) -> Result<(), ()> {
         assert_eq!(va.0 % PAGE_SIZE, 0, "va={va:?}");
         assert!(perm.intersects(PtEntryFlags::RWX), "perm={perm:?}");
 
@@ -432,7 +363,7 @@ impl PageTable {
     ///
     /// Returns `Ok(())` on success, `Err(())` if `walk()` couldn't
     /// allocate a needed page-table page.
-    fn map_pages(
+    pub fn map_pages(
         &mut self,
         va: VirtAddr,
         size: usize,
@@ -754,7 +685,7 @@ pub mod kernel {
     }
 }
 
-mod user {
+pub mod user {
     use core::slice;
 
     use super::*;
@@ -765,7 +696,7 @@ mod user {
     /// The mappings must exist.
     ///
     /// Optionally free the physical memory.
-    pub(super) fn unmap(pagetable: &mut PageTable, va: VirtAddr, npages: usize, do_free: bool) {
+    pub fn unmap(pagetable: &mut PageTable, va: VirtAddr, npages: usize, do_free: bool) {
         for pa in pagetable.unmap_pages(va, npages) {
             if do_free {
                 kalloc::free_page(pa.as_mut_ptr());
@@ -776,7 +707,7 @@ mod user {
     /// Creates an empty user page table.
     ///
     /// Returns `Err(())` if out of memory.
-    pub(super) fn create() -> Result<NonNull<PageTable>, ()> {
+    pub fn create() -> Result<NonNull<PageTable>, ()> {
         PageTable::allocate()
     }
 
@@ -784,7 +715,7 @@ mod user {
     ///
     /// For the very first process.
     /// `sz` must be less than a page.
-    pub(super) fn first(pagetable: &mut PageTable, src: &[u8]) {
+    pub fn map_first(pagetable: &mut PageTable, src: &[u8]) {
         assert!(src.len() < PAGE_SIZE, "src.len()={:#x}", src.len());
 
         unsafe {
@@ -801,12 +732,13 @@ mod user {
     /// which need not be page aligned.
     ///
     /// Returns new size.
-    pub(super) fn alloc(
+    pub fn alloc(
         pagetable: &mut PageTable,
         oldsz: usize,
         newsz: usize,
         xperm: PtEntryFlags,
     ) -> Result<usize, ()> {
+        assert!(newsz >= oldsz);
         if newsz < oldsz {
             return Ok(oldsz);
         }
@@ -844,7 +776,8 @@ mod user {
     /// `oldsz` can be larger than the acrual process size.
     ///
     /// Returns the new process size.
-    pub(super) fn dealloc(pagetable: &mut PageTable, oldsz: usize, newsz: usize) -> usize {
+    pub fn dealloc(pagetable: &mut PageTable, oldsz: usize, newsz: usize) -> usize {
+        assert!(newsz <= oldsz);
         if newsz >= oldsz {
             return oldsz;
         }
@@ -870,7 +803,7 @@ mod user {
     }
 
     /// Frees user memory pages, then free page-table pages.
-    pub(super) unsafe fn free(pagetable_addr: usize, sz: usize) {
+    pub unsafe fn free(pagetable_addr: usize, sz: usize) {
         {
             let pagetable = unsafe {
                 ptr::without_provenance_mut::<PageTable>(pagetable_addr)
@@ -893,7 +826,7 @@ mod user {
     ///
     /// Copies both the page table and the
     /// physical memory.
-    pub(super) fn copy(old: &PageTable, new: &mut PageTable, sz: usize) -> Result<(), ()> {
+    pub fn copy(old: &PageTable, new: &mut PageTable, sz: usize) -> Result<(), ()> {
         let res = (|| {
             for va in (0..sz).step_by(PAGE_SIZE) {
                 let pte = old.find_leaf_entry(VirtAddr(va)).ok_or(va)?;
@@ -942,7 +875,7 @@ mod user {
 /// Copies from kernel to user.
 ///
 /// Copies `len`` bytes from `src`` to virtual address `dst_va` in a given page table.
-fn copy_out(pagetable: &PageTable, mut dst_va: VirtAddr, mut src: &[u8]) -> Result<(), ()> {
+pub fn copy_out(pagetable: &PageTable, mut dst_va: VirtAddr, mut src: &[u8]) -> Result<(), ()> {
     while !src.is_empty() {
         let va0 = dst_va.page_rounddown();
         if va0 >= VirtAddr::MAX {
@@ -967,7 +900,7 @@ fn copy_out(pagetable: &PageTable, mut dst_va: VirtAddr, mut src: &[u8]) -> Resu
 /// Copies from user to kernel.
 ///
 /// Copies `len` bytes to `dst` from virtual address `src_va` in a given page table.
-fn copy_in(pagetable: &PageTable, mut dst: &mut [u8], mut src_va: VirtAddr) -> Result<(), ()> {
+pub fn copy_in(pagetable: &PageTable, mut dst: &mut [u8], mut src_va: VirtAddr) -> Result<(), ()> {
     while !dst.is_empty() {
         let va0 = src_va.page_rounddown();
         let offset = src_va.0 - va0.0;

@@ -65,11 +65,11 @@ static CONS: Mutex<Cons> = Mutex::new(Cons {
 /// User write()s to the console go here.
 fn write(user_src: bool, src: usize, n: usize) -> Result<usize, ()> {
     for i in 0..n {
-        let mut c: u8 = 0;
-        if unsafe { proc::either_copyin(&mut c, user_src, src + i, 1) }.is_err() {
+        let mut c: [u8; 1] = [0];
+        if proc::either_copy_in(&mut c, user_src, src + i).is_err() {
             return Ok(i);
         }
-        uart::putc(c as char);
+        uart::putc(c[0] as char);
     }
     Ok(n)
 }
@@ -87,7 +87,7 @@ fn read(user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize, ()> {
         // wait until interrupt handler has put some
         // input into cons.buffer.
         while cons.r == cons.w {
-            if unsafe { &*proc::Proc::myproc() }.killed() {
+            if proc::Proc::myproc().map(|p| p.killed()).unwrap_or(false) {
                 drop(cons);
                 return Err(());
             }
@@ -108,8 +108,8 @@ fn read(user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize, ()> {
         }
 
         // copy the input byte to the user-space buffer.
-        let cbuf = c;
-        if proc::either_copyout(user_dst, dst, &cbuf, 1).is_err() {
+        let cbuf = &[c];
+        if proc::either_copy_out(user_dst, dst, cbuf).is_err() {
             break;
         }
 

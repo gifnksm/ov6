@@ -1,6 +1,6 @@
 use core::{
     cell::UnsafeCell,
-    ffi::{c_char, c_uint},
+    ffi::{CStr, c_char, c_uint},
     ops::{Deref, DerefMut},
     ptr,
     sync::atomic::{AtomicU32, Ordering},
@@ -55,8 +55,18 @@ mod ffi {
     }
 }
 
+unsafe impl Sync for SpinLock {}
+
 impl SpinLock {
-    unsafe fn init(&mut self, name: *const c_char) {
+    pub const fn new(name: &'static CStr) -> Self {
+        Self {
+            locked: AtomicU32::new(0),
+            name: UnsafeCell::new(name.as_ptr()),
+            cpu: UnsafeCell::new(ptr::null_mut()),
+        }
+    }
+
+    pub unsafe fn init(&mut self, name: *const c_char) {
         *self.name.get_mut() = name;
         self.locked.store(0, Ordering::Relaxed);
         *self.cpu.get_mut() = ptr::null_mut();
@@ -65,7 +75,7 @@ impl SpinLock {
     /// Acquires the lock.
     ///
     /// Loops (spins) until the lock is acquired.
-    fn acquire(&self) {
+    pub fn acquire(&self) {
         push_off(); // disable interrupts to avoid deadlock.
 
         assert!(!self.holding());
@@ -83,7 +93,7 @@ impl SpinLock {
     }
 
     /// Releases the lock.
-    fn release(&self) {
+    pub fn release(&self) {
         assert!(self.holding());
 
         unsafe {
@@ -104,7 +114,7 @@ impl SpinLock {
     /// Checks whether this cpu is holding the lock.
     ///
     /// Interrupts must be off.
-    fn holding(&self) -> bool {
+    pub fn holding(&self) -> bool {
         assert!(!sstatus::read().sie());
         self.locked.load(Ordering::Relaxed) != 0 && unsafe { *self.cpu.get() } == Cpu::mycpu()
     }

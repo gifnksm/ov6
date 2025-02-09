@@ -65,3 +65,9 @@ pub const PHYS_TOP: usize = KERN_BASE + 128 * 1024 * 1024;
 // ```
 
 pub const TRAMPOLINE: VirtAddr = VirtAddr::MAX.byte_sub(PAGE_SIZE);
+
+pub const fn kstack(p: usize) -> usize {
+    TRAMPOLINE.addr() - (p + 1) * 2 * PAGE_SIZE
+}
+
+pub const TRAPFRAME: VirtAddr = TRAMPOLINE.byte_sub(PAGE_SIZE);
