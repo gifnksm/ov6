@@ -131,11 +131,8 @@ int             fetchaddr(uint64, uint64*);
 void            syscall();
 
 // trap.c
-extern uint     ticks;
-void            trapinit(void);
-void            trapinithart(void);
+extern uint ticks;
 extern struct spinlock tickslock;
-void            usertrapret(void);
 
 // uart.c
 void uartintr(void);

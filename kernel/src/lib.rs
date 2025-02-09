@@ -16,12 +16,15 @@ mod kalloc;
 mod log;
 mod memlayout;
 mod param;
+mod plic;
 mod print;
 mod proc;
 mod spinlock;
 mod start;
+mod syscall;
 mod trap;
 mod uart;
+mod virtio_disk;
 mod vm;
 
 global_asm!(
@@ -32,14 +35,9 @@ global_asm!(
 );
 
 unsafe extern "C" {
-    fn trapinit();
-    fn trapinithart();
-    fn plicinit();
-    fn plicinithart();
     fn binit();
     fn iinit();
     fn fileinit();
-    fn virtio_disk_init();
 }
 
 static STARTED: AtomicBool = AtomicBool::new(false);
@@ -55,15 +53,14 @@ extern "C" fn main() -> ! {
         vm::kernel::init(); // create kernel page table
         vm::kernel::init_hart(); // turn on paging
         proc::init(); // process table
+        trap::init_hart(); // install kernel trap vectort
         unsafe {
-            trapinit(); // trap vectors
-            trapinithart(); // install kernel trap vector
-            plicinit(); // set up interrupt controller
-            plicinithart(); // ask PLIC for device interrupts
+            plic::init(); // set up interrupt controller
+            plic::init_hart(); // ask PLIC for device interrupts
             binit(); // buffer cache
             iinit(); // inode table
             fileinit(); // file table
-            virtio_disk_init(); // emulated hard disk
+            virtio_disk::init(); // emulated hard disk
             proc::user_init(); // first user process
             STARTED.store(true, Ordering::Release);
         }
@@ -73,10 +70,8 @@ extern "C" fn main() -> ! {
         }
         println!("hart {} starting", proc::cpuid());
         vm::kernel::init_hart(); // turn on paging
-        unsafe {
-            trapinithart(); // install kernel trap vector
-            plicinithart(); // ask PLIC for device interrupts
-        }
+        trap::init_hart(); // install kernel trap vector
+        plic::init_hart(); // ask PLIC for device interrupts
     }
 
     proc::scheduler();

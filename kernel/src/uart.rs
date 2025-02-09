@@ -233,7 +233,7 @@ fn getc() -> Option<u8> {
 /// both.
 ///
 /// Called from devintr().
-fn handle_interrupt() {
+pub fn handle_interrupt() {
     // read and process incoming characters.
     while let Some(c) = getc() {
         console::handle_interrupt(c);

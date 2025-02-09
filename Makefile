@@ -6,7 +6,6 @@ OBJS = \
   $K/string.o \
   $K/swtch.o \
   $K/trampoline.o \
-  $K/trap.o \
   $K/syscall.o \
   $K/sysproc.o \
   $K/bio.o \

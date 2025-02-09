@@ -2,6 +2,7 @@ use core::{
     arch::asm,
     cmp,
     ffi::{CStr, c_char, c_int, c_void},
+    fmt,
     ptr::{self, NonNull},
     slice,
     sync::atomic::{AtomicBool, AtomicI32, Ordering},
@@ -27,6 +28,12 @@ pub static mut INITPROC: Option<NonNull<Proc>> = None;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct ProcId(i32);
+
+impl fmt::Display for ProcId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
 
 /// Helps ensure that wakeups of wait()ing
 /// parents are not lost.
@@ -163,12 +170,28 @@ mod ffi {
     }
 }
 
-const TRAMPOLINE_CODE: *const c_void = {
+pub const TRAMPOLINE_CODE: *const c_void = {
     unsafe extern "C" {
         #[link_name = "trampoline"]
         static TRAMPOLINE: [c_char; 0];
     }
     (&raw const TRAMPOLINE).cast()
+};
+
+pub const USERVEC_CODE: *const c_void = {
+    unsafe extern "C" {
+        #[link_name = "uservec"]
+        static USERVEC: [c_char; 0];
+    }
+    (&raw const USERVEC).cast()
+};
+
+pub const USERRET_CODE: *const c_void = {
+    unsafe extern "C" {
+        #[link_name = "userret"]
+        static USERRET: [c_char; 0];
+    }
+    (&raw const USERRET).cast()
 };
 
 /// Saved registers for kernel context switches.
@@ -257,17 +280,17 @@ impl Cpu {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-struct TrapFrame {
+pub struct TrapFrame {
     /// Kernel page table.
-    kernel_satp: u64, // 0
+    pub kernel_satp: u64, // 0
     /// Top of process's kernel stack.
-    kernel_sp: u64, // 8
+    pub kernel_sp: u64, // 8
     /// Usertrap().
-    kernel_trap: u64, // 16
+    pub kernel_trap: u64, // 16
     /// Saved user program counter.
-    epc: u64, // 24
+    pub epc: u64, // 24
     /// saved kernel tp
-    kernel_hartid: u64, // 32
+    pub kernel_hartid: u64, // 32
     ra: u64,  // 40
     sp: u64,  // 48
     gp: u64,  // 56
@@ -384,7 +407,15 @@ impl Proc {
         p.map(|mut p| unsafe { p.as_mut() })
     }
 
-    fn pagetable(&self) -> Option<&PageTable> {
+    pub fn pid(&self) -> ProcId {
+        self.pid
+    }
+
+    pub fn kstack(&self) -> usize {
+        self.kstack
+    }
+
+    pub fn pagetable(&self) -> Option<&PageTable> {
         self.pagetable.map(|pt| unsafe { pt.as_ref() })
     }
 
@@ -392,11 +423,11 @@ impl Proc {
         self.pagetable.map(|mut pt| unsafe { pt.as_mut() })
     }
 
-    fn trapframe(&self) -> Option<&TrapFrame> {
+    pub fn trapframe(&self) -> Option<&TrapFrame> {
         self.trapframe.map(|tf| unsafe { tf.as_ref() })
     }
 
-    fn trapframe_mut(&mut self) -> Option<&mut TrapFrame> {
+    pub fn trapframe_mut(&mut self) -> Option<&mut TrapFrame> {
         self.trapframe.map(|mut tf| unsafe { tf.as_mut() })
     }
 
@@ -729,7 +760,7 @@ fn reparent(p: &Proc) {
 /// Does not return.
 /// An exited process remains in the zombie state
 /// until its parent calls `wait()`.
-fn exit(status: i32) -> ! {
+pub fn exit(status: i32) -> ! {
     // Ensure all destruction is done before `sched().`
     {
         let p = Proc::myproc().unwrap();
@@ -908,12 +939,13 @@ fn sched() {
 }
 
 /// Gives up the CPU for one shceduling round.
-fn yield_() {
-    let p = Proc::myproc().unwrap();
-    p.lock.acquire();
-    p.state = ProcState::Runnable;
-    sched();
-    p.lock.release();
+pub fn yield_() {
+    if let Some(p) = Proc::myproc() {
+        p.lock.acquire();
+        p.state = ProcState::Runnable;
+        sched();
+        p.lock.release();
+    }
 }
 
 /// A fork child's very first scheduling by `scheduler()`
@@ -933,7 +965,7 @@ extern "C" fn forkret() {
         FIRST.store(false, Ordering::Release);
     }
 
-    trap::usertrapret();
+    trap::trap_user_ret();
 }
 
 /// Automatically releases `lock` and sleeps on `chan``.

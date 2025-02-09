@@ -26,11 +26,11 @@ use crate::vm::{PAGE_SIZE, VirtAddr};
 
 // qemu puts UART registers here in physical memory.
 pub const UART0: usize = 0x1000_0000;
-// pub const UART0_IRQ: usize = 10;
+pub const UART0_IRQ: usize = 10;
 
 // virtio mmio interface
 pub const VIRTIO0: usize = 0x1000_1000;
-// pub const VIRTIO0_IRQ: usize = 1;
+pub const VIRTIO0_IRQ: usize = 1;
 
 // qemu puts platform-level interrupt controller (PLIC) here.
 pub const PLIC: usize = 0x0c00_0000;
