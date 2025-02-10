@@ -26,6 +26,7 @@ mod spinlock;
 mod start;
 mod switch;
 mod syscall;
+mod trampoline;
 mod trap;
 mod uart;
 mod virtio_disk;

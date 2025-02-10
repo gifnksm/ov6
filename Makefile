@@ -4,7 +4,6 @@ R=target/riscv64gc-unknown-none-elf/release
 
 OBJS = \
   $K/string.o \
-  $K/trampoline.o \
   $K/syscall.o \
   $K/sysproc.o \
   $K/bio.o \

@@ -17,7 +17,7 @@ use crate::{
     param::{NCPU, NOFILE, NPROC, ROOTDEV},
     println,
     spinlock::{self, MutexGuard, SpinLock},
-    switch, trap,
+    switch, trampoline, trap,
     vm::{self, PAGE_SIZE, PageTable, PhysAddr, PtEntryFlags, VirtAddr},
 };
 
@@ -165,30 +165,6 @@ mod ffi {
     }
 }
 
-pub const TRAMPOLINE_CODE: *const c_void = {
-    unsafe extern "C" {
-        #[link_name = "trampoline"]
-        static TRAMPOLINE: [c_char; 0];
-    }
-    (&raw const TRAMPOLINE).cast()
-};
-
-pub const USERVEC_CODE: *const c_void = {
-    unsafe extern "C" {
-        #[link_name = "uservec"]
-        static USERVEC: [c_char; 0];
-    }
-    (&raw const USERVEC).cast()
-};
-
-pub const USERRET_CODE: *const c_void = {
-    unsafe extern "C" {
-        #[link_name = "userret"]
-        static USERRET: [c_char; 0];
-    }
-    (&raw const USERRET).cast()
-};
-
 /// Saved registers for kernel context switches.
 #[repr(C)]
 pub struct Context {
@@ -286,37 +262,37 @@ pub struct TrapFrame {
     pub epc: u64, // 24
     /// saved kernel tp
     pub kernel_hartid: u64, // 32
-    ra: u64,  // 40
-    sp: u64,  // 48
-    gp: u64,  // 56
-    tp: u64,  // 64
-    t0: u64,  // 72
-    t1: u64,  // 80
-    t2: u64,  // 88
-    s0: u64,  // 96
-    s1: u64,  // 104
-    a0: u64,  // 112
-    a1: u64,  // 120
-    a2: u64,  // 128
-    a3: u64,  // 136
-    a4: u64,  // 144
-    a5: u64,  // 152
-    a6: u64,  // 160
-    a7: u64,  // 168
-    s2: u64,  // 176
-    s3: u64,  // 184
-    s4: u64,  // 192
-    s5: u64,  // 200
-    s6: u64,  // 208
-    s7: u64,  // 216
-    s8: u64,  // 224
-    s9: u64,  // 232
-    s10: u64, // 240
-    s11: u64, // 248
-    t3: u64,  // 256
-    t4: u64,  // 264
-    t5: u64,  // 272
-    t6: u64,  // 280
+    pub ra: u64,  // 40
+    pub sp: u64,  // 48
+    pub gp: u64,  // 56
+    pub tp: u64,  // 64
+    pub t0: u64,  // 72
+    pub t1: u64,  // 80
+    pub t2: u64,  // 88
+    pub s0: u64,  // 96
+    pub s1: u64,  // 104
+    pub a0: u64,  // 112
+    pub a1: u64,  // 120
+    pub a2: u64,  // 128
+    pub a3: u64,  // 136
+    pub a4: u64,  // 144
+    pub a5: u64,  // 152
+    pub a6: u64,  // 160
+    pub a7: u64,  // 168
+    pub s2: u64,  // 176
+    pub s3: u64,  // 184
+    pub s4: u64,  // 192
+    pub s5: u64,  // 200
+    pub s6: u64,  // 208
+    pub s7: u64,  // 216
+    pub s8: u64,  // 224
+    pub s9: u64,  // 232
+    pub s10: u64, // 240
+    pub s11: u64, // 248
+    pub t3: u64,  // 256
+    pub t4: u64,  // 264
+    pub t5: u64,  // 272
+    pub t6: u64,  // 280
 }
 
 #[repr(i32)]
@@ -588,7 +564,7 @@ fn create_pagetable(p: &mut Proc) -> Option<NonNull<PageTable>> {
     if pagetable
         .map_page(
             TRAMPOLINE,
-            PhysAddr::new(TRAMPOLINE_CODE.addr()),
+            PhysAddr::new(trampoline::trampoline as usize),
             PtEntryFlags::RX,
         )
         .is_err()

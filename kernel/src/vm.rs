@@ -12,7 +12,7 @@ use riscv::{asm, register::satp};
 use crate::{
     kalloc,
     memlayout::{KERN_BASE, PHYS_TOP, PLIC, TRAMPOLINE, UART0, VIRTIO0},
-    proc,
+    proc, trampoline,
 };
 
 mod ffi {
@@ -108,14 +108,6 @@ const ETEXT: NonNull<c_void> = {
     NonNull::new((&raw mut ETEXT).cast()).unwrap()
 };
 
-const PHYS_TRAMPOLINE: NonNull<c_void> = {
-    unsafe extern "C" {
-        #[link_name = "trampoline"]
-        static mut PHYS_TRAMPOLINE: [u8; 0];
-    }
-    NonNull::new((&raw mut PHYS_TRAMPOLINE).cast()).unwrap()
-};
-
 pub const fn page_roundup(addr: usize) -> usize {
     (addr + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
 }
@@ -184,7 +176,7 @@ fn make_kernel_pt() -> &'static mut PageTable {
     use PtEntryFlags as F;
 
     let etext = ETEXT.addr().into();
-    let phys_trampoline = PhysAddr(PHYS_TRAMPOLINE.addr().into());
+    let phys_trampoline = PhysAddr(trampoline::trampoline as usize);
 
     unsafe fn ident_map(
         kpgtbl: &mut PageTable,

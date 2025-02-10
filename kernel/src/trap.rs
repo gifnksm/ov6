@@ -12,11 +12,11 @@ use riscv::{
 
 use crate::{
     kernel_vec,
-    memlayout::{TRAMPOLINE, UART0_IRQ, VIRTIO0_IRQ},
+    memlayout::{UART0_IRQ, VIRTIO0_IRQ},
     plic, println,
-    proc::{self, Proc, TRAMPOLINE_CODE, USERRET_CODE, USERVEC_CODE},
+    proc::{self, Proc},
     spinlock::SpinLock,
-    syscall, uart, virtio_disk,
+    syscall, trampoline, uart, virtio_disk,
     vm::PAGE_SIZE,
 };
 
@@ -110,7 +110,7 @@ pub fn trap_user_ret() {
     }
 
     // send syscalls, interrupts, and exceptions to uservec in trampoline.S
-    let trampoline_uservec = TRAMPOLINE.byte_add(USERVEC_CODE.addr() - TRAMPOLINE_CODE.addr());
+    let trampoline_uservec = trampoline::user_vec_addr();
     unsafe {
         stvec::write(trampoline_uservec.addr(), TrapMode::Direct);
     }
@@ -144,9 +144,9 @@ pub fn trap_user_ret() {
     // jump to userret in trampoline.S at the top of memory, which
     // switches to the user page table, restores user registers,
     // and switches to user mode with sret.
-    let trampoline_userret = TRAMPOLINE.byte_add(USERRET_CODE.addr() - TRAMPOLINE_CODE.addr());
+    let trampoline_user_ret = trampoline::user_ret_addr();
     unsafe {
-        let f: extern "C" fn(u64) = mem::transmute(trampoline_userret.addr());
+        let f: extern "C" fn(u64) = mem::transmute(trampoline_user_ret.addr());
         f(satp as u64);
     }
 }
