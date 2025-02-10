@@ -129,7 +129,7 @@ fn read(user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize, ()> {
 
 /// Handles console input interrupts.
 ///
-/// `uartintr()` calls this for input character.
+/// `uart::handle_interrupts()` calls this for input character.
 /// Do erase/kill processing, append to `cons.buf`,
 /// wake up `read()` if a whole line has arrived.
 pub fn handle_interrupt(c: u8) {

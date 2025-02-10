@@ -82,27 +82,18 @@ int growproc(int);
 pagetable_t     proc_pagetable(struct proc *);
 void            proc_freepagetable(pagetable_t, uint64);
 int             kill(int);
-int             killed(struct proc*);
-void            setkilled(struct proc*);
-struct cpu*     mycpu(void);
+int killed(struct proc *);
 struct proc *myproc();
-void            scheduler(void) __attribute__((noreturn));
-void            sched(void);
-void            sleep(void*, struct spinlock*);
-void            userinit(void);
+void sleep(void *, struct spinlock *);
 int             wait(uint64);
-void            wakeup(void*);
-void            yield(void);
+void wakeup(void *);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 
 // spinlock.c
-void            acquire(struct spinlock*);
-int             holding(struct spinlock*);
+void acquire(struct spinlock *);
 void            initlock(struct spinlock*, char*);
-void            release(struct spinlock*);
-void            push_off(void);
-void            pop_off(void);
+void release(struct spinlock *);
 
 // sleeplock.c
 void            acquiresleep(struct sleeplock*);
@@ -131,15 +122,9 @@ void            syscall();
 extern uint ticks;
 extern struct spinlock tickslock;
 
-// uart.c
-void uartintr(void);
-
 // vm.c
-void            kvmmap(pagetable_t, uint64, uint64, uint64, int);
-int             mappages(pagetable_t, uint64, uint64, uint64, int);
 uint64 uvmalloc(pagetable_t, uint64, uint64, int);
-void            uvmfree(pagetable_t, uint64);
-void            uvmunmap(pagetable_t, uint64, uint64, int);
+void uvmfree(pagetable_t, uint64);
 void uvmclear(pagetable_t, uint64);
 uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);

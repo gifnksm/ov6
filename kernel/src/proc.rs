@@ -51,10 +51,6 @@ mod ffi {
     extern "C" fn cpuid() -> c_int {
         super::cpuid()
     }
-    #[unsafe(no_mangle)]
-    extern "C" fn mycpu() -> *mut Cpu {
-        super::Cpu::mycpu()
-    }
 
     #[unsafe(no_mangle)]
     extern "C" fn myproc() -> *mut Proc {
@@ -104,16 +100,6 @@ mod ffi {
     }
 
     #[unsafe(no_mangle)]
-    extern "C" fn sched() {
-        super::sched()
-    }
-
-    #[unsafe(export_name = "yield")]
-    extern "C" fn yield_() {
-        super::yield_()
-    }
-
-    #[unsafe(no_mangle)]
     extern "C" fn sleep(chan: *const c_void, lk: *mut SpinLock) {
         unsafe { super::sleep_raw(chan, lk.as_ref().unwrap()) }
     }
@@ -130,12 +116,6 @@ mod ffi {
             Ok(()) => 0,
             Err(()) => -1,
         }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn setkilled(p: *mut Proc) {
-        let p = unsafe { p.as_mut().unwrap() };
-        p.set_killed();
     }
 
     #[unsafe(no_mangle)]

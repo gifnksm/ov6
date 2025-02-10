@@ -20,8 +20,6 @@ pub struct SpinLock {
 const _: () = assert!(size_of::<AtomicU32>() == size_of::<c_uint>());
 
 mod ffi {
-    use core::ffi::c_int;
-
     use super::*;
 
     #[unsafe(no_mangle)]
@@ -37,21 +35,6 @@ mod ffi {
     #[unsafe(no_mangle)]
     extern "C" fn release(lock: *const SpinLock) {
         unsafe { (*lock).release() }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn holding(lock: *const SpinLock) -> c_int {
-        unsafe { (*lock).holding().into() }
-    }
-
-    #[unsafe(no_mangle)]
-    pub extern "C" fn push_off() {
-        super::push_off();
-    }
-
-    #[unsafe(no_mangle)]
-    pub extern "C" fn pop_off() {
-        super::pop_off();
     }
 }
 

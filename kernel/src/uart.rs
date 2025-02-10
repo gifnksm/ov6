@@ -10,15 +10,6 @@ use crate::{
     spinlock::{self, Mutex},
 };
 
-mod ffi {
-    use super::*;
-
-    #[unsafe(no_mangle)]
-    extern "C" fn uartintr() {
-        handle_interrupt()
-    }
-}
-
 const unsafe fn reg(offset: usize) -> *mut u8 {
     unsafe { ptr::without_provenance_mut::<u8>(UART0).byte_add(offset) }
 }

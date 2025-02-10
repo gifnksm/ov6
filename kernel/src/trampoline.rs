@@ -26,7 +26,6 @@ pub fn user_ret_addr() -> VirtAddr {
 
 #[naked]
 #[unsafe(link_section = "trampsec")]
-#[unsafe(export_name = "trampoline")]
 pub extern "C" fn trampoline() {
     unsafe { naked_asm!("") }
 }
@@ -37,7 +36,6 @@ pub extern "C" fn trampoline() {
 #[naked]
 #[repr(align(4))]
 #[unsafe(link_section = "trampsec")]
-#[unsafe(export_name = "uservec")]
 pub extern "C" fn user_vec() {
     unsafe {
         naked_asm!(
@@ -143,7 +141,6 @@ pub extern "C" fn user_vec() {
 /// Switches from kernel to user.
 #[naked]
 #[unsafe(link_section = "trampsec")]
-#[unsafe(export_name = "userret")]
 pub extern "C" fn user_ret(satp: usize) {
     unsafe {
         naked_asm!(
