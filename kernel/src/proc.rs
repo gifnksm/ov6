@@ -700,6 +700,7 @@ fn fork() -> Option<ProcId> {
     if vm::user::copy(p.pagetable().unwrap(), np.pagetable_mut().unwrap(), p.sz).is_err() {
         np.free();
         np.lock.release();
+        return None;
     }
     np.sz = p.sz;
 
