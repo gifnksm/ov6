@@ -1,5 +1,6 @@
 #![feature(c_variadic)]
 #![feature(extern_types)]
+#![feature(fn_align)]
 #![feature(naked_functions)]
 #![feature(non_null_from_ref)]
 #![no_std]
@@ -14,6 +15,7 @@ mod console;
 mod file;
 mod fs;
 mod kalloc;
+mod kernel_vec;
 mod log;
 mod memlayout;
 mod param;

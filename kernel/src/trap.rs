@@ -11,6 +11,7 @@ use riscv::{
 };
 
 use crate::{
+    kernel_vec,
     memlayout::{TRAMPOLINE, UART0_IRQ, VIRTIO0_IRQ},
     plic, println,
     proc::{self, Proc, TRAMPOLINE_CODE, USERRET_CODE, USERVEC_CODE},
@@ -19,12 +20,6 @@ use crate::{
     vm::PAGE_SIZE,
 };
 
-mod ffi {
-    unsafe extern "C" {
-        pub fn kernelvec();
-    }
-}
-
 #[unsafe(export_name = "tickslock")]
 static TICKSLOCK: SpinLock = SpinLock::new(c"time");
 #[unsafe(export_name = "ticks")]
@@ -32,7 +27,7 @@ static mut TICKS: u32 = 0;
 
 pub fn init_hart() {
     unsafe {
-        stvec::write(ffi::kernelvec as usize, TrapMode::Direct);
+        stvec::write(kernel_vec::kernel_vec as usize, TrapMode::Direct);
     }
 }
 
@@ -47,7 +42,7 @@ extern "C" fn trap_user() {
     // send interrupts and exceptions to kerneltrap(),
     // since we're now in the kernel.
     unsafe {
-        stvec::write(ffi::kernelvec as usize, TrapMode::Direct);
+        stvec::write(kernel_vec::kernel_vec as usize, TrapMode::Direct);
     }
 
     let p = Proc::myproc().unwrap();
@@ -158,8 +153,7 @@ pub fn trap_user_ret() {
 
 /// Interrupts and exceptions from kernel code go here via kernelvec,
 /// on whatever the current kernel stack is.
-#[unsafe(export_name = "kerneltrap")]
-extern "C" fn trap_kernel() {
+pub extern "C" fn trap_kernel() {
     let sepc = sepc::read();
     let sstatus = sstatus::read();
     let sstatus_bits: usize;
