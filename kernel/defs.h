@@ -75,17 +75,13 @@ int            printf(char*, ...) __attribute__ ((format (printf, 1, 2)));
 void panic(char *) __attribute__((noreturn));
 
 // proc.c
-int             cpuid(void);
-void            exit(int);
-int             fork(void);
-int growproc(int);
+int cpuid(void);
 pagetable_t     proc_pagetable(struct proc *);
 void            proc_freepagetable(pagetable_t, uint64);
 int             kill(int);
 int killed(struct proc *);
 struct proc *myproc();
 void sleep(void *, struct spinlock *);
-int             wait(uint64);
 void wakeup(void *);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int either_copyin(void *dst, int user_src, uint64 src, uint64 len);
@@ -115,12 +111,7 @@ void            argint(int, int*);
 int             argstr(int, char*, int);
 void            argaddr(int, uint64 *);
 int             fetchstr(uint64, char*, int);
-int             fetchaddr(uint64, uint64*);
-void            syscall();
-
-// trap.c
-extern uint ticks;
-extern struct spinlock tickslock;
+int fetchaddr(uint64, uint64 *);
 
 // vm.c
 uint64 uvmalloc(pagetable_t, uint64, uint64, int);

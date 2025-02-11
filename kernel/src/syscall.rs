@@ -3,7 +3,7 @@ use core::panic;
 use crate::{
     println,
     proc::Proc,
-    syscall_proc,
+    syscall_file, syscall_proc,
     vm::{self, VirtAddr},
 };
 
@@ -122,7 +122,7 @@ fn arg_raw(p: &Proc, n: usize) -> usize {
 }
 
 /// Fetches the nth 32-bit system call argument.
-fn arg_int(p: &Proc, n: usize) -> usize {
+pub fn arg_int(p: &Proc, n: usize) -> usize {
     arg_raw(p, n)
 }
 
@@ -130,7 +130,7 @@ fn arg_int(p: &Proc, n: usize) -> usize {
 ///
 /// Don't check for legality, since
 /// copy_in/copy_out will do that.
-fn arg_addr(p: &Proc, n: usize) -> VirtAddr {
+pub fn arg_addr(p: &Proc, n: usize) -> VirtAddr {
     VirtAddr::new(arg_int(p, n))
 }
 
@@ -149,29 +149,38 @@ pub fn syscall(p: &mut Proc) {
         SYS_FORK => syscall_proc::fork,
         SYS_EXIT => syscall_proc::exit,
         SYS_WAIT => syscall_proc::wait,
-        SYS_PIPE => syscall_proc::pipe,
-        SYS_READ => syscall_proc::read,
+        SYS_PIPE => syscall_file::pipe,
+        SYS_READ => syscall_file::read,
         SYS_KILL => syscall_proc::kill,
-        SYS_EXEC => syscall_proc::exec,
-        SYS_FSTAT => syscall_proc::fstat,
-        SYS_CHDIR => syscall_proc::chdir,
-        SYS_DUP => syscall_proc::dup,
+        SYS_EXEC => syscall_file::exec,
+        SYS_FSTAT => syscall_file::fstat,
+        SYS_CHDIR => syscall_file::chdir,
+        SYS_DUP => syscall_file::dup,
         SYS_GETPID => syscall_proc::getpid,
         SYS_SBRK => syscall_proc::sbrk,
         SYS_SLEEP => syscall_proc::sleep,
         SYS_UPTIME => syscall_proc::uptime,
-        SYS_OPEN => syscall_proc::open,
-        SYS_WRITE => syscall_proc::write,
-        SYS_MKNOD => syscall_proc::mknod,
-        SYS_UNLINK => syscall_proc::unlink,
-        SYS_LINK => syscall_proc::link,
-        SYS_MKDIR => syscall_proc::mkdir,
-        SYS_CLOSE => syscall_proc::close,
+        SYS_OPEN => syscall_file::open,
+        SYS_WRITE => syscall_file::write,
+        SYS_MKNOD => syscall_file::mknod,
+        SYS_UNLINK => syscall_file::unlink,
+        SYS_LINK => syscall_file::link,
+        SYS_MKDIR => syscall_file::mkdir,
+        SYS_CLOSE => syscall_file::close,
         _ => {
             println!("{} {}: unknown sys call {}\n", p.pid(), p.name(), n);
             p.trapframe_mut().unwrap().a0 = u64::MAX;
             return;
         }
     };
-    p.trapframe_mut().unwrap().a0 = f() as u64;
+    let res = f(p).map(|f| f as u64).unwrap_or(u64::MAX);
+    p.trapframe_mut().unwrap().a0 = res as u64;
+}
+
+pub fn wrap_syscall(f: unsafe extern "C" fn() -> u64) -> Result<usize, ()> {
+    let res = unsafe { f() } as isize;
+    if res < 0 {
+        return Err(());
+    }
+    Ok(res as usize)
 }

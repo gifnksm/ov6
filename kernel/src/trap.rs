@@ -15,15 +15,12 @@ use crate::{
     memlayout::{UART0_IRQ, VIRTIO0_IRQ},
     plic, println,
     proc::{self, Proc},
-    spinlock::SpinLock,
+    spinlock::Mutex,
     syscall, trampoline, uart, virtio_disk,
     vm::PAGE_SIZE,
 };
 
-#[unsafe(export_name = "tickslock")]
-static TICKSLOCK: SpinLock = SpinLock::new(c"time");
-#[unsafe(export_name = "ticks")]
-static mut TICKS: u32 = 0;
+pub static TICKS: Mutex<u64> = Mutex::new(0);
 
 pub fn init_hart() {
     unsafe {
@@ -191,12 +188,10 @@ pub extern "C" fn trap_kernel() {
 
 fn handle_clock_interrupt() {
     if proc::cpuid() == 0 {
-        TICKSLOCK.acquire();
-        unsafe {
-            TICKS += 1;
-        }
-        proc::wakeup((&raw mut TICKS).cast());
-        TICKSLOCK.release();
+        let mut ticks = TICKS.lock();
+        *ticks += 1;
+        proc::wakeup((&raw const TICKS).cast());
+        drop(ticks);
     }
 
     // ask for the next timer interrupt. this also clears

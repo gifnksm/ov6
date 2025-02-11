@@ -36,6 +36,16 @@ impl fmt::Display for ProcId {
     }
 }
 
+impl ProcId {
+    pub fn new(pid: i32) -> Self {
+        Self(pid)
+    }
+
+    pub fn get(&self) -> i32 {
+        self.0
+    }
+}
+
 /// Helps ensure that wakeups of wait()ing
 /// parents are not lost.
 ///
@@ -71,40 +81,6 @@ mod ffi {
     }
 
     #[unsafe(no_mangle)]
-    extern "C" fn growproc(n: c_int) -> c_int {
-        let p = Proc::myproc().unwrap();
-        match super::grow_proc(p, n as isize) {
-            Ok(()) => 0,
-            Err(()) => -1,
-        }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn fork() -> c_int {
-        let p = Proc::myproc().unwrap();
-        match super::fork(p) {
-            Some(pid) => pid.0,
-            None => -1,
-        }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn exit(status: c_int) -> ! {
-        let p = Proc::myproc().unwrap();
-        super::exit(p, status)
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn wait(addr: u64) -> c_int {
-        let p = Proc::myproc().unwrap();
-        let addr = VirtAddr::new(addr as usize);
-        match super::wait(p, addr) {
-            Ok(pid) => pid.0,
-            Err(()) => -1,
-        }
-    }
-
-    #[unsafe(no_mangle)]
     extern "C" fn sleep(chan: *const c_void, lk: *mut SpinLock) {
         let p = Proc::myproc().unwrap();
         unsafe { super::sleep_raw(p, chan, lk.as_ref().unwrap()) }
@@ -113,15 +89,6 @@ mod ffi {
     #[unsafe(no_mangle)]
     extern "C" fn wakeup(chan: *const c_void) {
         super::wakeup(chan)
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn kill(pid: c_int) -> c_int {
-        let pid = ProcId(pid);
-        match super::kill(pid) {
-            Ok(()) => 0,
-            Err(()) => -1,
-        }
     }
 
     #[unsafe(no_mangle)]
@@ -372,6 +339,10 @@ impl Proc {
 
     pub fn name(&self) -> &str {
         unsafe { CStr::from_ptr(self.name.as_ptr()).to_str().unwrap() }
+    }
+
+    pub fn size(&self) -> usize {
+        self.sz
     }
 
     pub fn kstack(&self) -> usize {
@@ -643,7 +614,7 @@ pub fn user_init() {
 }
 
 /// Grows or shrink user memory by nBytes.
-fn grow_proc(p: &mut Proc, n: isize) -> Result<(), ()> {
+pub fn grow_proc(p: &mut Proc, n: isize) -> Result<(), ()> {
     let old_sz = p.sz;
     let new_sz = (p.sz as isize + n) as usize;
     let pagetable = p.pagetable_mut().unwrap();
@@ -660,7 +631,7 @@ fn grow_proc(p: &mut Proc, n: isize) -> Result<(), ()> {
 /// Creates a new process, copying the parent.
 ///
 /// Sets up child kernel stack to return as if from `fork()` system call.
-fn fork(p: &Proc) -> Option<ProcId> {
+pub fn fork(p: &Proc) -> Option<ProcId> {
     // Allocate process.
     let np = Proc::allocate()?;
 
@@ -768,7 +739,7 @@ pub fn exit(p: &mut Proc, status: i32) -> ! {
 /// Waits for a child process to exit and return its pid.
 ///
 /// Returns `Err` if this process has no children.
-fn wait(p: &mut Proc, addr: VirtAddr) -> Result<ProcId, ()> {
+pub fn wait(p: &mut Proc, addr: VirtAddr) -> Result<ProcId, ()> {
     WAIT_LOCK.acquire();
 
     loop {
@@ -984,7 +955,7 @@ pub fn wakeup(chan: *const c_void) {
 ///
 /// The victim won't exit until it tries to return
 /// to user spaec (see `usertrap()`).
-fn kill(pid: ProcId) -> Result<(), ()> {
+pub fn kill(pid: ProcId) -> Result<(), ()> {
     for p in unsafe { (&raw mut PROC).as_mut().unwrap() } {
         p.lock.acquire();
         if p.pid == pid {
