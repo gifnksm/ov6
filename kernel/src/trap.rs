@@ -68,7 +68,7 @@ extern "C" fn trap_user() {
             sstatus::set_sie();
         }
 
-        syscall::syscall();
+        syscall::syscall(p);
     } else {
         which_dev = handle_dev_interrupt();
         if which_dev == IntrKind::NotRecognized {

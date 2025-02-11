@@ -3,6 +3,7 @@ use core::{
     cmp,
     ffi::{CStr, c_char, c_int, c_void},
     fmt,
+    ops::Range,
     ptr::{self, NonNull},
     slice,
     sync::atomic::{AtomicBool, AtomicI32, Ordering},
@@ -362,6 +363,10 @@ impl Proc {
         self.pid
     }
 
+    pub fn name(&self) -> &str {
+        unsafe { CStr::from_ptr(self.name.as_ptr()).to_str().unwrap() }
+    }
+
     pub fn kstack(&self) -> usize {
         self.kstack
     }
@@ -485,6 +490,11 @@ impl Proc {
         let k = self.killed != 0;
         self.lock.release();
         k
+    }
+
+    pub fn is_valid_addr(&self, addr_range: Range<VirtAddr>) -> bool {
+        let end = VirtAddr::new(self.sz);
+        addr_range.start < end && addr_range.end <= end // both tests needed, in case of overflow
     }
 }
 

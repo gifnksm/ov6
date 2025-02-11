@@ -74,21 +74,6 @@ mod ffi {
             Err(()) => -1,
         }
     }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn copyinstr(
-        pagetable: *mut PageTable,
-        dst: *mut c_char,
-        src_va: u64,
-        max: u64,
-    ) -> c_int {
-        let pagetable = unsafe { pagetable.as_ref().unwrap() };
-        let dst = unsafe { slice::from_raw_parts_mut(dst.cast(), max as usize) };
-        match super::copy_in_str(pagetable, dst, VirtAddr(src_va as usize)) {
-            Ok(()) => 0,
-            Err(()) => -1,
-        }
-    }
 }
 
 /// Bytes per page
@@ -914,7 +899,11 @@ pub fn copy_in(pagetable: &PageTable, mut dst: &mut [u8], mut src_va: VirtAddr) 
 ///
 /// Copies bytes to `dst` from virtual address `src_va` in a given page table,
 /// until a '\0', or max.
-fn copy_in_str(pagetable: &PageTable, mut dst: &mut [u8], mut src_va: VirtAddr) -> Result<(), ()> {
+pub fn copy_in_str(
+    pagetable: &PageTable,
+    mut dst: &mut [u8],
+    mut src_va: VirtAddr,
+) -> Result<(), ()> {
     while !dst.is_empty() {
         let va0 = src_va.page_rounddown();
         let src_page = pagetable.fetch_page(va0, PtEntryFlags::UR).ok_or(())?;

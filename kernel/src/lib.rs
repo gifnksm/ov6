@@ -26,6 +26,7 @@ mod spinlock;
 mod start;
 mod switch;
 mod syscall;
+mod syscall_proc;
 mod trampoline;
 mod trap;
 mod uart;
