@@ -55,7 +55,7 @@ extern "C" fn trap_user() {
         // system call
 
         if p.killed() {
-            proc::exit(-1);
+            proc::exit(p, -1);
         }
 
         // sepc points to the ecall instruction,
@@ -87,21 +87,19 @@ extern "C" fn trap_user() {
     }
 
     if p.killed() {
-        proc::exit(-1);
+        proc::exit(p, -1);
     }
 
     // gibe up the CPU if this is a timer interrupt.
     if which_dev == IntrKind::Timer {
-        proc::yield_()
+        proc::yield_(p);
     }
 
-    trap_user_ret();
+    trap_user_ret(p);
 }
 
 /// Returns to user space
-pub fn trap_user_ret() {
-    let p = Proc::myproc().unwrap();
-
+pub fn trap_user_ret(p: &mut Proc) {
     // we're about to switch destination of traps from
     // kerneltrap() to usertrap(), so turn off interrupts until
     // we're back in user space, where usertrap() is correct.
@@ -178,7 +176,9 @@ pub extern "C" fn trap_kernel() {
 
     // give up the CPU if this is a timer interrupt.
     if which_dev == IntrKind::Timer {
-        proc::yield_()
+        if let Some(p) = Proc::myproc() {
+            proc::yield_(p)
+        }
     }
 
     // the yield_() may have caused some traps to occur,

@@ -72,7 +72,8 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn growproc(n: c_int) -> c_int {
-        match super::grow_proc(n as isize) {
+        let p = Proc::myproc().unwrap();
+        match super::grow_proc(p, n as isize) {
             Ok(()) => 0,
             Err(()) => -1,
         }
@@ -80,7 +81,8 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn fork() -> c_int {
-        match super::fork() {
+        let p = Proc::myproc().unwrap();
+        match super::fork(p) {
             Some(pid) => pid.0,
             None => -1,
         }
@@ -88,13 +90,15 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn exit(status: c_int) -> ! {
-        super::exit(status)
+        let p = Proc::myproc().unwrap();
+        super::exit(p, status)
     }
 
     #[unsafe(no_mangle)]
     extern "C" fn wait(addr: u64) -> c_int {
+        let p = Proc::myproc().unwrap();
         let addr = VirtAddr::new(addr as usize);
-        match super::wait(addr) {
+        match super::wait(p, addr) {
             Ok(pid) => pid.0,
             Err(()) => -1,
         }
@@ -102,7 +106,8 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn sleep(chan: *const c_void, lk: *mut SpinLock) {
-        unsafe { super::sleep_raw(chan, lk.as_ref().unwrap()) }
+        let p = Proc::myproc().unwrap();
+        unsafe { super::sleep_raw(p, chan, lk.as_ref().unwrap()) }
     }
 
     #[unsafe(no_mangle)]
@@ -127,9 +132,10 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn either_copyout(user_dst: c_int, dst: u64, src: *const c_void, len: u64) -> c_int {
+        let p = Proc::myproc().unwrap();
         let user_dst = user_dst != 0;
         let src = unsafe { slice::from_raw_parts(src.cast(), len as usize) };
-        match super::either_copy_out(user_dst, dst as usize, src) {
+        match super::either_copy_out(p, user_dst, dst as usize, src) {
             Ok(()) => 0,
             Err(()) => -1,
         }
@@ -137,9 +143,10 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn either_copyin(dst: *mut c_void, user_src: c_int, src: u64, len: u64) -> c_int {
+        let p = Proc::myproc().unwrap();
         let user_src = user_src != 0;
         let dst = unsafe { slice::from_raw_parts_mut(dst.cast(), len as usize) };
-        match super::either_copy_in(dst, user_src, src as usize) {
+        match super::either_copy_in(p, dst, user_src, src as usize) {
             Ok(()) => 0,
             Err(()) => -1,
         }
@@ -636,9 +643,7 @@ pub fn user_init() {
 }
 
 /// Grows or shrink user memory by nBytes.
-fn grow_proc(n: isize) -> Result<(), ()> {
-    let p = Proc::myproc().unwrap();
-
+fn grow_proc(p: &mut Proc, n: isize) -> Result<(), ()> {
     let old_sz = p.sz;
     let new_sz = (p.sz as isize + n) as usize;
     let pagetable = p.pagetable_mut().unwrap();
@@ -655,10 +660,7 @@ fn grow_proc(n: isize) -> Result<(), ()> {
 /// Creates a new process, copying the parent.
 ///
 /// Sets up child kernel stack to return as if from `fork()` system call.
-fn fork() -> Option<ProcId> {
-    // reborrow to prevent accidental update
-    let p = &*Proc::myproc().unwrap();
-
+fn fork(p: &Proc) -> Option<ProcId> {
     // Allocate process.
     let np = Proc::allocate()?;
 
@@ -722,11 +724,9 @@ fn reparent(p: &Proc) {
 /// Does not return.
 /// An exited process remains in the zombie state
 /// until its parent calls `wait()`.
-pub fn exit(status: i32) -> ! {
+pub fn exit(p: &mut Proc, status: i32) -> ! {
     // Ensure all destruction is done before `sched().`
     {
-        let p = Proc::myproc().unwrap();
-
         assert!(
             !ptr::eq(p, unsafe { INITPROC }.unwrap().as_ptr()),
             "init exiting"
@@ -760,7 +760,7 @@ pub fn exit(status: i32) -> ! {
     }
 
     // Jump into the scheduler, never to return.
-    sched();
+    sched(p);
 
     unreachable!("zombie exit");
 }
@@ -768,9 +768,7 @@ pub fn exit(status: i32) -> ! {
 /// Waits for a child process to exit and return its pid.
 ///
 /// Returns `Err` if this process has no children.
-fn wait(addr: VirtAddr) -> Result<ProcId, ()> {
-    let p = Proc::myproc().unwrap();
-
+fn wait(p: &mut Proc, addr: VirtAddr) -> Result<ProcId, ()> {
     WAIT_LOCK.acquire();
 
     loop {
@@ -812,7 +810,8 @@ fn wait(addr: VirtAddr) -> Result<ProcId, ()> {
         }
 
         // Wait for a child to exit.
-        sleep_raw(ptr::from_mut(p).cast(), &WAIT_LOCK);
+        let chan = ptr::from_mut(p).cast();
+        sleep_raw(p, chan, &WAIT_LOCK);
     }
 }
 
@@ -885,9 +884,7 @@ pub fn scheduler() -> ! {
 /// not this CPU. It should be `Proc::intena` and `Proc::noff`, but that would break in the
 /// fea places where a lock is held but
 /// there's no process.
-fn sched() {
-    let p = Proc::myproc().unwrap();
-
+fn sched(p: &mut Proc) {
     assert!(p.lock.holding());
     assert_eq!(unsafe { Cpu::mycpu().as_ref().unwrap() }.noff, 1);
     assert_ne!(p.state, ProcState::Running);
@@ -901,13 +898,11 @@ fn sched() {
 }
 
 /// Gives up the CPU for one shceduling round.
-pub fn yield_() {
-    if let Some(p) = Proc::myproc() {
-        p.lock.acquire();
-        p.state = ProcState::Runnable;
-        sched();
-        p.lock.release();
-    }
+pub fn yield_(p: &mut Proc) {
+    p.lock.acquire();
+    p.state = ProcState::Runnable;
+    sched(p);
+    p.lock.release();
 }
 
 /// A fork child's very first scheduling by `scheduler()`
@@ -916,7 +911,8 @@ extern "C" fn forkret() {
     static FIRST: AtomicBool = AtomicBool::new(true);
 
     // Still holding `p->lock` from `fork()`.
-    Proc::myproc().unwrap().lock.release();
+    let p = Proc::myproc().unwrap();
+    p.lock.release();
 
     if FIRST.load(Ordering::Acquire) {
         // File system initialization must be run in the context of a
@@ -927,22 +923,20 @@ extern "C" fn forkret() {
         FIRST.store(false, Ordering::Release);
     }
 
-    trap::trap_user_ret();
+    trap::trap_user_ret(p);
 }
 
 /// Automatically releases `lock` and sleeps on `chan``.
 ///
 /// Reacquires lock when awakened.
-pub fn sleep<T>(chan: *const c_void, lock: &mut MutexGuard<T>) {
-    unsafe { sleep_raw(chan, lock.spinlock()) }
+pub fn sleep<T>(p: &mut Proc, chan: *const c_void, lock: &mut MutexGuard<T>) {
+    unsafe { sleep_raw(p, chan, lock.spinlock()) }
 }
 
 /// Automatically releases `lock` and sleeps on `chan``.
 ///
 /// Reacquires lock when awakened.
-fn sleep_raw(chan: *const c_void, lock: &SpinLock) {
-    let p = Proc::myproc().unwrap();
-
+fn sleep_raw(p: &mut Proc, chan: *const c_void, lock: &SpinLock) {
     // Must acquire `p.lock` in order to change
     // `p.state` and then call `sched()`.
     // Once we hold `p.lock()`, we can be
@@ -956,7 +950,7 @@ fn sleep_raw(chan: *const c_void, lock: &SpinLock) {
     p.chan = chan;
     p.state = ProcState::Sleeping;
 
-    sched();
+    sched(p);
 
     // Tidy up.
     p.chan = ptr::null();
@@ -1009,8 +1003,7 @@ fn kill(pid: ProcId) -> Result<(), ()> {
 
 /// Copies to either a user address, or kernel address,
 /// depending on `user_dst`.
-pub fn either_copy_out(user_dst: bool, dst: usize, src: &[u8]) -> Result<(), ()> {
-    let p = Proc::myproc().unwrap();
+pub fn either_copy_out(p: &Proc, user_dst: bool, dst: usize, src: &[u8]) -> Result<(), ()> {
     if user_dst {
         return vm::copy_out(p.pagetable().unwrap(), VirtAddr::new(dst), src);
     }
@@ -1025,8 +1018,7 @@ pub fn either_copy_out(user_dst: bool, dst: usize, src: &[u8]) -> Result<(), ()>
 
 /// Copies from either a user address, or kernel address,
 /// depending on `user_src`.
-pub fn either_copy_in(dst: &mut [u8], user_src: bool, src: usize) -> Result<(), ()> {
-    let p = Proc::myproc().unwrap();
+pub fn either_copy_in(p: &Proc, dst: &mut [u8], user_src: bool, src: usize) -> Result<(), ()> {
     if user_src {
         return vm::copy_in(p.pagetable().unwrap(), dst, VirtAddr::new(src));
     }

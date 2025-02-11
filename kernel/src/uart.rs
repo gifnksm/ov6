@@ -6,7 +6,7 @@ use crate::{
     console,
     memlayout::UART0,
     print::PANICKED,
-    proc,
+    proc::{self, Proc},
     spinlock::{self, Mutex},
 };
 
@@ -125,7 +125,7 @@ pub fn init() {
 /// Because it may block, it can't be called
 /// from interrupts; it's only suitable for use
 /// by write().
-pub fn putc(c: char) {
+pub fn putc(p: &mut Proc, c: char) {
     let mut buffer = TX_BUFFER.lock();
 
     if PANICKED.load(Ordering::Relaxed) {
@@ -137,7 +137,7 @@ pub fn putc(c: char) {
     while buffer.is_full() {
         // buffer is full
         // wait for start() to open up space in the buffer.
-        proc::sleep((&raw const buffer.tx_r).cast(), &mut buffer);
+        proc::sleep(p, (&raw const buffer.tx_r).cast(), &mut buffer);
     }
     buffer.put(c as u8);
     start(&mut buffer);

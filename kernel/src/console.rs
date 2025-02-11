@@ -13,7 +13,7 @@ use core::ffi::c_int;
 
 use crate::{
     file::{self, DevSw},
-    proc,
+    proc::{self, Proc},
     spinlock::Mutex,
     uart,
 };
@@ -63,13 +63,13 @@ static CONS: Mutex<Cons> = Mutex::new(Cons {
 /// Writes the bytes to the console.
 ///
 /// User write()s to the console go here.
-fn write(user_src: bool, src: usize, n: usize) -> Result<usize, ()> {
+fn write(p: &mut Proc, user_src: bool, src: usize, n: usize) -> Result<usize, ()> {
     for i in 0..n {
         let mut c: [u8; 1] = [0];
-        if proc::either_copy_in(&mut c, user_src, src + i).is_err() {
+        if proc::either_copy_in(p, &mut c, user_src, src + i).is_err() {
             return Ok(i);
         }
-        uart::putc(c[0] as char);
+        uart::putc(p, c[0] as char);
     }
     Ok(n)
 }
@@ -80,18 +80,18 @@ fn write(user_src: bool, src: usize, n: usize) -> Result<usize, ()> {
 /// Copy (up to) a whole input line to `dst`.
 /// `user_dst` indicates whether `dst` is a user
 /// or kernel address.
-fn read(user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize, ()> {
+fn read(p: &mut Proc, user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize, ()> {
     let target = n;
     let mut cons = CONS.lock();
     while n > 0 {
         // wait until interrupt handler has put some
         // input into cons.buffer.
         while cons.r == cons.w {
-            if proc::Proc::myproc().map(|p| p.killed()).unwrap_or(false) {
+            if p.killed() {
                 drop(cons);
                 return Err(());
             }
-            proc::sleep((&raw const cons.r).cast(), &mut cons);
+            proc::sleep(p, (&raw const cons.r).cast(), &mut cons);
         }
 
         let c = cons.buf[cons.r % cons.buf.len()];
@@ -109,7 +109,7 @@ fn read(user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize, ()> {
 
         // copy the input byte to the user-space buffer.
         let cbuf = &[c];
-        if proc::either_copy_out(user_dst, dst, cbuf).is_err() {
+        if proc::either_copy_out(p, user_dst, dst, cbuf).is_err() {
             break;
         }
 
@@ -176,14 +176,16 @@ pub fn handle_interrupt(c: u8) {
 }
 
 extern "C" fn console_write(user_src: c_int, src: u64, n: c_int) -> c_int {
-    match write(user_src != 0, src as usize, n as usize) {
+    let p = Proc::myproc().unwrap();
+    match write(p, user_src != 0, src as usize, n as usize) {
         Ok(n) => n as c_int,
         Err(()) => -1,
     }
 }
 
 extern "C" fn console_read(user_dst: c_int, dst: u64, n: c_int) -> c_int {
-    match read(user_dst != 0, dst as usize, n as usize) {
+    let p = Proc::myproc().unwrap();
+    match read(p, user_dst != 0, dst as usize, n as usize) {
         Ok(n) => n as c_int,
         Err(()) => -1,
     }
