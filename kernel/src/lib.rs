@@ -20,12 +20,14 @@ mod kernel_vec;
 mod log;
 mod memlayout;
 mod param;
+mod pipe;
 mod plic;
 mod print;
 mod proc;
 mod sleeplock;
 mod spinlock;
 mod start;
+mod stat;
 mod switch;
 mod syscall;
 mod syscall_file;
@@ -45,7 +47,6 @@ global_asm!(
 
 unsafe extern "C" {
     fn iinit();
-    fn fileinit();
 }
 
 static STARTED: AtomicBool = AtomicBool::new(false);
@@ -67,7 +68,6 @@ extern "C" fn main() -> ! {
             plic::init_hart(); // ask PLIC for device interrupts
             bio::init(); // buffer cache
             iinit(); // inode table
-            fileinit(); // file table
             virtio_disk::init(); // emulated hard disk
             proc::user_init(); // first user process
             STARTED.store(true, Ordering::Release);

@@ -33,7 +33,7 @@ mod ffi {
 }
 
 // Block size
-const BLOCK_SIZE: usize = 1024;
+pub const BLOCK_SIZE: usize = 1024;
 
 #[repr(C)]
 pub struct Buf {

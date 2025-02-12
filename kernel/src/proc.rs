@@ -631,7 +631,7 @@ pub fn grow_proc(p: &mut Proc, n: isize) -> Result<(), ()> {
 /// Creates a new process, copying the parent.
 ///
 /// Sets up child kernel stack to return as if from `fork()` system call.
-pub fn fork(p: &Proc) -> Option<ProcId> {
+pub fn fork(p: &mut Proc) -> Option<ProcId> {
     // Allocate process.
     let np = Proc::allocate()?;
 
@@ -650,9 +650,9 @@ pub fn fork(p: &Proc) -> Option<ProcId> {
     np.trapframe_mut().unwrap().a0 = 0;
 
     // increment refereence counts on open file descriptors.
-    for (of, nof) in p.ofile.iter().zip(&mut np.ofile) {
+    for (of, nof) in p.ofile.iter_mut().zip(&mut np.ofile) {
         if let Some(of) = of {
-            *nof = file::dup(*of);
+            *nof = Some(file::dup(unsafe { of.as_mut() }).into());
         }
     }
     np.cwd = fs::inode_dup(p.cwd.unwrap());
@@ -705,8 +705,8 @@ pub fn exit(p: &mut Proc, status: i32) -> ! {
 
         // Close all open files.
         for of in &mut p.ofile {
-            if let Some(of) = of.take() {
-                file::close(of);
+            if let Some(mut of) = of.take() {
+                file::close(unsafe { of.as_mut() });
             }
         }
 

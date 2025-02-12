@@ -4,8 +4,14 @@ pub const NPROC: usize = 64;
 /// Maximum number of CPUs.
 pub const NCPU: usize = 8;
 
+/// Maximum major device number
+pub const NDEV: usize = 10;
+
 /// Open files per process.
 pub const NOFILE: usize = 16;
+
+/// Open files per system.
+pub const NFILE: usize = 100;
 
 /// Device number of file system root disk.
 pub const ROOTDEV: usize = 1;

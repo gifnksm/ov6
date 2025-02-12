@@ -195,9 +195,9 @@ pub fn init() {
     uart::init();
 
     unsafe {
-        file::devsw[file::CONSOLE] = DevSw {
-            read: console_read,
-            write: console_write,
+        file::DEVSW[file::CONSOLE] = DevSw {
+            read: Some(console_read),
+            write: Some(console_write),
         };
     }
 }
