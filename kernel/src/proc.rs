@@ -37,7 +37,7 @@ impl fmt::Display for ProcId {
 }
 
 impl ProcId {
-    pub fn new(pid: i32) -> Self {
+    pub const fn new(pid: i32) -> Self {
         Self(pid)
     }
 
@@ -907,7 +907,7 @@ pub fn sleep<T>(p: &mut Proc, chan: *const c_void, lock: &mut MutexGuard<T>) {
 /// Automatically releases `lock` and sleeps on `chan``.
 ///
 /// Reacquires lock when awakened.
-fn sleep_raw(p: &mut Proc, chan: *const c_void, lock: &SpinLock) {
+pub fn sleep_raw(p: &mut Proc, chan: *const c_void, lock: &SpinLock) {
     // Must acquire `p.lock` in order to change
     // `p.state` and then call `sched()`.
     // Once we hold `p.lock()`, we can be

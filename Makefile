@@ -7,7 +7,6 @@ OBJS = \
   $K/bio.o \
   $K/fs.o \
   $K/log.o \
-  $K/sleeplock.o \
   $K/file.o \
   $K/pipe.o \
   $K/exec.o \

@@ -22,6 +22,7 @@ mod param;
 mod plic;
 mod print;
 mod proc;
+mod sleeplock;
 mod spinlock;
 mod start;
 mod switch;

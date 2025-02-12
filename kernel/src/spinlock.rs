@@ -24,7 +24,7 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn initlock(lock: *mut SpinLock, name: *const c_char) {
-        unsafe { (*lock).init(name) }
+        unsafe { *lock = SpinLock::new(CStr::from_ptr(name)) };
     }
 
     #[unsafe(no_mangle)]
@@ -47,12 +47,6 @@ impl SpinLock {
             name: UnsafeCell::new(name.as_ptr()),
             cpu: UnsafeCell::new(ptr::null_mut()),
         }
-    }
-
-    pub unsafe fn init(&mut self, name: *const c_char) {
-        *self.name.get_mut() = name;
-        self.locked.store(0, Ordering::Relaxed);
-        *self.cpu.get_mut() = ptr::null_mut();
     }
 
     /// Acquires the lock.
