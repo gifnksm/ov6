@@ -60,7 +60,7 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn cpuid() -> c_int {
-        super::cpuid()
+        super::cpuid() as c_int
     }
 
     #[unsafe(no_mangle)]
@@ -198,7 +198,7 @@ impl Cpu {
     pub fn mycpu() -> *mut Self {
         let id = cpuid();
         unsafe {
-            let cpu = &mut CPUS[id as usize];
+            let cpu = &mut CPUS[id];
             ptr::from_mut(cpu)
         }
     }
@@ -512,10 +512,10 @@ pub fn init() {
 /// Must be called with interrupts disabled,
 /// to prevent race with process being moved
 /// to a different CPU.
-pub fn cpuid() -> i32 {
-    let id: u64;
+pub fn cpuid() -> usize {
+    let id: usize;
     unsafe { asm!("mv {}, tp", out(reg) id) };
-    id as i32
+    id
 }
 
 /// Creates a user page table for a given process, with no user memory,

@@ -1,26 +1,45 @@
-mod ffi {
-    use core::ffi::c_int;
+//! the RISC-V Platform Level Interrupt Controller (PLIC).
 
-    unsafe extern "C" {
-        pub fn plicinit();
-        pub fn plicinithart();
-        pub fn plic_claim() -> c_int;
-        pub fn plic_complete(irq: c_int);
+use core::ptr;
+
+use crate::{
+    memlayout::{PLIC, UART0_IRQ, VIRTIO0_IRQ, plic_sclaim, plic_senable, plic_spriority},
+    proc,
+};
+
+pub fn init() {
+    // set desired IRQ priorities non-zero (otherwise disabled).
+    unsafe {
+        ptr::without_provenance_mut::<u32>(PLIC + UART0_IRQ * 4).write_volatile(1);
+        ptr::without_provenance_mut::<u32>(PLIC + VIRTIO0_IRQ * 4).write_volatile(1);
     }
 }
 
-pub fn init() {
-    unsafe { ffi::plicinit() }
-}
-
 pub fn init_hart() {
-    unsafe { ffi::plicinithart() }
+    let hart = proc::cpuid();
+
+    // set enable bits for this hart's S-mode
+    // for the uart and virtio disk.
+    unsafe {
+        ptr::without_provenance_mut::<u32>(plic_senable(hart))
+            .write_volatile(1 << UART0_IRQ | 1 << VIRTIO0_IRQ);
+    }
+
+    // set this hart's S-mode priority threshold to 0
+    unsafe {
+        ptr::with_exposed_provenance_mut::<u32>(plic_spriority(hart)).write_volatile(0);
+    }
 }
 
+/// Asks the PLIC what interrupt we should serve.
 pub fn claim() -> usize {
-    unsafe { ffi::plic_claim() as usize }
+    let hart = proc::cpuid();
+    let irq = unsafe { ptr::with_exposed_provenance_mut::<u32>(plic_sclaim(hart)).read_volatile() };
+    irq as usize
 }
 
+/// Tells the PLIC we've served this IRQ.
 pub fn complete(irq: usize) {
-    unsafe { ffi::plic_complete(irq as i32) }
+    let hart = proc::cpuid();
+    unsafe { ptr::without_provenance_mut::<u32>(plic_sclaim(hart)).write_volatile(irq as u32) };
 }

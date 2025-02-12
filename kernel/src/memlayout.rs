@@ -36,15 +36,15 @@ pub const VIRTIO0_IRQ: usize = 1;
 pub const PLIC: usize = 0x0c00_0000;
 // pub const PLIC_PRIORITY: usize = PLIC + 0x0;
 // pub const PLIC_PENDING: usize = PLIC + 0x1000;
-// pub const fn plic_senable(hart: usize) -> usize {
-//     PLIC + 0x2080 + hart * 0x100
-// }
-// pub const fn plic_spriority(hart: usize) -> usize {
-//     PLIC + 0x20_1000 + hart * 0x2000
-// }
-// pub const fn plic_sclain(hart: usize) -> usize {
-//     PLIC + 0x20_1004 + hart * 0x2000
-// }
+pub const fn plic_senable(hart: usize) -> usize {
+    PLIC + 0x2080 + hart * 0x100
+}
+pub const fn plic_spriority(hart: usize) -> usize {
+    PLIC + 0x20_1000 + hart * 0x2000
+}
+pub const fn plic_sclaim(hart: usize) -> usize {
+    PLIC + 0x20_1004 + hart * 0x2000
+}
 
 // the kernel expects there to be RAM
 // for use by the kernel and user pages
