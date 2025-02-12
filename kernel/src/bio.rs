@@ -1,3 +1,5 @@
+use core::ptr::NonNull;
+
 use crate::{param::NBUF, proc::Proc, sleeplock::SleepLock, spinlock::Mutex, virtio_disk};
 
 mod ffi {
@@ -44,8 +46,8 @@ pub struct Buf {
     lock: SleepLock,
     refcnt: u32,
     // LRU cache list
-    prev: *mut Buf,
-    next: *mut Buf,
+    prev: NonNull<Buf>,
+    next: NonNull<Buf>,
     data: [u8; BLOCK_SIZE],
 }
 
@@ -71,8 +73,8 @@ static BCACHE: Mutex<BlockCache> = Mutex::new(BlockCache {
             blockno: 0,
             lock: SleepLock::new(c"buffer"),
             refcnt: 0,
-            prev: 0 as *mut Buf,
-            next: 0 as *mut Buf,
+            prev: NonNull::dangling(),
+            next: NonNull::dangling(),
             data: [0; BLOCK_SIZE],
         }
     }; NBUF],
@@ -83,8 +85,8 @@ static BCACHE: Mutex<BlockCache> = Mutex::new(BlockCache {
         blockno: 0,
         lock: SleepLock::new(c"buffer"),
         refcnt: 0,
-        prev: 0 as *mut Buf,
-        next: 0 as *mut Buf,
+        prev: NonNull::dangling(),
+        next: NonNull::dangling(),
         data: [0; BLOCK_SIZE],
     },
 });
@@ -94,13 +96,13 @@ pub fn init() {
 
     // Create linked list of buffers
     unsafe {
-        bcache.head.prev = &raw mut bcache.head;
-        bcache.head.next = &raw mut bcache.head;
+        bcache.head.prev = (&mut bcache.head).into();
+        bcache.head.next = (&mut bcache.head).into();
         for b in &mut bcache.buf {
             b.next = bcache.head.next;
-            b.prev = &raw mut bcache.head;
-            (*bcache.head.next).prev = b;
-            bcache.head.next = b;
+            b.prev = (&mut bcache.head).into();
+            bcache.head.next.as_mut().prev = b.into();
+            bcache.head.next = b.into();
         }
     }
 }
@@ -114,9 +116,9 @@ fn get(dev: u32, blockno: u32) -> &'static mut Buf {
 
     // Is the block already cached?
     let mut b = bcache.head.prev;
-    while b != &raw mut bcache.head {
-        let bp = unsafe { b.as_mut() }.unwrap();
-        unsafe { b = (*b).prev };
+    while b != (&mut bcache.head).into() {
+        let bp = unsafe { b.as_mut() };
+        unsafe { b = b.as_mut().prev };
         if bp.dev == dev && bp.blockno == blockno {
             bp.refcnt += 1;
             drop(bcache);
@@ -130,9 +132,9 @@ fn get(dev: u32, blockno: u32) -> &'static mut Buf {
     // Not cached.
     // Recycle the least recentrly used (LRU) unused buffer.
     let mut b = bcache.head.prev;
-    while b != &raw mut bcache.head {
-        let bp = unsafe { b.as_mut() }.unwrap();
-        unsafe { b = (*b).prev };
+    while b != (&mut bcache.head).into() {
+        let bp = unsafe { b.as_mut() };
+        unsafe { b = b.as_mut().prev };
         if bp.refcnt == 0 {
             bp.dev = dev;
             bp.blockno = blockno;
@@ -180,12 +182,12 @@ impl Buf {
         if self.refcnt == 0 {
             // no one is waiting for it.
             unsafe {
-                (*self.next).prev = self.prev;
-                (*self.prev).next = self.next;
+                self.next.as_mut().prev = self.prev;
+                self.prev.as_mut().next = self.next;
                 self.next = bcache.head.next;
-                self.prev = &raw mut bcache.head;
-                (*bcache.head.next).prev = self;
-                bcache.head.next = self;
+                self.prev = (&mut bcache.head).into();
+                bcache.head.next.as_mut().prev = self.into();
+                bcache.head.next = self.into();
             }
         }
     }
