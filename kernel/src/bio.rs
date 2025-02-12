@@ -1,4 +1,4 @@
-use crate::{param::NBUF, proc::Proc, sleeplock::SleepLock, spinlock::SpinLock, virtio_disk};
+use crate::{param::NBUF, proc::Proc, sleeplock::SleepLock, spinlock::Mutex, virtio_disk};
 
 mod ffi {
     use super::*;
@@ -49,9 +49,10 @@ pub struct Buf {
     data: [u8; BLOCK_SIZE],
 }
 
+unsafe impl Send for Buf {}
+
 #[repr(C)]
 struct BlockCache {
-    lock: SpinLock,
     buf: [Buf; NBUF],
 
     /// Linked list of all buffers, through prev/next.
@@ -61,8 +62,7 @@ struct BlockCache {
     head: Buf,
 }
 
-static mut BCACHE: BlockCache = BlockCache {
-    lock: SpinLock::new(c"bcache"),
+static BCACHE: Mutex<BlockCache> = Mutex::new(BlockCache {
     buf: [const {
         Buf {
             valid: 0,
@@ -87,16 +87,16 @@ static mut BCACHE: BlockCache = BlockCache {
         next: 0 as *mut Buf,
         data: [0; BLOCK_SIZE],
     },
-};
+});
 
 pub fn init() {
-    unsafe {
-        let bcache = (&raw mut BCACHE).as_mut().unwrap();
+    let bcache = &mut *BCACHE.lock();
 
-        // Create linked list of buffers
+    // Create linked list of buffers
+    unsafe {
         bcache.head.prev = &raw mut bcache.head;
         bcache.head.next = &raw mut bcache.head;
-        for b in bcache.buf.iter_mut() {
+        for b in &mut bcache.buf {
             b.next = bcache.head.next;
             b.prev = &raw mut bcache.head;
             (*bcache.head.next).prev = b;
@@ -110,8 +110,7 @@ pub fn init() {
 /// If not found, allocate a buffer.
 /// In either case, return locked buffer.
 fn get(dev: u32, blockno: u32) -> &'static mut Buf {
-    let bcache = unsafe { (&raw mut BCACHE).as_mut() }.unwrap();
-    bcache.lock.acquire();
+    let mut bcache = BCACHE.lock();
 
     // Is the block already cached?
     let mut b = bcache.head.prev;
@@ -120,7 +119,8 @@ fn get(dev: u32, blockno: u32) -> &'static mut Buf {
         unsafe { b = (*b).prev };
         if bp.dev == dev && bp.blockno == blockno {
             bp.refcnt += 1;
-            bcache.lock.release();
+            drop(bcache);
+
             let p = Proc::myproc().unwrap();
             bp.lock.acquire(p);
             return bp;
@@ -138,7 +138,8 @@ fn get(dev: u32, blockno: u32) -> &'static mut Buf {
             bp.blockno = blockno;
             bp.valid = 0;
             bp.refcnt = 1;
-            bcache.lock.release();
+            drop(bcache);
+
             let p = Proc::myproc().unwrap();
             bp.lock.acquire(p);
             return bp;
@@ -173,8 +174,7 @@ impl Buf {
         assert!(self.lock.holding(p));
         self.lock.release();
 
-        let bcache = unsafe { (&raw mut BCACHE).as_mut() }.unwrap();
-        bcache.lock.acquire();
+        let bcache = &mut *BCACHE.lock();
         self.refcnt -= 1;
 
         if self.refcnt == 0 {
@@ -188,22 +188,16 @@ impl Buf {
                 bcache.head.next = self;
             }
         }
-
-        bcache.lock.release();
     }
 
     pub fn pin(&mut self) {
-        let bcache = unsafe { (&raw mut BCACHE).as_mut() }.unwrap();
-        bcache.lock.acquire();
+        let _bcache = BCACHE.lock();
         self.refcnt += 1;
-        bcache.lock.release();
     }
 
     pub fn unpin(&mut self) {
         assert!(self.refcnt > 0);
-        let bcache = unsafe { (&raw mut BCACHE).as_mut() }.unwrap();
-        bcache.lock.acquire();
+        let _bcache = BCACHE.lock();
         self.refcnt -= 1;
-        bcache.lock.release();
     }
 }
