@@ -11,6 +11,7 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+mod bio;
 mod console;
 mod file;
 mod fs;
@@ -43,7 +44,6 @@ global_asm!(
 );
 
 unsafe extern "C" {
-    fn binit();
     fn iinit();
     fn fileinit();
 }
@@ -65,7 +65,7 @@ extern "C" fn main() -> ! {
         unsafe {
             plic::init(); // set up interrupt controller
             plic::init_hart(); // ask PLIC for device interrupts
-            binit(); // buffer cache
+            bio::init(); // buffer cache
             iinit(); // inode table
             fileinit(); // file table
             virtio_disk::init(); // emulated hard disk

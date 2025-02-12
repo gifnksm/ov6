@@ -42,7 +42,7 @@ pub struct SleepLock {
     lk: SpinLock,
 
     // For debugging:
-    name: UnsafeCell<*const c_char>,
+    name: *const c_char,
     pid: UnsafeCell<ProcId>,
 }
 
@@ -51,7 +51,7 @@ impl SleepLock {
         Self {
             locked: AtomicU32::new(0),
             lk: SpinLock::new(c"sleep lock"),
-            name: UnsafeCell::new(name.as_ptr()),
+            name: name.as_ptr(),
             pid: UnsafeCell::new(ProcId::new(0)),
         }
     }

@@ -13,7 +13,7 @@ use crate::proc::Cpu;
 #[repr(C)]
 pub struct SpinLock {
     locked: AtomicU32,
-    name: UnsafeCell<*const c_char>,
+    name: *const c_char,
     cpu: UnsafeCell<*mut Cpu>,
 }
 
@@ -44,7 +44,7 @@ impl SpinLock {
     pub const fn new(name: &'static CStr) -> Self {
         Self {
             locked: AtomicU32::new(0),
-            name: UnsafeCell::new(name.as_ptr()),
+            name: name.as_ptr(),
             cpu: UnsafeCell::new(ptr::null_mut()),
         }
     }
@@ -109,7 +109,7 @@ impl<T> Mutex<T> {
         Self {
             lock: SpinLock {
                 locked: AtomicU32::new(0),
-                name: UnsafeCell::new(ptr::null()),
+                name: ptr::null(),
                 cpu: UnsafeCell::new(ptr::null_mut()),
             },
             value: UnsafeCell::new(value),
