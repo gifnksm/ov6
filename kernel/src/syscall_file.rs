@@ -18,15 +18,15 @@ mod ffi {
     }
 }
 
-pub fn pipe(_p: &mut Proc) -> Result<usize, ()> {
+pub fn pipe(_p: &Proc) -> Result<usize, ()> {
     syscall::wrap_syscall(ffi::sys_pipe)
 }
 
-pub fn read(_p: &mut Proc) -> Result<usize, ()> {
+pub fn read(_p: &Proc) -> Result<usize, ()> {
     syscall::wrap_syscall(ffi::sys_read)
 }
 
-pub fn exec(_p: &mut Proc) -> Result<usize, ()> {
+pub fn exec(_p: &Proc) -> Result<usize, ()> {
     let res = unsafe { ffi::sys_exec() as isize };
     if res < 0 {
         return Err(());
@@ -34,42 +34,42 @@ pub fn exec(_p: &mut Proc) -> Result<usize, ()> {
     Ok(res as usize)
 }
 
-pub fn fstat(_p: &mut Proc) -> Result<usize, ()> {
+pub fn fstat(_p: &Proc) -> Result<usize, ()> {
     syscall::wrap_syscall(ffi::sys_fstat)
 }
 
-pub fn chdir(_p: &mut Proc) -> Result<usize, ()> {
+pub fn chdir(_p: &Proc) -> Result<usize, ()> {
     syscall::wrap_syscall(ffi::sys_chdir)
 }
 
-pub fn dup(_p: &mut Proc) -> Result<usize, ()> {
+pub fn dup(_p: &Proc) -> Result<usize, ()> {
     syscall::wrap_syscall(ffi::sys_dup)
 }
 
-pub fn open(_p: &mut Proc) -> Result<usize, ()> {
+pub fn open(_p: &Proc) -> Result<usize, ()> {
     syscall::wrap_syscall(ffi::sys_open)
 }
 
-pub fn write(_p: &mut Proc) -> Result<usize, ()> {
+pub fn write(_p: &Proc) -> Result<usize, ()> {
     syscall::wrap_syscall(ffi::sys_write)
 }
 
-pub fn mknod(_p: &mut Proc) -> Result<usize, ()> {
+pub fn mknod(_p: &Proc) -> Result<usize, ()> {
     syscall::wrap_syscall(ffi::sys_mknod)
 }
 
-pub fn unlink(_p: &mut Proc) -> Result<usize, ()> {
+pub fn unlink(_p: &Proc) -> Result<usize, ()> {
     syscall::wrap_syscall(ffi::sys_unlink)
 }
 
-pub fn link(_p: &mut Proc) -> Result<usize, ()> {
+pub fn link(_p: &Proc) -> Result<usize, ()> {
     syscall::wrap_syscall(ffi::sys_link)
 }
 
-pub fn mkdir(_p: &mut Proc) -> Result<usize, ()> {
+pub fn mkdir(_p: &Proc) -> Result<usize, ()> {
     syscall::wrap_syscall(ffi::sys_mkdir)
 }
 
-pub fn close(_p: &mut Proc) -> Result<usize, ()> {
+pub fn close(_p: &Proc) -> Result<usize, ()> {
     syscall::wrap_syscall(ffi::sys_close)
 }

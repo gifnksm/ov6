@@ -125,7 +125,7 @@ pub fn init() {
 /// Because it may block, it can't be called
 /// from interrupts; it's only suitable for use
 /// by write().
-pub fn putc(p: &mut Proc, c: char) {
+pub fn putc(p: &Proc, c: char) {
     let mut buffer = TX_BUFFER.lock();
 
     if PANICKED.load(Ordering::Relaxed) {

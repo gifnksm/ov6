@@ -232,7 +232,7 @@ pub fn close(f: &File) {
 /// Gets metadata about file `f`.
 ///
 /// `addr` is a user virtual address, pointing to a struct stat.
-pub fn stat(p: &mut Proc, f: &File, addr: VirtAddr) -> Result<(), ()> {
+pub fn stat(p: &Proc, f: &File, addr: VirtAddr) -> Result<(), ()> {
     match f.ty {
         FileType::Inode | FileType::Device => {
             let mut st = Stat::zero();

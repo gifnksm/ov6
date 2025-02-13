@@ -143,7 +143,7 @@ fn arg_str(p: &Proc, n: usize, buf: &mut [u8]) -> Result<usize, ()> {
     fetch_str(p, addr, buf)
 }
 
-pub fn syscall(p: &mut Proc) {
+pub fn syscall(p: &Proc) {
     let n = p.trapframe().unwrap().a7 as usize;
     let f = match n {
         SYS_FORK => syscall_proc::fork,

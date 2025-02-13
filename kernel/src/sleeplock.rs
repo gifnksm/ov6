@@ -56,7 +56,7 @@ impl SleepLock {
         }
     }
 
-    pub fn acquire(&self, p: &mut Proc) {
+    pub fn acquire(&self, p: &Proc) {
         self.lk.acquire();
         while self.locked.load(Ordering::Acquire) != 0 {
             proc::sleep_raw(p, ptr::from_ref(self).cast(), &self.lk);

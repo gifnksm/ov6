@@ -14,7 +14,7 @@ use crate::proc::Cpu;
 pub struct SpinLock {
     locked: AtomicU32,
     name: *const c_char,
-    cpu: UnsafeCell<*mut Cpu>,
+    cpu: UnsafeCell<Option<&'static Cpu>>,
 }
 
 const _: () = assert!(size_of::<AtomicU32>() == size_of::<c_uint>());
@@ -45,7 +45,7 @@ impl SpinLock {
         Self {
             locked: AtomicU32::new(0),
             name: name.as_ptr(),
-            cpu: UnsafeCell::new(ptr::null_mut()),
+            cpu: UnsafeCell::new(None),
         }
     }
 
@@ -65,7 +65,7 @@ impl SpinLock {
 
         // Record info about lock acquisition for holding() and debugging.
         unsafe {
-            *self.cpu.get() = Cpu::mycpu();
+            *self.cpu.get() = Some(Cpu::mycpu());
         }
     }
 
@@ -74,7 +74,7 @@ impl SpinLock {
         assert!(self.holding());
 
         unsafe {
-            *self.cpu.get() = ptr::null_mut();
+            *self.cpu.get() = None;
         }
 
         // `Ordering::Release` tells the compiler and the CPU to not move loads or stores
@@ -93,7 +93,10 @@ impl SpinLock {
     /// Interrupts must be off.
     pub fn holding(&self) -> bool {
         assert!(!sstatus::read().sie());
-        self.locked.load(Ordering::Relaxed) != 0 && unsafe { *self.cpu.get() } == Cpu::mycpu()
+        self.locked.load(Ordering::Relaxed) != 0
+            && unsafe { *self.cpu.get() }
+                .map(|c| ptr::eq(c, Cpu::mycpu()))
+                .unwrap_or(false)
     }
 }
 
@@ -110,7 +113,7 @@ impl<T> Mutex<T> {
             lock: SpinLock {
                 locked: AtomicU32::new(0),
                 name: ptr::null(),
-                cpu: UnsafeCell::new(ptr::null_mut()),
+                cpu: UnsafeCell::new(None),
             },
             value: UnsafeCell::new(value),
         }
@@ -167,10 +170,10 @@ pub fn push_off() {
 
     unsafe {
         sstatus::clear_sie();
-        if (*Cpu::mycpu()).noff == 0 {
-            (*Cpu::mycpu()).intena = old.into();
+        if *Cpu::mycpu().noff.get() == 0 {
+            *Cpu::mycpu().intena.get() = old.into();
         }
-        (*Cpu::mycpu()).noff += 1;
+        *Cpu::mycpu().noff.get() += 1;
     }
 }
 
@@ -178,9 +181,9 @@ pub fn pop_off() {
     unsafe {
         let c = Cpu::mycpu();
         assert!(!sstatus::read().sie());
-        assert!((*c).noff > 0);
-        (*c).noff -= 1;
-        if (*c).noff == 0 && (*c).intena != 0 {
+        assert!(*c.noff.get() > 0);
+        *c.noff.get() -= 1;
+        if *c.noff.get() == 0 && *c.intena.get() != 0 {
             sstatus::set_sie();
         }
     }

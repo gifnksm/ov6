@@ -96,7 +96,7 @@ extern "C" fn trap_user() {
 }
 
 /// Returns to user space
-pub fn trap_user_ret(p: &mut Proc) {
+pub fn trap_user_ret(p: &Proc) {
     // we're about to switch destination of traps from
     // kerneltrap() to usertrap(), so turn off interrupts until
     // we're back in user space, where usertrap() is correct.

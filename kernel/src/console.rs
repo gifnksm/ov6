@@ -63,7 +63,7 @@ static CONS: Mutex<Cons> = Mutex::new(Cons {
 /// Writes the bytes to the console.
 ///
 /// User write()s to the console go here.
-fn write(p: &mut Proc, user_src: bool, src: usize, n: usize) -> Result<usize, ()> {
+fn write(p: &Proc, user_src: bool, src: usize, n: usize) -> Result<usize, ()> {
     for i in 0..n {
         let mut c: [u8; 1] = [0];
         if proc::either_copy_in(p, &mut c, user_src, src + i).is_err() {
@@ -80,7 +80,7 @@ fn write(p: &mut Proc, user_src: bool, src: usize, n: usize) -> Result<usize, ()
 /// Copy (up to) a whole input line to `dst`.
 /// `user_dst` indicates whether `dst` is a user
 /// or kernel address.
-fn read(p: &mut Proc, user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize, ()> {
+fn read(p: &Proc, user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize, ()> {
     let target = n;
     let mut cons = CONS.lock();
     while n > 0 {
