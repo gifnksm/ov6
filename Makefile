@@ -7,7 +7,6 @@ OBJS = \
   $K/fs.o \
   $K/log.o \
   $K/pipe.o \
-  $K/exec.o \
   $K/sysfile.o \
   $K/virtio_disk.o
 

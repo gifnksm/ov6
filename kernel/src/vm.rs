@@ -21,31 +21,6 @@ mod ffi {
     use super::*;
 
     #[unsafe(no_mangle)]
-    extern "C" fn walkaddr(pagetable: *mut PageTable, va: u64) -> u64 {
-        let pa =
-            unsafe { (*pagetable).resolve_virtual_address(VirtAddr(va as usize), PtEntryFlags::U) };
-        pa.map(|pa| pa.0 as u64).unwrap_or(0)
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn uvmalloc(pagetable: *mut PageTable, oldsz: u64, newsz: u64, xperm: c_int) -> u64 {
-        let pagetable = unsafe { pagetable.as_mut().unwrap() };
-        user::alloc(
-            pagetable,
-            oldsz as usize,
-            newsz as usize,
-            PtEntryFlags::from_bits_retain(xperm as usize),
-        )
-        .unwrap_or(0) as u64
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn uvmclear(pagetable: *mut PageTable, va: u64) {
-        let pagetable = unsafe { pagetable.as_mut().unwrap() };
-        user::forbide_user_access(pagetable, VirtAddr(va as usize));
-    }
-
-    #[unsafe(no_mangle)]
     extern "C" fn copyout(
         pagetable: *mut PageTable,
         dst_va: u64,
@@ -101,9 +76,14 @@ pub const fn page_rounddown(addr: usize) -> usize {
     addr & !(PAGE_SIZE - 1)
 }
 
+pub const fn is_page_aligned(addr: usize) -> bool {
+    addr % PAGE_SIZE == 0
+}
+
 pub trait PageRound {
     fn page_roundup(&self) -> Self;
     fn page_rounddown(&self) -> Self;
+    fn is_page_aligned(&self) -> bool;
 }
 
 impl PageRound for usize {
@@ -113,6 +93,10 @@ impl PageRound for usize {
 
     fn page_rounddown(&self) -> Self {
         page_rounddown(*self)
+    }
+
+    fn is_page_aligned(&self) -> bool {
+        is_page_aligned(*self)
     }
 }
 
@@ -124,6 +108,10 @@ impl PageRound for NonZero<usize> {
     fn page_rounddown(&self) -> Self {
         NonZero::new(page_rounddown(self.get())).unwrap()
     }
+
+    fn is_page_aligned(&self) -> bool {
+        is_page_aligned(self.get())
+    }
 }
 
 impl<T> PageRound for NonNull<T> {
@@ -133,6 +121,10 @@ impl<T> PageRound for NonNull<T> {
 
     fn page_rounddown(&self) -> Self {
         self.map_addr(|a| a.page_rounddown())
+    }
+
+    fn is_page_aligned(&self) -> bool {
+        is_page_aligned(self.as_ptr().addr())
     }
 }
 
@@ -144,6 +136,10 @@ impl PageRound for VirtAddr {
     fn page_rounddown(&self) -> Self {
         Self(self.0.page_rounddown())
     }
+
+    fn is_page_aligned(&self) -> bool {
+        is_page_aligned(self.addr())
+    }
 }
 
 impl PageRound for PhysAddr {
@@ -153,6 +149,10 @@ impl PageRound for PhysAddr {
 
     fn page_rounddown(&self) -> Self {
         Self(self.0.page_rounddown())
+    }
+
+    fn is_page_aligned(&self) -> bool {
+        is_page_aligned(self.addr())
     }
 }
 
@@ -255,6 +255,10 @@ impl PhysAddr {
         Self(addr)
     }
 
+    pub fn addr(&self) -> usize {
+        self.0
+    }
+
     fn as_ptr<T>(&self) -> *const T {
         ptr::without_provenance(self.0)
     }
@@ -321,7 +325,7 @@ impl PageTable {
     /// Returns `Ok(())` on success, `Err(())` if `walk()` couldn't
     /// allocate a needed page-table page.
     pub fn map_page(&mut self, va: VirtAddr, pa: PhysAddr, perm: PtEntryFlags) -> Result<(), ()> {
-        assert_eq!(va.0 % PAGE_SIZE, 0, "va={va:?}");
+        assert!(va.is_page_aligned(), "va={va:?}");
         assert!(perm.intersects(PtEntryFlags::RWX), "perm={perm:?}");
 
         self.update_level0_entry(va, true, |pte| {
@@ -347,8 +351,8 @@ impl PageTable {
         pa: PhysAddr,
         perm: PtEntryFlags,
     ) -> Result<(), ()> {
-        assert_eq!(va.0 % PAGE_SIZE, 0, "va={va:?}");
-        assert_eq!(size % PAGE_SIZE, 0, "size={size:#x}");
+        assert!(va.is_page_aligned(), "va={va:?}");
+        assert!(size.is_page_aligned(), "size={size:#x}");
         assert_ne!(size, 0, "size={size:#x}");
 
         let mut va = va;
@@ -369,7 +373,7 @@ impl PageTable {
     ///
     /// Returns the physical address of the page that was unmapped.
     fn upmap_page(&mut self, va: VirtAddr) -> PhysAddr {
-        assert_eq!(va.0 % PAGE_SIZE, 0, "va={va:?}");
+        assert!(va.is_page_aligned(), "va={va:?}");
 
         self.update_level0_entry(va, false, |pte| {
             assert!(pte.is_valid());
@@ -461,7 +465,7 @@ impl PageTable {
 
     /// Looks up a virtual address, returns the physical address,
     /// or `None` if not mapped.
-    fn resolve_virtual_address(&self, va: VirtAddr, flags: PtEntryFlags) -> Option<PhysAddr> {
+    pub fn resolve_virtual_address(&self, va: VirtAddr, flags: PtEntryFlags) -> Option<PhysAddr> {
         if va >= VirtAddr::MAX {
             return None;
         }
@@ -715,7 +719,6 @@ pub mod user {
         newsz: usize,
         xperm: PtEntryFlags,
     ) -> Result<usize, ()> {
-        assert!(newsz >= oldsz);
         if newsz < oldsz {
             return Ok(oldsz);
         }
@@ -754,7 +757,6 @@ pub mod user {
     ///
     /// Returns the new process size.
     pub fn dealloc(pagetable: &mut PageTable, oldsz: usize, newsz: usize) -> usize {
-        assert!(newsz <= oldsz);
         if newsz >= oldsz {
             return oldsz;
         }
@@ -838,7 +840,7 @@ pub mod user {
     /// Marks a PTE invalid for user access.
     ///
     /// Used by exec for the user stackguard page.
-    pub(super) fn forbide_user_access(pagetable: &mut PageTable, va: VirtAddr) {
+    pub fn forbide_user_access(pagetable: &mut PageTable, va: VirtAddr) {
         pagetable
             .update_level0_entry(va, false, |pte| {
                 let mut flags = pte.flags();

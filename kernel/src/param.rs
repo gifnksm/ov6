@@ -16,8 +16,14 @@ pub const NFILE: usize = 100;
 /// Device number of file system root disk.
 pub const ROOTDEV: usize = 1;
 
+/// Max exec arguments
+pub const MAX_ARG: usize = 32;
+
 /// Max # of blocks any FS op writes.
 pub const MAX_OP_BLOCKS: usize = 10;
 
 /// Size of disk block cache.
 pub const NBUF: usize = MAX_OP_BLOCKS * 3;
+
+/// User stack pages
+pub const USER_STACK: usize = 1;

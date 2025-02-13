@@ -46,6 +46,16 @@ pub fn inode_unlock(ip: NonNull<Inode>) {
     unsafe { ffi::iunlock(ip.as_ptr()) }
 }
 
+pub fn inode_with_lock<F, T>(ip: NonNull<Inode>, f: F) -> T
+where
+    F: FnOnce(NonNull<Inode>) -> T,
+{
+    inode_lock(ip);
+    let res = f(ip);
+    inode_unlock(ip);
+    res
+}
+
 pub fn stat_inode(ip: NonNull<Inode>, st: &mut Stat) {
     unsafe { ffi::stati(ip.as_ptr(), st) }
 }

@@ -13,6 +13,8 @@ use core::{
 
 mod bio;
 mod console;
+mod elf;
+mod exec;
 mod file;
 mod fs;
 mod kalloc;

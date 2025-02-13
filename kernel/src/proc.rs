@@ -70,18 +70,6 @@ mod ffi {
     }
 
     #[unsafe(no_mangle)]
-    extern "C" fn proc_pagetable(p: *mut Proc) -> *mut PageTable {
-        super::create_pagetable(unsafe { p.as_mut().unwrap() })
-            .map(|p| p.as_ptr())
-            .unwrap_or_else(ptr::null_mut)
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn proc_freepagetable(p: *mut PageTable, sz: u64) {
-        super::free_pagetable(NonNull::new(p).unwrap(), sz as usize);
-    }
-
-    #[unsafe(no_mangle)]
     extern "C" fn sleep(chan: *const c_void, lk: *mut SpinLock) {
         let p = Proc::myproc().unwrap();
         unsafe { super::sleep_raw(p, chan, lk.as_ref().unwrap()) }
@@ -343,6 +331,10 @@ impl Proc {
         }
     }
 
+    pub fn name_mut(&self) -> NonNull<[u8; 16]> {
+        NonNull::new(self.name.get()).unwrap()
+    }
+
     pub fn size(&self) -> usize {
         unsafe { *self.sz.get() }
     }
@@ -357,6 +349,14 @@ impl Proc {
 
     fn pagetable_mut(&self) -> Option<&mut PageTable> {
         unsafe { *self.pagetable.get() }.map(|mut pt| unsafe { pt.as_mut() })
+    }
+
+    pub fn update_pagetable(&self, pagetable: NonNull<PageTable>, sz: usize) {
+        let old_pt = unsafe { ptr::replace(self.pagetable.get(), Some(pagetable)) };
+        let old_sz = unsafe { ptr::replace(self.sz.get(), sz) };
+        if let Some(old) = old_pt {
+            free_pagetable(old, old_sz);
+        }
     }
 
     pub fn trapframe(&self) -> Option<&TrapFrame> {
@@ -527,7 +527,7 @@ pub fn cpuid() -> usize {
 
 /// Creates a user page table for a given process, with no user memory,
 /// but with trampoline and trapframe pages.
-fn create_pagetable(p: &Proc) -> Option<NonNull<PageTable>> {
+pub fn create_pagetable(p: &Proc) -> Option<NonNull<PageTable>> {
     // An empty page table.
     let mut pagetable_ptr = vm::user::create().ok()?;
     let pagetable = unsafe { pagetable_ptr.as_mut() };
@@ -578,7 +578,7 @@ fn create_pagetable(p: &Proc) -> Option<NonNull<PageTable>> {
 
 /// Frees a process's page table, and free the
 /// physical memory it refers to.
-fn free_pagetable(mut pagetable_ptr: NonNull<PageTable>, sz: usize) {
+pub fn free_pagetable(mut pagetable_ptr: NonNull<PageTable>, sz: usize) {
     let pagetable = unsafe { pagetable_ptr.as_mut() };
     vm::user::unmap(pagetable, TRAMPOLINE, 1, false);
     vm::user::unmap(pagetable, TRAPFRAME, 1, false);
