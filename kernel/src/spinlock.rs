@@ -100,6 +100,7 @@ impl SpinLock {
     }
 }
 
+#[repr(C)]
 pub struct Mutex<T> {
     lock: SpinLock,
     value: UnsafeCell<T>,

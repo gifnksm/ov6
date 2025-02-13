@@ -273,7 +273,7 @@ pub fn read(f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> {
 
     match f.ty {
         FileType::None => panic!(),
-        FileType::Pipe => pipe::read(unsafe { f.pipe.unwrap().as_mut() }, addr, n),
+        FileType::Pipe => pipe::read(unsafe { f.pipe.unwrap().as_ref() }, addr, n),
         FileType::Device => {
             let devsw = unsafe { (&raw const DEVSW).as_ref() }.unwrap();
             let Some(dev) = devsw.get(f.major as usize) else {
@@ -310,7 +310,7 @@ pub fn write(f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> {
 
     match f.ty {
         FileType::None => panic!(),
-        FileType::Pipe => pipe::write(unsafe { f.pipe.unwrap().as_mut() }, addr, n),
+        FileType::Pipe => pipe::write(unsafe { f.pipe.unwrap().as_ref() }, addr, n),
         FileType::Device => {
             let devsw = unsafe { (&raw const DEVSW).as_ref() }.unwrap();
             let Some(dev) = devsw.get(f.major as usize) else {

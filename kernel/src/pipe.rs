@@ -4,7 +4,7 @@ use crate::{
     file::{self, File},
     kalloc,
     proc::{self, Proc},
-    spinlock::SpinLock,
+    spinlock::Mutex,
     vm::{self, VirtAddr},
 };
 
@@ -32,16 +32,20 @@ const PIPE_SIZE: usize = 512;
 
 #[repr(C)]
 pub struct Pipe {
-    lock: SpinLock,
+    data: Mutex<PipeData>,
+}
+
+#[repr(C)]
+struct PipeData {
     data: [u8; PIPE_SIZE],
     /// Number of bytes read
-    nread: u32,
+    nread: usize,
     /// Number of bytes written
-    nwrite: u32,
+    nwrite: usize,
     /// read fd is still open
-    readopen: i32,
+    readopen: bool,
     /// write fd is still open
-    writeopen: i32,
+    writeopen: bool,
 }
 
 pub fn alloc() -> Result<(&'static File, &'static File), ()> {
@@ -60,12 +64,13 @@ pub fn alloc() -> Result<(&'static File, &'static File), ()> {
 
     unsafe {
         *pi.as_mut() = Pipe {
-            lock: SpinLock::new(c"pipe"),
-            data: [0; PIPE_SIZE],
-            nread: 0,
-            nwrite: 0,
-            readopen: 1,
-            writeopen: 1,
+            data: Mutex::new(PipeData {
+                data: [0; PIPE_SIZE],
+                nread: 0,
+                nwrite: 0,
+                readopen: true,
+                writeopen: true,
+            }),
         }
     };
 
@@ -75,79 +80,75 @@ pub fn alloc() -> Result<(&'static File, &'static File), ()> {
     Ok((f0, f1))
 }
 
-pub fn close(mut pi: NonNull<Pipe>, writable: bool) {
+pub fn close(pipe: NonNull<Pipe>, writable: bool) {
     let do_free;
     {
-        let pi = unsafe { pi.as_mut() };
-        pi.lock.acquire();
+        let pi = unsafe { pipe.as_ref() };
+        let mut pi = pi.data.lock();
         if writable {
-            pi.writeopen = 0;
+            pi.writeopen = false;
             proc::wakeup((&raw const pi.nread).cast());
         } else {
-            pi.readopen = 0;
+            pi.readopen = false;
             proc::wakeup((&raw const pi.nwrite).cast());
         }
-        do_free = pi.readopen == 0 && pi.writeopen == 0;
-        pi.lock.release();
+        do_free = !pi.readopen && !pi.writeopen;
     };
     if do_free {
-        kalloc::free_page(pi.cast());
+        kalloc::free_page(pipe.cast());
     }
 }
 
-pub fn write(pi: &mut Pipe, addr: VirtAddr, n: usize) -> Result<usize, ()> {
-    let pr = Proc::myproc().unwrap();
+pub fn write(pipe: &Pipe, addr: VirtAddr, n: usize) -> Result<usize, ()> {
+    let p = Proc::myproc().unwrap();
     let mut i = 0;
 
-    pi.lock.acquire();
+    let mut pipe = pipe.data.lock();
     while i < n {
-        if pi.readopen == 0 || pr.killed() {
-            pi.lock.release();
+        if !pipe.readopen || p.killed() {
             return Err(());
         }
-        if pi.nwrite as usize == (pi.nread as usize) + PIPE_SIZE {
-            proc::wakeup((&raw const pi.nread).cast());
-            proc::sleep_raw(pr, (&raw const pi.nwrite).cast(), &pi.lock);
+        if pipe.nwrite == pipe.nread + PIPE_SIZE {
+            proc::wakeup((&raw const pipe.nread).cast());
+            proc::sleep(p, (&raw const pipe.nwrite).cast(), &mut pipe);
             continue;
         }
 
         let mut byte: [u8; 1] = [0];
-        if vm::copy_in(pr.pagetable().unwrap(), &mut byte, addr.byte_add(i)).is_err() {
+        if vm::copy_in(p.pagetable().unwrap(), &mut byte, addr.byte_add(i)).is_err() {
             break;
         }
-        pi.data[(pi.nwrite as usize) % PIPE_SIZE] = byte[0];
-        pi.nwrite += 1;
+        let idx = pipe.nwrite % PIPE_SIZE;
+        pipe.data[idx] = byte[0];
+        pipe.nwrite += 1;
         i += 1;
     }
-    proc::wakeup((&raw const pi.nread).cast());
-    pi.lock.release();
+    proc::wakeup((&raw const pipe.nread).cast());
     Ok(i)
 }
 
-pub fn read(pi: &mut Pipe, addr: VirtAddr, n: usize) -> Result<usize, ()> {
-    let pr = Proc::myproc().unwrap();
+pub fn read(pipe: &Pipe, addr: VirtAddr, n: usize) -> Result<usize, ()> {
+    let p = Proc::myproc().unwrap();
 
-    pi.lock.acquire();
-    while pi.nread == pi.nwrite && pi.writeopen != 0 {
-        if pr.killed() {
-            pi.lock.release();
+    let mut pipe = pipe.data.lock();
+    while pipe.nread == pipe.nwrite && pipe.writeopen {
+        if p.killed() {
             return Err(());
         }
-        proc::sleep_raw(pr, (&raw const pi.nread).cast(), &pi.lock);
+        proc::sleep(p, (&raw const pipe.nread).cast(), &mut pipe);
     }
     let mut i = 0;
     while i < n {
-        if pi.nread == pi.nwrite {
+        if pipe.nread == pipe.nwrite {
             break;
         }
-        let ch = [pi.data[pi.nread as usize % PIPE_SIZE]];
-        pi.nread += 1;
-        if vm::copy_out(pr.pagetable().unwrap(), addr.byte_add(i), &ch).is_err() {
+        let ch = [pipe.data[pipe.nread % PIPE_SIZE]];
+        pipe.nread += 1;
+        if vm::copy_out(p.pagetable().unwrap(), addr.byte_add(i), &ch).is_err() {
             break;
         }
         i += 1;
     }
-    proc::wakeup((&raw const pi.nwrite).cast());
-    pi.lock.release();
+    proc::wakeup((&raw const pipe.nwrite).cast());
     Ok(i)
 }
