@@ -66,7 +66,7 @@ static CONS: Mutex<Cons> = Mutex::new(Cons {
 fn write(p: &Proc, user_src: bool, src: usize, n: usize) -> Result<usize, ()> {
     for i in 0..n {
         let mut c: [u8; 1] = [0];
-        if proc::either_copy_in(p, &mut c, user_src, src + i).is_err() {
+        if proc::either_copy_in_bytes(p, &mut c, user_src, src + i).is_err() {
             return Ok(i);
         }
         uart::putc(p, c[0] as char);
@@ -109,7 +109,7 @@ fn read(p: &Proc, user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize,
 
         // copy the input byte to the user-space buffer.
         let cbuf = &[c];
-        if proc::either_copy_out(p, user_dst, dst, cbuf).is_err() {
+        if proc::either_copy_out_bytes(p, user_dst, dst, cbuf).is_err() {
             break;
         }
 

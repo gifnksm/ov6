@@ -255,8 +255,7 @@ pub fn stat(p: &Proc, f: &File, addr: VirtAddr) -> Result<(), ()> {
             fs::inode_lock(f.ip.unwrap());
             fs::stat_inode(f.ip.unwrap(), &mut st);
             fs::inode_unlock(f.ip.unwrap());
-            let src: [u8; size_of::<Stat>()] = unsafe { mem::transmute(st) };
-            vm::copy_out(p.pagetable().unwrap(), addr, &src)?;
+            vm::copy_out(p.pagetable().unwrap(), addr, &st)?;
             Ok(())
         }
         _ => Err(()),

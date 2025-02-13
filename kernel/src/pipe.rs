@@ -114,12 +114,11 @@ pub fn write(pipe: &Pipe, addr: VirtAddr, n: usize) -> Result<usize, ()> {
             continue;
         }
 
-        let mut byte: [u8; 1] = [0];
-        if vm::copy_in(p.pagetable().unwrap(), &mut byte, addr.byte_add(i)).is_err() {
+        let Ok(byte) = vm::copy_in(p.pagetable().unwrap(), addr.byte_add(i)) else {
             break;
-        }
+        };
         let idx = pipe.nwrite % PIPE_SIZE;
-        pipe.data[idx] = byte[0];
+        pipe.data[idx] = byte;
         pipe.nwrite += 1;
         i += 1;
     }
@@ -142,7 +141,7 @@ pub fn read(pipe: &Pipe, addr: VirtAddr, n: usize) -> Result<usize, ()> {
         if pipe.nread == pipe.nwrite {
             break;
         }
-        let ch = [pipe.data[pipe.nread % PIPE_SIZE]];
+        let ch = pipe.data[pipe.nread % PIPE_SIZE];
         pipe.nread += 1;
         if vm::copy_out(p.pagetable().unwrap(), addr.byte_add(i), &ch).is_err() {
             break;

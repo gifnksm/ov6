@@ -1,8 +1,10 @@
 use core::{
     ffi::{c_int, c_void},
+    mem,
     num::NonZero,
     ops::Range,
     ptr::{self, NonNull},
+    slice,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -29,7 +31,7 @@ mod ffi {
     ) -> c_int {
         let pagetable = unsafe { pagetable.as_ref().unwrap() };
         let src = unsafe { slice::from_raw_parts(src, len as usize) };
-        match super::copy_out(pagetable, VirtAddr(dst_va as usize), src) {
+        match super::copy_out_bytes(pagetable, VirtAddr(dst_va as usize), src) {
             Ok(()) => 0,
             Err(()) => -1,
         }
@@ -836,10 +838,22 @@ pub mod user {
     }
 }
 
+/// Copies from user to kernel.
+///
+/// Copies from `src` to virtual address `dst_va` in a given page table.
+pub fn copy_out<T>(pagetable: &PageTable, dst_va: VirtAddr, src: &T) -> Result<(), ()> {
+    let src = unsafe { slice::from_raw_parts(ptr::from_ref(src).cast(), mem::size_of::<T>()) };
+    copy_out_bytes(pagetable, dst_va, src)
+}
+
 /// Copies from kernel to user.
 ///
-/// Copies `len`` bytes from `src`` to virtual address `dst_va` in a given page table.
-pub fn copy_out(pagetable: &PageTable, mut dst_va: VirtAddr, mut src: &[u8]) -> Result<(), ()> {
+/// Copies from `src` to virtual address `dst_va` in a given page table.
+pub fn copy_out_bytes(
+    pagetable: &PageTable,
+    mut dst_va: VirtAddr,
+    mut src: &[u8],
+) -> Result<(), ()> {
     while !src.is_empty() {
         let va0 = dst_va.page_rounddown();
         if va0 >= VirtAddr::MAX {
@@ -863,19 +877,50 @@ pub fn copy_out(pagetable: &PageTable, mut dst_va: VirtAddr, mut src: &[u8]) -> 
 
 /// Copies from user to kernel.
 ///
-/// Copies `len` bytes to `dst` from virtual address `src_va` in a given page table.
-pub fn copy_in(pagetable: &PageTable, mut dst: &mut [u8], mut src_va: VirtAddr) -> Result<(), ()> {
-    while !dst.is_empty() {
+/// Returns the copy from virtual address `src_va` in a given page table.
+pub fn copy_in<T>(pagetable: &PageTable, src_va: VirtAddr) -> Result<T, ()> {
+    let mut dst = mem::MaybeUninit::<T>::uninit();
+    copy_in_raw(pagetable, dst.as_mut_ptr().cast(), size_of::<T>(), src_va)?;
+    Ok(unsafe { dst.assume_init() })
+}
+
+// /// Copies from user to kernel.
+// ///
+// /// Copies to `dst` from virtual address `src_va` in a given page table.
+// pub fn copy_in_to<T>(pagetable: &PageTable, dst: &mut T, src_va: VirtAddr) -> Result<(), ()> {
+//     copy_in_raw(pagetable, ptr::from_mut(dst).cast(), size_of::<T>(), src_va)
+// }
+
+/// Copies from user to kernel.
+///
+/// Copies to `dst` from virtual address `src_va` in a given page table.
+pub fn copy_in_bytes(pagetable: &PageTable, dst: &mut [u8], src_va: VirtAddr) -> Result<(), ()> {
+    copy_in_raw(pagetable, dst.as_mut_ptr(), dst.len(), src_va)
+}
+
+/// Copies from user to kernel.
+///
+/// Copies to `dst` from virtual address `src_va` in a given page table.
+pub fn copy_in_raw(
+    pagetable: &PageTable,
+    mut dst: *mut u8,
+    mut dst_size: usize,
+    mut src_va: VirtAddr,
+) -> Result<(), ()> {
+    while dst_size > 0 {
         let va0 = src_va.page_rounddown();
         let offset = src_va.0 - va0.0;
         let mut n = PAGE_SIZE - offset;
-        if n > dst.len() {
-            n = dst.len();
+        if n > dst_size {
+            n = dst_size;
         }
         let src_page = pagetable.fetch_page(va0, PtEntryFlags::UR).ok_or(())?;
         let src = &src_page[offset..][..n];
-        dst[..n].copy_from_slice(src);
-        dst = &mut dst[n..];
+        unsafe {
+            dst.copy_from(src.as_ptr(), n);
+            dst = dst.add(n);
+            dst_size -= n;
+        }
         src_va = va0.byte_add(PAGE_SIZE);
     }
 

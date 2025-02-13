@@ -238,7 +238,7 @@ fn push_arguments(
         if sp < stack_base {
             return Err(());
         }
-        vm::copy_out(pagetable, VirtAddr::new(sp), arg.to_bytes_with_nul())?;
+        vm::copy_out_bytes(pagetable, VirtAddr::new(sp), arg.to_bytes_with_nul())?;
         ustack[argc] = sp;
         argc += 1;
     }
@@ -252,6 +252,6 @@ fn push_arguments(
     }
     let src =
         unsafe { slice::from_raw_parts(ustack.as_ptr().cast(), (argc + 1) * size_of::<usize>()) };
-    vm::copy_out(pagetable, VirtAddr::new(sp), src)?;
+    vm::copy_out_bytes(pagetable, VirtAddr::new(sp), src)?;
     Ok((sp, argc))
 }

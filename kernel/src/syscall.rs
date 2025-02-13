@@ -95,9 +95,7 @@ fn fetch_addr(p: &Proc, addr: VirtAddr) -> Result<usize, ()> {
     if !p.is_valid_addr(addr..addr.byte_add(size_of::<usize>())) {
         return Err(());
     }
-    let mut bytes = [0u8; size_of::<usize>()];
-    vm::copy_in(p.pagetable().unwrap(), &mut bytes, addr).map_err(|_| ())?;
-    Ok(usize::from_ne_bytes(bytes))
+    vm::copy_in(p.pagetable().unwrap(), addr)
 }
 
 /// Fetches the nul-terminated string at addr from the current process.

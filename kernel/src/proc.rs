@@ -85,7 +85,7 @@ mod ffi {
         let p = Proc::myproc().unwrap();
         let user_dst = user_dst != 0;
         let src = unsafe { slice::from_raw_parts(src.cast(), len as usize) };
-        match super::either_copy_out(p, user_dst, dst as usize, src) {
+        match super::either_copy_out_bytes(p, user_dst, dst as usize, src) {
             Ok(()) => 0,
             Err(()) => -1,
         }
@@ -96,7 +96,7 @@ mod ffi {
         let p = Proc::myproc().unwrap();
         let user_src = user_src != 0;
         let dst = unsafe { slice::from_raw_parts_mut(dst.cast(), len as usize) };
-        match super::either_copy_in(p, dst, user_src, src as usize) {
+        match super::either_copy_in_bytes(p, dst, user_src, src as usize) {
             Ok(()) => 0,
             Err(()) => -1,
         }
@@ -788,12 +788,8 @@ pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, ()> {
                 // Found one.
                 let pid = unsafe { *pp.pid.get() };
                 if addr.addr() != 0
-                    && vm::copy_out(
-                        p.pagetable().unwrap(),
-                        addr,
-                        &unsafe { *pp.xstate.get() }.to_ne_bytes(),
-                    )
-                    .is_err()
+                    && vm::copy_out(p.pagetable().unwrap(), addr, &unsafe { *pp.xstate.get() })
+                        .is_err()
                 {
                     pp.lock.release();
                     WAIT_LOCK.release();
@@ -1013,9 +1009,9 @@ pub fn kill(pid: ProcId) -> Result<(), ()> {
 
 /// Copies to either a user address, or kernel address,
 /// depending on `user_dst`.
-pub fn either_copy_out(p: &Proc, user_dst: bool, dst: usize, src: &[u8]) -> Result<(), ()> {
+pub fn either_copy_out_bytes(p: &Proc, user_dst: bool, dst: usize, src: &[u8]) -> Result<(), ()> {
     if user_dst {
-        return vm::copy_out(p.pagetable().unwrap(), VirtAddr::new(dst), src);
+        return vm::copy_out_bytes(p.pagetable().unwrap(), VirtAddr::new(dst), src);
     }
 
     unsafe {
@@ -1028,9 +1024,14 @@ pub fn either_copy_out(p: &Proc, user_dst: bool, dst: usize, src: &[u8]) -> Resu
 
 /// Copies from either a user address, or kernel address,
 /// depending on `user_src`.
-pub fn either_copy_in(p: &Proc, dst: &mut [u8], user_src: bool, src: usize) -> Result<(), ()> {
+pub fn either_copy_in_bytes(
+    p: &Proc,
+    dst: &mut [u8],
+    user_src: bool,
+    src: usize,
+) -> Result<(), ()> {
     if user_src {
-        return vm::copy_in(p.pagetable().unwrap(), dst, VirtAddr::new(src));
+        return vm::copy_in_bytes(p.pagetable().unwrap(), dst, VirtAddr::new(src));
     }
     unsafe {
         let src = ptr::without_provenance::<u8>(src);
