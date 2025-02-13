@@ -64,10 +64,7 @@ void            begin_op(void);
 void            end_op(void);
 
 // pipe.c
-int             pipealloc(struct file**, struct file**);
-void            pipeclose(struct pipe*, int);
-int             piperead(struct pipe*, uint64, int);
-int             pipewrite(struct pipe*, uint64, int);
+int pipealloc(struct file **, struct file **);
 
 // printf.c
 int            printf(char*, ...) __attribute__ ((format (printf, 1, 2)));
@@ -75,7 +72,6 @@ void panic(char *) __attribute__((noreturn));
 
 // proc.c
 int cpuid(void);
-int killed(struct proc *);
 struct proc *myproc();
 void sleep(void *, struct spinlock *);
 void wakeup(void *);
@@ -110,8 +106,7 @@ int             fetchstr(uint64, char*, int);
 int fetchaddr(uint64, uint64 *);
 
 // vm.c
-int             copyout(pagetable_t, uint64, char *, uint64);
-int copyin(pagetable_t, char *, uint64, uint64);
+int copyout(pagetable_t, uint64, char *, uint64);
 
 // plic.c
 void            plicinit(void);

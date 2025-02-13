@@ -6,7 +6,6 @@ OBJS = \
   $K/string.o \
   $K/fs.o \
   $K/log.o \
-  $K/pipe.o \
   $K/sysfile.o \
   $K/virtio_disk.o
 

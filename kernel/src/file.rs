@@ -76,7 +76,7 @@ use crate::{
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(i32)]
-enum FileType {
+pub enum FileType {
     None = 0,
     Pipe,
     Inode,
@@ -85,13 +85,13 @@ enum FileType {
 
 #[repr(C)]
 pub struct File {
-    ty: FileType,
+    pub ty: FileType,
     /// Reference count.
     refcnt: AtomicI32,
-    readable: u8,
-    writable: u8,
+    pub readable: u8,
+    pub writable: u8,
     // FileType::Pipe
-    pipe: Option<NonNull<Pipe>>,
+    pub pipe: Option<NonNull<Pipe>>,
     // FileType::Inode & FileType::Device
     ip: Option<NonNull<Inode>>,
     // FileTYpe::Inode
@@ -112,6 +112,22 @@ impl File {
             off: UnsafeCell::new(0),
             major: 0,
         }
+    }
+
+    pub fn init_read_pipe(&mut self, pipe: NonNull<Pipe>) {
+        assert_eq!(self.ty, FileType::None);
+        self.ty = FileType::Pipe;
+        self.readable = 1;
+        self.writable = 0;
+        self.pipe = Some(pipe);
+    }
+
+    pub fn init_write_pipe(&mut self, pipe: NonNull<Pipe>) {
+        assert_eq!(self.ty, FileType::None);
+        self.ty = FileType::Pipe;
+        self.readable = 0;
+        self.writable = 1;
+        self.pipe = Some(pipe);
     }
 }
 
@@ -170,11 +186,11 @@ static mut FTABLE: FileTable = FileTable {
 };
 
 /// Allocates a file structure.
-pub fn alloc() -> Option<&'static File> {
+pub fn alloc() -> Option<&'static mut File> {
     let ftable = unsafe { (&raw mut FTABLE).as_mut() }.unwrap();
 
     ftable.lock.acquire();
-    let f = ftable.file.iter().find(|f| {
+    let f = ftable.file.iter_mut().find(|f| {
         f.refcnt
             .compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed)
             .is_ok()
@@ -219,7 +235,7 @@ pub fn close(f: &File) {
     ftable.lock.release();
 
     match ff.ty {
-        FileType::Pipe => pipe::close(unsafe { ff.pipe.unwrap().as_mut() }, ff.writable != 0),
+        FileType::Pipe => pipe::close(ff.pipe.unwrap(), ff.writable != 0),
         FileType::Inode | FileType::Device => {
             log::begin_op();
             fs::inode_put(ff.ip.unwrap());

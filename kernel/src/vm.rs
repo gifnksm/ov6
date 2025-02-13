@@ -34,21 +34,6 @@ mod ffi {
             Err(()) => -1,
         }
     }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn copyin(
-        pagetable: *mut PageTable,
-        dst: *mut c_char,
-        src_va: u64,
-        len: u64,
-    ) -> c_int {
-        let pagetable = unsafe { pagetable.as_ref().unwrap() };
-        let dst = unsafe { slice::from_raw_parts_mut(dst.cast(), len as usize) };
-        match super::copy_in(pagetable, dst, VirtAddr(src_va as usize)) {
-            Ok(()) => 0,
-            Err(()) => -1,
-        }
-    }
 }
 
 /// Bytes per page

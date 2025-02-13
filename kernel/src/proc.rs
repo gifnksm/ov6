@@ -81,12 +81,6 @@ mod ffi {
     }
 
     #[unsafe(no_mangle)]
-    extern "C" fn killed(p: *mut Proc) -> c_int {
-        let p = unsafe { p.as_mut().unwrap() };
-        p.killed() as c_int
-    }
-
-    #[unsafe(no_mangle)]
     extern "C" fn either_copyout(user_dst: c_int, dst: u64, src: *const c_void, len: u64) -> c_int {
         let p = Proc::myproc().unwrap();
         let user_dst = user_dst != 0;
