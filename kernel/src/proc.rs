@@ -851,7 +851,8 @@ pub fn scheduler() -> ! {
 
         if !found {
             unsafe {
-                sstatus::clear_sie();
+                // nothing to run, stop running on this core until an interrupt.
+                sstatus::set_sie();
                 asm!("wfi");
             }
         }
