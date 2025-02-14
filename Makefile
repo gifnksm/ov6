@@ -137,13 +137,17 @@ clean:
 	$(UPROGS)
 	cargo clean
 
-check: cargo-clippy typos
+check: cargo-clippy typos doc
 
 cargo-clippy:
 	cargo clippy --workspace --all-targets
 
 typos:
 	typos
+
+doc:
+	cargo doc --workspace --document-private-items
+	cargo doc --workspace --document-private-items --target riscv64gc-unknown-none-elf
 
 # try to generate a unique GDB port
 GDBPORT = $(shell expr `id -u` % 5000 + 25000)
