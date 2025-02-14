@@ -1,3 +1,5 @@
+use crate::fs::DeviceNo;
+
 /// Maximum number of processes.
 pub const NPROC: usize = 64;
 
@@ -13,8 +15,11 @@ pub const NOFILE: usize = 16;
 /// Open files per system.
 pub const NFILE: usize = 100;
 
+/// Maximum number of active i-nodes
+pub const NINODE: usize = 50;
+
 /// Device number of file system root disk.
-pub const ROOTDEV: usize = 1;
+pub const ROOT_DEV: DeviceNo = DeviceNo::new(1).unwrap();
 
 /// Max exec arguments
 pub const MAX_ARG: usize = 32;

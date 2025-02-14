@@ -1,25 +1,22 @@
+use crate::fs::{DeviceNo, InodeNo};
+
+/// Directory
+pub const T_DIR: i16 = 1;
+/// File
+pub const T_FILE: i16 = 2;
+/// Device
+pub const T_DEVICE: i16 = 3;
+
 #[repr(C)]
 pub struct Stat {
     /// File system's disk device
-    dev: i32,
+    pub dev: DeviceNo,
     /// Inode number
-    ino: u32,
+    pub ino: InodeNo,
     /// Type of file
-    ty: i16,
+    pub ty: i16,
     /// Number of links to file
-    nlink: i16,
+    pub nlink: i16,
     /// Size of file in bytes
-    size: u64,
-}
-
-impl Stat {
-    pub const fn zero() -> Self {
-        Self {
-            dev: 0,
-            ino: 0,
-            ty: 0,
-            nlink: 0,
-            size: 0,
-        }
-    }
+    pub size: u64,
 }

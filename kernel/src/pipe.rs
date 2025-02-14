@@ -15,7 +15,8 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn pipealloc(f0: *mut *mut File, f1: *mut *mut File) -> c_int {
-        match super::alloc() {
+        let p = Proc::myproc().unwrap();
+        match super::alloc(p) {
             Ok(res) => {
                 unsafe {
                     *f0 = ptr::from_ref(res.0).cast_mut();
@@ -48,17 +49,17 @@ struct PipeData {
     writeopen: bool,
 }
 
-pub fn alloc() -> Result<(&'static File, &'static File), ()> {
+pub fn alloc(p: &Proc) -> Result<(&'static File, &'static File), ()> {
     let Ok(f0) = file::alloc().ok_or(()) else {
         return Err(());
     };
     let Ok(f1) = file::alloc().ok_or(()) else {
-        file::close(f0);
+        file::close(p, f0);
         return Err(());
     };
     let Some(mut pi) = kalloc::alloc_page().map(|p| p.cast::<Pipe>()) else {
-        file::close(f0);
-        file::close(f1);
+        file::close(p, f0);
+        file::close(p, f1);
         return Err(());
     };
 

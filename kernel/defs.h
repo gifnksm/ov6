@@ -29,12 +29,9 @@ int             filestat(struct file*, uint64 addr);
 int             filewrite(struct file*, uint64, int n);
 
 // fs.c
-void            fsinit(int);
 int             dirlink(struct inode*, char*, uint);
 struct inode*   dirlookup(struct inode*, char*, uint*);
-struct inode*   ialloc(uint, short);
-struct inode*   idup(struct inode*);
-void            iinit();
+struct inode *ialloc(uint, short);
 void            ilock(struct inode*);
 void            iput(struct inode*);
 void            iunlock(struct inode*);
@@ -43,22 +40,15 @@ void            iupdate(struct inode*);
 int             namecmp(const char*, const char*);
 struct inode*   namei(char*);
 struct inode*   nameiparent(char*, char*);
-int             readi(struct inode*, int, uint64, uint, uint);
-void            stati(struct inode*, struct stat*);
+int readi(struct inode *, int, uint64, uint, uint);
 int             writei(struct inode*, int, uint64, uint, uint);
 void            itrunc(struct inode*);
-
-// ramdisk.c
-void            ramdiskinit(void);
-void            ramdiskintr(void);
-void            ramdiskrw(struct buf*);
 
 // kalloc.c
 void*           kalloc(void);
 void            kfree(void *);
 
 // log.c
-void            initlog(int, struct superblock*);
 void            log_write(struct buf*);
 void            begin_op(void);
 void            end_op(void);
@@ -75,19 +65,11 @@ int cpuid(void);
 struct proc *myproc();
 void sleep(void *, struct spinlock *);
 void wakeup(void *);
-int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
-int either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 
 // spinlock.c
 void acquire(struct spinlock *);
 void            initlock(struct spinlock*, char*);
 void release(struct spinlock *);
-
-// sleeplock.c
-void            acquiresleep(struct sleeplock*);
-void            releasesleep(struct sleeplock*);
-int             holdingsleep(struct sleeplock*);
-void            initsleeplock(struct sleeplock*, char*);
 
 // string.c
 int             memcmp(const void*, const void*, uint);
@@ -107,12 +89,6 @@ int fetchaddr(uint64, uint64 *);
 
 // vm.c
 int copyout(pagetable_t, uint64, char *, uint64);
-
-// plic.c
-void            plicinit(void);
-void            plicinithart(void);
-int             plic_claim(void);
-void            plic_complete(int);
 
 // virtio_disk.c
 void            virtio_disk_init(void);

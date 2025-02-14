@@ -6,6 +6,18 @@ use core::{
     sync::atomic::{AtomicI32, Ordering},
 };
 
+use crate::{
+    bio::BLOCK_SIZE,
+    fs::{self, BlockNo, DeviceNo, InodeNo, NDIRECT},
+    log,
+    param::{MAX_OP_BLOCKS, NDEV, NFILE},
+    pipe::{self, Pipe},
+    proc::Proc,
+    sleeplock::SleepLock,
+    spinlock::SpinLock,
+    vm::{self, VirtAddr},
+};
+
 pub const CONSOLE: usize = 1;
 
 mod ffi {
@@ -26,7 +38,8 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn fileclose(f: *mut File) {
-        super::close(unsafe { f.as_mut() }.unwrap())
+        let p = Proc::myproc().unwrap();
+        super::close(p, unsafe { f.as_mut() }.unwrap())
     }
 
     #[unsafe(no_mangle)]
@@ -42,9 +55,10 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn fileread(f: *mut File, addr: u64, n: c_int) -> c_int {
+        let p = Proc::myproc().unwrap();
         let f = unsafe { f.as_mut() }.unwrap();
         let addr = VirtAddr::new(addr as usize);
-        match super::read(f, addr, n as usize) {
+        match super::read(p, f, addr, n as usize) {
             Ok(sz) => sz as c_int,
             Err(()) => -1,
         }
@@ -52,27 +66,15 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn filewrite(f: *mut File, addr: u64, n: c_int) -> c_int {
+        let p = Proc::myproc().unwrap();
         let f = unsafe { f.as_mut() }.unwrap();
         let addr = VirtAddr::new(addr as usize);
-        match super::write(f, addr, n as usize) {
+        match super::write(p, f, addr, n as usize) {
             Ok(sz) => sz as c_int,
             Err(()) => -1,
         }
     }
 }
-
-use crate::{
-    bio::BLOCK_SIZE,
-    fs::{self, NDIRECT},
-    log,
-    param::{MAX_OP_BLOCKS, NDEV, NFILE},
-    pipe::{self, Pipe},
-    proc::Proc,
-    sleeplock::SleepLock,
-    spinlock::SpinLock,
-    stat::Stat,
-    vm::{self, VirtAddr},
-};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(i32)]
@@ -135,23 +137,43 @@ impl File {
 #[repr(C)]
 pub struct Inode {
     /// Device number
-    dev: u32,
+    pub dev: Option<DeviceNo>,
     /// Inode number
-    inum: u32,
+    pub inum: Option<InodeNo>,
     /// Reference count
-    refcount: i32,
+    pub refcount: i32,
     /// Protects everything below here.
-    lock: SleepLock,
+    pub lock: SleepLock,
     /// Inode has been read from disk?
-    valid: i32,
+    pub valid: i32,
 
     // Copy of disk inode
-    ty: i16,
-    major: i16,
-    minor: i16,
-    nlink: i16,
-    size: u32,
-    addrs: [u32; NDIRECT + 1],
+    pub ty: i16,
+    pub major: i16,
+    pub minor: i16,
+    pub nlink: i16,
+    pub size: u32,
+    pub addrs: [Option<BlockNo>; NDIRECT + 1],
+}
+
+unsafe impl Send for Inode {}
+
+impl Inode {
+    pub const fn zero() -> Self {
+        Self {
+            dev: None,
+            inum: None,
+            refcount: 0,
+            lock: SleepLock::new(c"inode"),
+            valid: 0,
+            ty: 0,
+            major: 0,
+            minor: 0,
+            nlink: 0,
+            size: 0,
+            addrs: [None; NDIRECT + 1],
+        }
+    }
 }
 
 /// Maps major device number to device functions.
@@ -213,7 +235,7 @@ pub fn dup(f: &File) -> &File {
 /// Closes file `f`.
 ///
 /// Decrements ref count, closes when reaches 0.
-pub fn close(f: &File) {
+pub fn close(p: &Proc, f: &File) {
     let ftable = unsafe { (&raw mut FTABLE).as_mut() }.unwrap();
 
     ftable.lock.acquire();
@@ -238,7 +260,7 @@ pub fn close(f: &File) {
         FileType::Pipe => pipe::close(ff.pipe.unwrap(), ff.writable != 0),
         FileType::Inode | FileType::Device => {
             log::begin_op();
-            fs::inode_put(ff.ip.unwrap());
+            fs::inode_put(p, ff.ip.unwrap());
             log::end_op();
         }
         _ => {}
@@ -251,10 +273,7 @@ pub fn close(f: &File) {
 pub fn stat(p: &Proc, f: &File, addr: VirtAddr) -> Result<(), ()> {
     match f.ty {
         FileType::Inode | FileType::Device => {
-            let mut st = Stat::zero();
-            fs::inode_lock(f.ip.unwrap());
-            fs::stat_inode(f.ip.unwrap(), &mut st);
-            fs::inode_unlock(f.ip.unwrap());
+            let st = fs::inode_with_lock(p, f.ip.unwrap(), |ip| fs::stat_inode(p, ip));
             vm::copy_out(p.pagetable().unwrap(), addr, &st)?;
             Ok(())
         }
@@ -265,7 +284,7 @@ pub fn stat(p: &Proc, f: &File, addr: VirtAddr) -> Result<(), ()> {
 /// Reads from file `f`.
 ///
 /// `addr` is a user virtual address.
-pub fn read(f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> {
+pub fn read(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> {
     if f.readable == 0 {
         return Err(());
     }
@@ -287,22 +306,20 @@ pub fn read(f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> {
             }
             Ok(sz as usize)
         }
-        FileType::Inode => {
-            fs::inode_lock(f.ip.unwrap());
-            let res = fs::read_inode(f.ip.unwrap(), true, addr, unsafe { *f.off.get() }, n);
+        FileType::Inode => fs::inode_with_lock(p, f.ip.unwrap(), |ip| {
+            let res = fs::read_inode(p, ip, true, addr, unsafe { *f.off.get() } as usize, n);
             if let Ok(sz) = res {
                 unsafe { *f.off.get() += sz as u32 };
             }
-            fs::inode_unlock(f.ip.unwrap());
             res
-        }
+        }),
     }
 }
 
 /// Writes to file `f`.
 ///
 /// `addr` is a user virtual address.
-pub fn write(f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> {
+pub fn write(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> {
     if f.writable == 0 {
         return Err(());
     }
@@ -340,18 +357,20 @@ pub fn write(f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> {
                 }
 
                 log::begin_op();
-                fs::inode_lock(f.ip.unwrap());
-                let res = fs::write_inode(
-                    f.ip.unwrap(),
-                    true,
-                    addr.byte_add(i),
-                    unsafe { *f.off.get() },
-                    n1,
-                );
-                if let Ok(sz) = res {
-                    unsafe { *f.off.get() += sz as u32 };
-                }
-                fs::inode_unlock(f.ip.unwrap());
+                let res = fs::inode_with_lock(p, f.ip.unwrap(), |ip| {
+                    let res = fs::write_inode(
+                        p,
+                        ip,
+                        true,
+                        addr.byte_add(i),
+                        unsafe { *f.off.get() } as usize,
+                        n1,
+                    );
+                    if let Ok(sz) = res {
+                        unsafe { *f.off.get() += sz as u32 };
+                    }
+                    res
+                });
                 log::end_op();
 
                 if res != Ok(n1) {

@@ -47,10 +47,6 @@ global_asm!(
     start = sym self::start::start,
 );
 
-unsafe extern "C" {
-    fn iinit();
-}
-
 static STARTED: AtomicBool = AtomicBool::new(false);
 
 // start() jumps here in supervisor mode on all CPUs.
@@ -65,15 +61,12 @@ extern "C" fn main() -> ! {
         vm::kernel::init_hart(); // turn on paging
         proc::init(); // process table
         trap::init_hart(); // install kernel trap vectort
-        unsafe {
-            plic::init(); // set up interrupt controller
-            plic::init_hart(); // ask PLIC for device interrupts
-            bio::init(); // buffer cache
-            iinit(); // inode table
-            virtio_disk::init(); // emulated hard disk
-            proc::user_init(); // first user process
-            STARTED.store(true, Ordering::Release);
-        }
+        plic::init(); // set up interrupt controller
+        plic::init_hart(); // ask PLIC for device interrupts
+        bio::init(); // buffer cache
+        virtio_disk::init(); // emulated hard disk
+        proc::user_init(); // first user process
+        STARTED.store(true, Ordering::Release);
     } else {
         while !STARTED.load(Ordering::Acquire) {
             hint::spin_loop();

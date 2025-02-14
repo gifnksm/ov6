@@ -24,10 +24,11 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     fn loadseg(pagetable: *mut PageTable, va: u64, ip: *mut Inode, offset: u32, sz: u32) -> c_int {
+        let p = Proc::myproc().unwrap();
         let pagetable = unsafe { pagetable.as_ref().unwrap() };
         let va = VirtAddr::new(va as usize);
         let ip = NonNull::new(ip).unwrap();
-        match super::load_segment(pagetable, va, ip, offset as usize, sz as usize) {
+        match super::load_segment(p, pagetable, va, ip, offset as usize, sz as usize) {
             Ok(()) => 0,
             Err(()) => -1,
         }
@@ -47,13 +48,15 @@ fn flags2perm(flags: u32) -> PtEntryFlags {
 
 fn exec(path: &CStr, argv: *const *const u8) -> Result<usize, ()> {
     let (elf, mut pagetable, mut sz) = log::do_op(|| {
-        let ip = fs::namei(path).ok_or(())?;
+        let p = Proc::myproc().unwrap();
+        let ip = fs::resolve_path(p, path.to_bytes()).ok_or(())?;
 
-        fs::inode_with_lock(ip, |ip| {
+        fs::inode_with_lock(p, ip, |ip| {
             // Check ELF header
             let mut elf = ElfHeader::zero();
 
             if fs::read_inode(
+                p,
                 ip,
                 false,
                 VirtAddr::new((&raw mut elf).addr()),
@@ -67,12 +70,11 @@ fn exec(path: &CStr, argv: *const *const u8) -> Result<usize, ()> {
                 return Err(());
             }
 
-            let p = Proc::myproc().unwrap();
             let mut pagetable = proc::create_pagetable(p).ok_or(())?;
 
             // Load program into memory.
             let mut sz = 0;
-            if let Err(()) = load_segments(ip, unsafe { pagetable.as_mut() }, &mut sz, &elf) {
+            if let Err(()) = load_segments(p, ip, unsafe { pagetable.as_mut() }, &mut sz, &elf) {
                 proc::free_pagetable(pagetable, sz);
                 return Err(());
             }
@@ -123,15 +125,17 @@ fn exec(path: &CStr, argv: *const *const u8) -> Result<usize, ()> {
 }
 
 fn load_segments(
+    p: &Proc,
     ip: NonNull<Inode>,
     pagetable: &mut PageTable,
     sz: &mut usize,
     elf: &ElfHeader,
 ) -> Result<(), ()> {
     for i in 0..elf.phnum {
-        let off = elf.phoff as u32 + u32::from(i) * size_of::<ProgramHeader>() as u32;
+        let off = elf.phoff as usize + usize::from(i) * size_of::<ProgramHeader>();
         let mut ph = ProgramHeader::zero();
         fs::read_inode(
+            p,
             ip,
             false,
             VirtAddr::new((&raw mut ph).addr()),
@@ -157,6 +161,7 @@ fn load_segments(
             flags2perm(ph.flags),
         )?;
         load_segment(
+            p,
             pagetable,
             VirtAddr::new(ph.vaddr as usize),
             ip,
@@ -172,6 +177,7 @@ fn load_segments(
 ///
 /// `va` must be page-aligned.
 fn load_segment(
+    p: &Proc,
     pagetable: &PageTable,
     va: VirtAddr,
     ip: NonNull<Inode>,
@@ -191,7 +197,7 @@ fn load_segment(
             PAGE_SIZE
         };
 
-        if fs::read_inode(ip, false, VirtAddr::new(pa.addr()), (offset + i) as u32, n) != Ok(n) {
+        if fs::read_inode(p, ip, false, VirtAddr::new(pa.addr()), offset + i, n) != Ok(n) {
             return Err(());
         }
     }

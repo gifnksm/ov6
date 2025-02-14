@@ -10,30 +10,6 @@ use crate::{
     spinlock::SpinLock,
 };
 
-mod ffi {
-    use super::*;
-
-    #[unsafe(no_mangle)]
-    extern "C" fn initsleeplock(lk: *mut SleepLock, name: *const c_char) {
-        unsafe { *lk = SleepLock::new(CStr::from_ptr(name)) };
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn acquiresleep(lk: *mut SleepLock) {
-        unsafe { (*lk).acquire(Proc::myproc().unwrap()) }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn releasesleep(lk: *mut SleepLock) {
-        unsafe { (*lk).release() }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn holdingsleep(lk: *mut SleepLock) -> bool {
-        unsafe { (*lk).holding(Proc::myproc().unwrap()) }
-    }
-}
-
 #[repr(C)]
 pub struct SleepLock {
     /// Is the lock held?

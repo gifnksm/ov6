@@ -1,13 +1,22 @@
-use core::ptr::NonNull;
+use core::ptr::{self, NonNull};
 
-use crate::{param::NBUF, proc::Proc, sleeplock::SleepLock, spinlock::Mutex, virtio_disk};
+use crate::{
+    fs::{BlockNo, DInode, DeviceNo, INODE_PER_BLOCK, NINDIRECT},
+    param::NBUF,
+    proc::Proc,
+    sleeplock::SleepLock,
+    spinlock::Mutex,
+    virtio_disk,
+};
 
 mod ffi {
+    use crate::fs::DeviceNo;
+
     use super::*;
 
     #[unsafe(no_mangle)]
-    extern "C" fn bread(dev: u32, blockno: u32) -> *mut Buf {
-        super::read(dev, blockno)
+    extern "C" fn bread(dev: u32, block_no: u32) -> *mut Buf {
+        super::read(DeviceNo::new(dev).unwrap(), BlockNo::new(block_no).unwrap())
     }
 
     #[unsafe(no_mangle)]
@@ -41,14 +50,14 @@ pub struct Buf {
     valid: i32,
     /// Does disk "own" buf?
     disk: i32,
-    dev: u32,
-    blockno: u32,
+    dev: Option<DeviceNo>,
+    block_no: Option<BlockNo>,
     lock: SleepLock,
     refcnt: u32,
     // LRU cache list
     prev: NonNull<Buf>,
     next: NonNull<Buf>,
-    data: [u8; BLOCK_SIZE],
+    pub data: [u8; BLOCK_SIZE],
 }
 
 unsafe impl Send for Buf {}
@@ -69,8 +78,8 @@ static BCACHE: Mutex<BlockCache> = Mutex::new(BlockCache {
         Buf {
             valid: 0,
             disk: 0,
-            dev: 0,
-            blockno: 0,
+            dev: None,
+            block_no: None,
             lock: SleepLock::new(c"buffer"),
             refcnt: 0,
             prev: NonNull::dangling(),
@@ -81,8 +90,8 @@ static BCACHE: Mutex<BlockCache> = Mutex::new(BlockCache {
     head: Buf {
         valid: 0,
         disk: 0,
-        dev: 0,
-        blockno: 0,
+        dev: None,
+        block_no: None,
         lock: SleepLock::new(c"buffer"),
         refcnt: 0,
         prev: NonNull::dangling(),
@@ -111,7 +120,7 @@ pub fn init() {
 ///
 /// If not found, allocate a buffer.
 /// In either case, return locked buffer.
-fn get(dev: u32, blockno: u32) -> &'static mut Buf {
+fn get(dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
     let mut bcache = BCACHE.lock();
 
     // Is the block already cached?
@@ -119,7 +128,7 @@ fn get(dev: u32, blockno: u32) -> &'static mut Buf {
     while b != (&mut bcache.head).into() {
         let bp = unsafe { b.as_mut() };
         unsafe { b = b.as_mut().prev };
-        if bp.dev == dev && bp.blockno == blockno {
+        if bp.dev == Some(dev) && bp.block_no == Some(block_no) {
             bp.refcnt += 1;
             drop(bcache);
 
@@ -136,8 +145,8 @@ fn get(dev: u32, blockno: u32) -> &'static mut Buf {
         let bp = unsafe { b.as_mut() };
         unsafe { b = b.as_mut().prev };
         if bp.refcnt == 0 {
-            bp.dev = dev;
-            bp.blockno = blockno;
+            bp.dev = Some(dev);
+            bp.block_no = Some(block_no);
             bp.valid = 0;
             bp.refcnt = 1;
             drop(bcache);
@@ -151,8 +160,8 @@ fn get(dev: u32, blockno: u32) -> &'static mut Buf {
 }
 
 /// Returns a locked buf with the contents of the indicated block.
-pub fn read(dev: u32, blockno: u32) -> &'static mut Buf {
-    let b = get(dev, blockno);
+pub fn read(dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
+    let b = get(dev, block_no);
     if b.valid == 0 {
         virtio_disk::read(b);
         b.valid = 1;
@@ -202,4 +211,30 @@ impl Buf {
         let _bcache = BCACHE.lock();
         self.refcnt -= 1;
     }
+
+    fn as_mut_array<T, const N: usize>(&mut self) -> &mut [T; N] {
+        const {
+            assert!(size_of::<[T; N]>() <= BLOCK_SIZE);
+        }
+        let data = ptr::from_mut(&mut self.data).cast::<[T; N]>();
+        unsafe { &mut *data }
+    }
+
+    pub fn as_dinodes_mut(&mut self) -> &mut [DInode; INODE_PER_BLOCK] {
+        self.as_mut_array()
+    }
+
+    pub fn as_indirect_blocks_mut(&mut self) -> &mut [Option<BlockNo>; NINDIRECT] {
+        self.as_mut_array()
+    }
+}
+
+pub fn with_buf<F, T>(p: &Proc, dev: DeviceNo, block_no: BlockNo, f: F) -> T
+where
+    F: FnOnce(&mut Buf) -> T,
+{
+    let buf = read(dev, block_no);
+    let res = f(buf);
+    buf.release(p);
+    res
 }

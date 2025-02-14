@@ -16,7 +16,7 @@ use crate::{
     file::{self, File, Inode},
     fs, kalloc, log,
     memlayout::{TRAMPOLINE, TRAPFRAME, kstack},
-    param::{NCPU, NOFILE, NPROC, ROOTDEV},
+    param::{NCPU, NOFILE, NPROC, ROOT_DEV},
     println,
     spinlock::{self, MutexGuard, SpinLock},
     switch, trampoline, trap,
@@ -78,28 +78,6 @@ mod ffi {
     #[unsafe(no_mangle)]
     extern "C" fn wakeup(chan: *const c_void) {
         super::wakeup(chan)
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn either_copyout(user_dst: c_int, dst: u64, src: *const c_void, len: u64) -> c_int {
-        let p = Proc::myproc().unwrap();
-        let user_dst = user_dst != 0;
-        let src = unsafe { slice::from_raw_parts(src.cast(), len as usize) };
-        match super::either_copy_out_bytes(p, user_dst, dst as usize, src) {
-            Ok(()) => 0,
-            Err(()) => -1,
-        }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn either_copyin(dst: *mut c_void, user_src: c_int, src: u64, len: u64) -> c_int {
-        let p = Proc::myproc().unwrap();
-        let user_src = user_src != 0;
-        let dst = unsafe { slice::from_raw_parts_mut(dst.cast(), len as usize) };
-        match super::either_copy_in_bytes(p, dst, user_src, src as usize) {
-            Ok(()) => 0,
-            Err(()) => -1,
-        }
     }
 }
 
@@ -323,6 +301,10 @@ impl Proc {
                 .to_str()
                 .unwrap()
         }
+    }
+
+    pub fn cwd(&self) -> Option<NonNull<Inode>> {
+        unsafe { *self.cwd.get() }
     }
 
     pub fn name_mut(&self) -> NonNull<[u8; 16]> {
@@ -612,7 +594,7 @@ pub fn user_init() {
 
     unsafe {
         *p.name.get() = *b"initcode\0\0\0\0\0\0\0\0";
-        *p.cwd.get() = fs::namei(c"/");
+        *p.cwd.get() = fs::resolve_path(p, b"/");
         *p.state.get() = ProcState::Runnable;
     }
 
@@ -674,7 +656,7 @@ pub fn fork(p: &Proc) -> Option<ProcId> {
         }
     }
     unsafe {
-        *np.cwd.get() = fs::inode_dup((*p.cwd.get()).unwrap());
+        *np.cwd.get() = Some(fs::inode_dup((*p.cwd.get()).unwrap()));
         *np.name.get() = *p.name.get();
     }
 
@@ -729,13 +711,13 @@ pub fn exit(p: &Proc, status: i32) -> ! {
         // Close all open files.
         for of in &p.ofile {
             if let Some(of) = unsafe { &mut *of.get() }.take() {
-                file::close(unsafe { of.as_ref() });
+                file::close(p, unsafe { of.as_ref() });
             }
             assert!(unsafe { *of.get() }.is_none());
         }
 
         log::begin_op();
-        fs::inode_put(unsafe { *p.cwd.get() }.unwrap());
+        fs::inode_put(p, unsafe { *p.cwd.get() }.unwrap());
         log::end_op();
         unsafe {
             *p.cwd.get() = None;
@@ -918,7 +900,7 @@ extern "C" fn forkret() {
         // File system initialization must be run in the context of a
         // regular process (e.g., because it calls sleep), and thus cannot
         // be run from main().
-        fs::init(ROOTDEV);
+        fs::init(p, ROOT_DEV);
 
         FIRST.store(false, Ordering::Release);
     }
