@@ -40,11 +40,11 @@ pub fn sleep(p: &Proc) -> Result<usize, ()> {
     let mut ticks = TICKS.lock();
     let ticks0 = *ticks;
     while *ticks - ticks0 < n {
-        let p = Proc::myproc().unwrap();
+        let p = Proc::current();
         if p.killed() {
             return Err(());
         }
-        proc::sleep(p, (&raw const TICKS).cast(), &mut ticks);
+        proc::sleep((&raw const TICKS).cast(), &mut ticks);
     }
     drop(ticks);
     Ok(0)

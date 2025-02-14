@@ -69,7 +69,7 @@ fn write(p: &Proc, user_src: bool, src: usize, n: usize) -> Result<usize, ()> {
         if proc::either_copy_in_bytes(p, &mut c, user_src, src + i).is_err() {
             return Ok(i);
         }
-        uart::putc(p, c[0] as char);
+        uart::putc(c[0] as char);
     }
     Ok(n)
 }
@@ -91,7 +91,7 @@ fn read(p: &Proc, user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize,
                 drop(cons);
                 return Err(());
             }
-            proc::sleep(p, (&raw const cons.r).cast(), &mut cons);
+            proc::sleep((&raw const cons.r).cast(), &mut cons);
         }
 
         let c = cons.buf[cons.r % cons.buf.len()];
@@ -176,7 +176,7 @@ pub fn handle_interrupt(c: u8) {
 }
 
 extern "C" fn console_write(user_src: c_int, src: u64, n: c_int) -> c_int {
-    let p = Proc::myproc().unwrap();
+    let p = Proc::current();
     match write(p, user_src != 0, src as usize, n as usize) {
         Ok(n) => n as c_int,
         Err(()) => -1,
@@ -184,7 +184,7 @@ extern "C" fn console_write(user_src: c_int, src: u64, n: c_int) -> c_int {
 }
 
 extern "C" fn console_read(user_dst: c_int, dst: u64, n: c_int) -> c_int {
-    let p = Proc::myproc().unwrap();
+    let p = Proc::current();
     match read(p, user_dst != 0, dst as usize, n as usize) {
         Ok(n) => n as c_int,
         Err(()) => -1,

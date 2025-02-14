@@ -24,7 +24,7 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     fn loadseg(pagetable: *mut PageTable, va: u64, ip: *mut Inode, offset: u32, sz: u32) -> c_int {
-        let p = Proc::myproc().unwrap();
+        let p = Proc::current();
         let pagetable = unsafe { pagetable.as_ref().unwrap() };
         let va = VirtAddr::new(va as usize);
         let ip = NonNull::new(ip).unwrap();
@@ -47,11 +47,11 @@ fn flags2perm(flags: u32) -> PtEntryFlags {
 }
 
 fn exec(path: &CStr, argv: *const *const u8) -> Result<usize, ()> {
-    let p = Proc::myproc().unwrap();
-    let (elf, mut pagetable, mut sz) = log::do_op(p, || {
+    let p = Proc::current();
+    let (elf, mut pagetable, mut sz) = log::do_op(|| {
         let ip = fs::resolve_path(p, path.to_bytes()).ok_or(())?;
 
-        fs::inode_with_lock(p, ip, |ip| {
+        fs::inode_with_lock(ip, |ip| {
             // Check ELF header
             let mut elf = ElfHeader::zero();
 

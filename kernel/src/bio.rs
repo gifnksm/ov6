@@ -3,7 +3,6 @@ use core::ptr::{self, NonNull};
 use crate::{
     fs::{BlockNo, DInode, DeviceNo, INODE_PER_BLOCK, NINDIRECT},
     param::NBUF,
-    proc::Proc,
     sleeplock::SleepLock,
     spinlock::Mutex,
     virtio_disk,
@@ -88,7 +87,7 @@ pub fn init() {
 ///
 /// If not found, allocate a buffer.
 /// In either case, return locked buffer.
-fn get(p: &Proc, dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
+fn get(dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
     let mut bcache = BCACHE.lock();
 
     // Is the block already cached?
@@ -100,7 +99,7 @@ fn get(p: &Proc, dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
             bp.refcnt += 1;
             drop(bcache);
 
-            bp.lock.acquire(p);
+            bp.lock.acquire();
             return bp;
         }
     }
@@ -118,7 +117,7 @@ fn get(p: &Proc, dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
             bp.refcnt = 1;
             drop(bcache);
 
-            bp.lock.acquire(p);
+            bp.lock.acquire();
             return bp;
         }
     }
@@ -126,8 +125,8 @@ fn get(p: &Proc, dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
 }
 
 /// Returns a locked buf with the contents of the indicated block.
-pub fn read(p: &Proc, dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
-    let b = get(p, dev, block_no);
+pub fn read(dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
+    let b = get(dev, block_no);
     if b.valid == 0 {
         virtio_disk::read(b);
         b.valid = 1;
@@ -138,8 +137,8 @@ pub fn read(p: &Proc, dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
 /// Writes b's contains to disk.
 ///
 /// Must be locked.
-pub fn write(p: &Proc, b: &mut Buf) {
-    assert!(b.lock.holding(p));
+pub fn write(b: &mut Buf) {
+    assert!(b.lock.holding());
     virtio_disk::write(b);
 }
 
@@ -147,8 +146,8 @@ impl Buf {
     /// Releases a locked buffer.
     ///
     /// Moves to the head of the most-recently-used list.
-    pub fn release(&mut self, p: &Proc) {
-        assert!(self.lock.holding(p));
+    pub fn release(&mut self) {
+        assert!(self.lock.holding());
         self.lock.release();
 
         let bcache = &mut *BCACHE.lock();
@@ -195,12 +194,12 @@ impl Buf {
     }
 }
 
-pub fn with_buf<F, T>(p: &Proc, dev: DeviceNo, block_no: BlockNo, f: F) -> T
+pub fn with_buf<F, T>(dev: DeviceNo, block_no: BlockNo, f: F) -> T
 where
     F: FnOnce(&mut Buf) -> T,
 {
-    let buf = read(p, dev, block_no);
+    let buf = read(dev, block_no);
     let res = f(buf);
-    buf.release(p);
+    buf.release();
     res
 }

@@ -32,14 +32,14 @@ impl SleepLock {
         }
     }
 
-    pub fn acquire(&self, p: &Proc) {
+    pub fn acquire(&self) {
         self.lk.acquire();
         while self.locked.load(Ordering::Acquire) != 0 {
-            proc::sleep_raw(p, ptr::from_ref(self).cast(), &self.lk);
+            proc::sleep_raw(ptr::from_ref(self).cast(), &self.lk);
         }
         self.locked.store(1, Ordering::Relaxed);
         unsafe {
-            *self.pid.get() = p.pid();
+            *self.pid.get() = Proc::current().pid();
         }
         self.lk.release();
     }
@@ -54,10 +54,10 @@ impl SleepLock {
         self.lk.release();
     }
 
-    pub fn holding(&self, p: &Proc) -> bool {
+    pub fn holding(&self) -> bool {
         self.lk.acquire();
-        let holding =
-            self.locked.load(Ordering::Relaxed) != 0 && unsafe { *self.pid.get() } == p.pid();
+        let holding = self.locked.load(Ordering::Relaxed) != 0
+            && unsafe { *self.pid.get() } == Proc::current().pid();
         self.lk.release();
         holding
     }

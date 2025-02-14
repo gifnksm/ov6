@@ -42,7 +42,7 @@ extern "C" fn trap_user() {
         stvec::write(kernel_vec::kernel_vec as usize, TrapMode::Direct);
     }
 
-    let p = Proc::myproc().unwrap();
+    let p = Proc::current();
 
     // save user program counter.
     p.trapframe_mut().unwrap().epc = sepc::read() as u64;
@@ -173,7 +173,7 @@ pub extern "C" fn trap_kernel() {
 
     // give up the CPU if this is a timer interrupt.
     if which_dev == IntrKind::Timer {
-        if let Some(p) = Proc::myproc() {
+        if let Some(p) = Proc::try_current() {
             proc::yield_(p)
         }
     }

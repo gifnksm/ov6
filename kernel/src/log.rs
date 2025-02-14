@@ -29,23 +29,19 @@ use crate::{
     bio::{self, Buf},
     fs::{BlockNo, DeviceNo, SuperBlock},
     param::{LOG_SIZE, MAX_OP_BLOCKS},
-    proc::{self, Proc},
+    proc,
     spinlock::SpinLock,
 };
 
 mod ffi {
-    use super::*;
-
     #[unsafe(no_mangle)]
     extern "C" fn begin_op() {
-        let p = Proc::myproc().unwrap();
-        super::begin_op(p);
+        super::begin_op();
     }
 
     #[unsafe(no_mangle)]
     extern "C" fn end_op() {
-        let p = Proc::myproc().unwrap();
-        super::end_op(p);
+        super::end_op();
     }
 }
 
@@ -83,77 +79,77 @@ static mut LOG: Log = Log {
 };
 
 impl Log {
-    pub fn init(&mut self, p: &Proc, dev: DeviceNo, sb: &SuperBlock) {
+    pub fn init(&mut self, dev: DeviceNo, sb: &SuperBlock) {
         self.start = sb.logstart;
         self.size = sb.nlog;
         self.dev = dev;
 
-        self.recover_from_log(p);
+        self.recover_from_log();
     }
 
     /// Copies committed blocks from log to their home location.
-    fn install_trans(&mut self, p: &Proc, recovering: bool) {
+    fn install_trans(&mut self, recovering: bool) {
         for tail in 0..self.lh.n {
-            let lbuf = bio::read(p, self.dev, BlockNo::new(self.start + tail + 1).unwrap()); // read log block
-            let dbuf = bio::read(p, self.dev, self.lh.block[tail as usize].unwrap()); // read dst
+            let lbuf = bio::read(self.dev, BlockNo::new(self.start + tail + 1).unwrap()); // read log block
+            let dbuf = bio::read(self.dev, self.lh.block[tail as usize].unwrap()); // read dst
             dbuf.data.copy_from_slice(&lbuf.data);
-            bio::write(p, dbuf); // write dst to disk
+            bio::write(dbuf); // write dst to disk
             if !recovering {
                 dbuf.unpin();
             }
-            lbuf.release(p);
-            dbuf.release(p);
+            lbuf.release();
+            dbuf.release();
         }
     }
 
     /// Reads the log header from disk into the in-memory log header.
-    fn read_head(&mut self, p: &Proc) {
-        let buf = bio::read(p, self.dev, BlockNo::new(self.start).unwrap());
+    fn read_head(&mut self) {
+        let buf = bio::read(self.dev, BlockNo::new(self.start).unwrap());
         let lh = buf.data.as_ptr().cast::<LogHeader>();
         unsafe {
             self.lh.n = (*lh).n;
             let n = self.lh.n as usize;
             self.lh.block[..n].copy_from_slice(&(*lh).block[..n]);
         }
-        buf.release(p);
+        buf.release();
     }
 
     /// Writes in-memory log header to disk.
     ///
     /// This is the true point at which the
     /// current transaction commits.
-    fn write_head(&mut self, p: &Proc) {
-        let buf = bio::read(p, self.dev, BlockNo::new(self.start).unwrap());
+    fn write_head(&mut self) {
+        let buf = bio::read(self.dev, BlockNo::new(self.start).unwrap());
         let hb = buf.data.as_mut_ptr().cast::<LogHeader>();
         unsafe {
             (*hb).n = self.lh.n;
             let n = self.lh.n as usize;
             (*hb).block[..n].copy_from_slice(&self.lh.block[..n]);
         }
-        bio::write(p, buf);
-        buf.release(p);
+        bio::write(buf);
+        buf.release();
     }
 
-    fn recover_from_log(&mut self, p: &Proc) {
-        self.read_head(p);
-        self.install_trans(p, true); // if committed, copy from log to disk.
+    fn recover_from_log(&mut self) {
+        self.read_head();
+        self.install_trans(true); // if committed, copy from log to disk.
         self.lh.n = 0;
-        self.write_head(p); // clear the log
+        self.write_head(); // clear the log
     }
 
     /// Starts FS transaction.
     ///
     /// Called at the start of each FS system call.
-    fn begin_op(&mut self, p: &Proc) {
+    fn begin_op(&mut self) {
         self.lock.acquire();
         loop {
             if self.committing {
-                proc::sleep_raw(p, ptr::from_ref(self).cast(), &self.lock);
+                proc::sleep_raw(ptr::from_ref(self).cast(), &self.lock);
                 continue;
             }
             if (self.lh.n as usize) + (self.outstanding + 1) * MAX_OP_BLOCKS > LOG_SIZE {
                 // this op might exhaust log space; wait for commit.
-                proc::sleep_raw(p, ptr::from_ref(self).cast(), &self.lock);
+                proc::sleep_raw(ptr::from_ref(self).cast(), &self.lock);
                 continue;
             }
             self.outstanding += 1;
@@ -166,7 +162,7 @@ impl Log {
     ///
     /// Called at the end of each FS system call.
     /// Commits if this was the last outstanding operation.
-    fn end_op(&mut self, p: &Proc) {
+    fn end_op(&mut self) {
         let mut do_commit = false;
 
         self.lock.acquire();
@@ -186,7 +182,7 @@ impl Log {
         if do_commit {
             // call commit w/o holding locks, since not allowed
             // to sleep with locks.
-            self.commit(p);
+            self.commit();
             self.lock.acquire();
             self.committing = false;
             proc::wakeup(ptr::from_ref(self).cast());
@@ -194,24 +190,24 @@ impl Log {
         }
     }
 
-    fn write_body(&mut self, p: &Proc) {
+    fn write_body(&mut self) {
         for tail in 0..self.lh.n {
-            let to = bio::read(p, self.dev, BlockNo::new(self.start + tail + 1).unwrap()); // log block
-            let from = bio::read(p, self.dev, self.lh.block[tail as usize].unwrap()); // cache block
+            let to = bio::read(self.dev, BlockNo::new(self.start + tail + 1).unwrap()); // log block
+            let from = bio::read(self.dev, self.lh.block[tail as usize].unwrap()); // cache block
             to.data.copy_from_slice(&from.data);
-            bio::write(p, to); // write the log
-            from.release(p);
-            to.release(p);
+            bio::write(to); // write the log
+            from.release();
+            to.release();
         }
     }
 
-    fn commit(&mut self, p: &Proc) {
+    fn commit(&mut self) {
         if self.lh.n > 0 {
-            self.write_body(p); // Write modified blocks from cache to log
-            self.write_head(p); // Write header to disk -- the real commit
-            self.install_trans(p, false); // Now install writes to home locations
+            self.write_body(); // Write modified blocks from cache to log
+            self.write_head(); // Write header to disk -- the real commit
+            self.install_trans(false); // Now install writes to home locations
             self.lh.n = 0;
-            self.write_head(p); // Erase the transaction from the log
+            self.write_head(); // Erase the transaction from the log
         }
     }
 
@@ -233,38 +229,38 @@ impl Log {
     }
 }
 
-pub fn init(p: &Proc, dev: DeviceNo, sb: &SuperBlock) {
+pub fn init(dev: DeviceNo, sb: &SuperBlock) {
     let log = unsafe { (&raw mut LOG).as_mut() }.unwrap();
-    log.init(p, dev, sb);
+    log.init(dev, sb);
 }
 
 /// Starts FS transaction.
 ///
 /// Called at the start of each FS system call.
-pub fn begin_op(p: &Proc) {
+pub fn begin_op() {
     let log = unsafe { (&raw mut LOG).as_mut() }.unwrap();
-    log.begin_op(p);
+    log.begin_op();
 }
 
 /// Ends FS transaction.
 ///
 /// Called at the end of each FS system call.
 /// Commits if this was the last outstanding operation.
-pub fn end_op(p: &Proc) {
+pub fn end_op() {
     let log = unsafe { (&raw mut LOG).as_mut() }.unwrap();
-    log.end_op(p);
+    log.end_op();
 }
 
 /// Does FS transaction.
 ///
 /// Commits if this was the last outstanding operation.
-pub fn do_op<T, F>(p: &Proc, f: F) -> T
+pub fn do_op<T, F>(f: F) -> T
 where
     F: FnOnce() -> T,
 {
-    begin_op(p);
+    begin_op();
     let res = f();
-    end_op(p);
+    end_op();
     res
 }
 

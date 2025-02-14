@@ -38,7 +38,7 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     unsafe extern "C" fn fetchaddr(addr: u64, ip: *mut usize) -> c_int {
-        let p = Proc::myproc().unwrap();
+        let p = Proc::current();
         super::fetch_addr(p, VirtAddr::new(addr as usize))
             .map(|val| {
                 unsafe {
@@ -51,7 +51,7 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     unsafe extern "C" fn fetchstr(addr: u64, buf: *mut c_char, max: c_int) -> c_int {
-        let p = Proc::myproc().unwrap();
+        let p = Proc::current();
         let buf = unsafe { core::slice::from_raw_parts_mut(buf.cast(), max as usize) };
         super::fetch_str(p, VirtAddr::new(addr as usize), buf)
             .map(|len| len as c_int)
@@ -60,7 +60,7 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     unsafe extern "C" fn argint(n: c_int, ip: *mut c_int) {
-        let p = Proc::myproc().unwrap();
+        let p = Proc::current();
         unsafe {
             *ip = super::arg_int(p, n as usize) as c_int;
         }
@@ -68,7 +68,7 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     unsafe extern "C" fn argaddr(n: c_int, ip: *mut u64) {
-        let p = Proc::myproc().unwrap();
+        let p = Proc::current();
         unsafe {
             *ip = super::arg_addr(p, n as usize).addr() as u64;
         }
@@ -76,7 +76,7 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     unsafe extern "C" fn argstr(n: c_int, buf: *mut c_char, max: c_int) -> c_int {
-        let p = Proc::myproc().unwrap();
+        let p = Proc::current();
         let buf = unsafe { core::slice::from_raw_parts_mut(buf.cast(), max as usize) };
         super::arg_str(p, n as usize, buf)
             .map(|len| len as c_int)
@@ -85,7 +85,7 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     unsafe extern "C" fn syscall() {
-        let p = Proc::myproc().unwrap();
+        let p = Proc::current();
         super::syscall(p)
     }
 }

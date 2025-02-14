@@ -38,13 +38,12 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn fileclose(f: *mut File) {
-        let p = Proc::myproc().unwrap();
-        super::close(p, unsafe { f.as_mut() }.unwrap())
+        super::close(unsafe { f.as_mut() }.unwrap())
     }
 
     #[unsafe(no_mangle)]
     extern "C" fn filestat(f: *mut File, addr: u64) -> c_int {
-        let p = Proc::myproc().unwrap();
+        let p = Proc::current();
         let f = unsafe { f.as_mut() }.unwrap();
         let addr = VirtAddr::new(addr as usize);
         match super::stat(p, f, addr) {
@@ -55,7 +54,7 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn fileread(f: *mut File, addr: u64, n: c_int) -> c_int {
-        let p = Proc::myproc().unwrap();
+        let p = Proc::current();
         let f = unsafe { f.as_mut() }.unwrap();
         let addr = VirtAddr::new(addr as usize);
         match super::read(p, f, addr, n as usize) {
@@ -66,7 +65,7 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn filewrite(f: *mut File, addr: u64, n: c_int) -> c_int {
-        let p = Proc::myproc().unwrap();
+        let p = Proc::current();
         let f = unsafe { f.as_mut() }.unwrap();
         let addr = VirtAddr::new(addr as usize);
         match super::write(p, f, addr, n as usize) {
@@ -235,7 +234,7 @@ pub fn dup(f: &File) -> &File {
 /// Closes file `f`.
 ///
 /// Decrements ref count, closes when reaches 0.
-pub fn close(p: &Proc, f: &File) {
+pub fn close(f: &File) {
     let ftable = unsafe { (&raw mut FTABLE).as_mut() }.unwrap();
 
     ftable.lock.acquire();
@@ -259,9 +258,9 @@ pub fn close(p: &Proc, f: &File) {
     match ff.ty {
         FileType::Pipe => pipe::close(ff.pipe.unwrap(), ff.writable != 0),
         FileType::Inode | FileType::Device => {
-            log::begin_op(p);
-            fs::inode_put(p, ff.ip.unwrap());
-            log::end_op(p);
+            log::begin_op();
+            fs::inode_put(ff.ip.unwrap());
+            log::end_op();
         }
         _ => {}
     }
@@ -273,7 +272,7 @@ pub fn close(p: &Proc, f: &File) {
 pub fn stat(p: &Proc, f: &File, addr: VirtAddr) -> Result<(), ()> {
     match f.ty {
         FileType::Inode | FileType::Device => {
-            let st = fs::inode_with_lock(p, f.ip.unwrap(), |ip| fs::stat_inode(p, ip));
+            let st = fs::inode_with_lock(f.ip.unwrap(), fs::stat_inode);
             vm::copy_out(p.pagetable().unwrap(), addr, &st)?;
             Ok(())
         }
@@ -306,7 +305,7 @@ pub fn read(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> {
             }
             Ok(sz as usize)
         }
-        FileType::Inode => fs::inode_with_lock(p, f.ip.unwrap(), |ip| {
+        FileType::Inode => fs::inode_with_lock(f.ip.unwrap(), |ip| {
             let res = fs::read_inode(p, ip, true, addr, unsafe { *f.off.get() } as usize, n);
             if let Ok(sz) = res {
                 unsafe { *f.off.get() += sz as u32 };
@@ -356,8 +355,8 @@ pub fn write(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> 
                     n1 = max;
                 }
 
-                log::begin_op(p);
-                let res = fs::inode_with_lock(p, f.ip.unwrap(), |ip| {
+                log::begin_op();
+                let res = fs::inode_with_lock(f.ip.unwrap(), |ip| {
                     let res = fs::write_inode(
                         p,
                         ip,
@@ -371,7 +370,7 @@ pub fn write(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> 
                     }
                     res
                 });
-                log::end_op(p);
+                log::end_op();
 
                 if res != Ok(n1) {
                     // error from write_inode

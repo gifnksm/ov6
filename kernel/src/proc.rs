@@ -66,13 +66,12 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn myproc() -> *mut Proc {
-        super::Proc::myproc().map_or(ptr::null_mut(), |p| ptr::from_ref(p).cast_mut())
+        super::Proc::try_current().map_or(ptr::null_mut(), |p| ptr::from_ref(p).cast_mut())
     }
 
     #[unsafe(no_mangle)]
     extern "C" fn sleep(chan: *const c_void, lk: *mut SpinLock) {
-        let p = Proc::myproc().unwrap();
-        unsafe { super::sleep_raw(p, chan, lk.as_ref().unwrap()) }
+        unsafe { super::sleep_raw(chan, lk.as_ref().unwrap()) }
     }
 
     #[unsafe(no_mangle)]
@@ -283,7 +282,12 @@ impl Proc {
     }
 
     /// Returns the current process.
-    pub fn myproc() -> Option<&'static Self> {
+    pub fn current() -> &'static Self {
+        Self::try_current().unwrap()
+    }
+
+    /// Returns the current process.
+    pub fn try_current() -> Option<&'static Self> {
         spinlock::push_off();
         let c = Cpu::mycpu();
         let p = unsafe { *c.proc.get() };
@@ -711,14 +715,14 @@ pub fn exit(p: &Proc, status: i32) -> ! {
         // Close all open files.
         for of in &p.ofile {
             if let Some(of) = unsafe { &mut *of.get() }.take() {
-                file::close(p, unsafe { of.as_ref() });
+                file::close(unsafe { of.as_ref() });
             }
             assert!(unsafe { *of.get() }.is_none());
         }
 
-        log::begin_op(p);
-        fs::inode_put(p, unsafe { *p.cwd.get() }.unwrap());
-        log::end_op(p);
+        log::begin_op();
+        fs::inode_put(unsafe { *p.cwd.get() }.unwrap());
+        log::end_op();
         unsafe {
             *p.cwd.get() = None;
         }
@@ -793,7 +797,7 @@ pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, ()> {
 
         // Wait for a child to exit.
         let chan = ptr::from_ref(p).cast();
-        sleep_raw(p, chan, &WAIT_LOCK);
+        sleep_raw(chan, &WAIT_LOCK);
     }
 }
 
@@ -894,14 +898,14 @@ extern "C" fn forkret() {
     static FIRST: AtomicBool = AtomicBool::new(true);
 
     // Still holding `p->lock` from `fork()`.
-    let p = Proc::myproc().unwrap();
+    let p = Proc::current();
     p.lock.release();
 
     if FIRST.load(Ordering::Acquire) {
         // File system initialization must be run in the context of a
         // regular process (e.g., because it calls sleep), and thus cannot
         // be run from main().
-        fs::init(p, ROOT_DEV);
+        fs::init(ROOT_DEV);
 
         FIRST.store(false, Ordering::Release);
     }
@@ -912,14 +916,15 @@ extern "C" fn forkret() {
 /// Automatically releases `lock` and sleeps on `chan``.
 ///
 /// Reacquires lock when awakened.
-pub fn sleep<T>(p: &Proc, chan: *const c_void, lock: &mut MutexGuard<T>) {
-    unsafe { sleep_raw(p, chan, lock.spinlock()) }
+pub fn sleep<T>(chan: *const c_void, lock: &mut MutexGuard<T>) {
+    unsafe { sleep_raw(chan, lock.spinlock()) }
 }
 
 /// Automatically releases `lock` and sleeps on `chan``.
 ///
 /// Reacquires lock when awakened.
-pub fn sleep_raw(p: &Proc, chan: *const c_void, lock: &SpinLock) {
+pub fn sleep_raw(chan: *const c_void, lock: &SpinLock) {
+    let p = Proc::current();
     // Must acquire `p.lock` in order to change
     // `p.state` and then call `sched()`.
     // Once we hold `p.lock()`, we can be
@@ -951,7 +956,9 @@ pub fn sleep_raw(p: &Proc, chan: *const c_void, lock: &SpinLock) {
 ///
 /// Must be called without any processes locked.
 pub fn wakeup(chan: *const c_void) {
-    let myproc = Proc::myproc().map(ptr::from_ref).unwrap_or(ptr::null());
+    let myproc = Proc::try_current()
+        .map(ptr::from_ref)
+        .unwrap_or(ptr::null());
     for p in &PROC {
         if ptr::eq(p, myproc) {
             continue;

@@ -15,8 +15,7 @@ mod ffi {
 
     #[unsafe(no_mangle)]
     extern "C" fn pipealloc(f0: *mut *mut File, f1: *mut *mut File) -> c_int {
-        let p = Proc::myproc().unwrap();
-        match super::alloc(p) {
+        match super::alloc() {
             Ok(res) => {
                 unsafe {
                     *f0 = ptr::from_ref(res.0).cast_mut();
@@ -49,17 +48,17 @@ struct PipeData {
     writeopen: bool,
 }
 
-pub fn alloc(p: &Proc) -> Result<(&'static File, &'static File), ()> {
+pub fn alloc() -> Result<(&'static File, &'static File), ()> {
     let Ok(f0) = file::alloc().ok_or(()) else {
         return Err(());
     };
     let Ok(f1) = file::alloc().ok_or(()) else {
-        file::close(p, f0);
+        file::close(f0);
         return Err(());
     };
     let Some(mut pi) = kalloc::alloc_page().map(|p| p.cast::<Pipe>()) else {
-        file::close(p, f0);
-        file::close(p, f1);
+        file::close(f0);
+        file::close(f1);
         return Err(());
     };
 
@@ -101,7 +100,7 @@ pub fn close(pipe: NonNull<Pipe>, writable: bool) {
 }
 
 pub fn write(pipe: &Pipe, addr: VirtAddr, n: usize) -> Result<usize, ()> {
-    let p = Proc::myproc().unwrap();
+    let p = Proc::current();
     let mut i = 0;
 
     let mut pipe = pipe.data.lock();
@@ -111,7 +110,7 @@ pub fn write(pipe: &Pipe, addr: VirtAddr, n: usize) -> Result<usize, ()> {
         }
         if pipe.nwrite == pipe.nread + PIPE_SIZE {
             proc::wakeup((&raw const pipe.nread).cast());
-            proc::sleep(p, (&raw const pipe.nwrite).cast(), &mut pipe);
+            proc::sleep((&raw const pipe.nwrite).cast(), &mut pipe);
             continue;
         }
 
@@ -128,14 +127,14 @@ pub fn write(pipe: &Pipe, addr: VirtAddr, n: usize) -> Result<usize, ()> {
 }
 
 pub fn read(pipe: &Pipe, addr: VirtAddr, n: usize) -> Result<usize, ()> {
-    let p = Proc::myproc().unwrap();
+    let p = Proc::current();
 
     let mut pipe = pipe.data.lock();
     while pipe.nread == pipe.nwrite && pipe.writeopen {
         if p.killed() {
             return Err(());
         }
-        proc::sleep(p, (&raw const pipe.nread).cast(), &mut pipe);
+        proc::sleep((&raw const pipe.nread).cast(), &mut pipe);
     }
     let mut i = 0;
     while i < n {
