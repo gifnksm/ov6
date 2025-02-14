@@ -201,9 +201,9 @@ pub struct SuperBlock {
     /// Number of inodes.
     ninodes: u32,
     /// Number of log blocks.
-    nlog: u32,
+    pub nlog: u32,
     /// Block number of first log block.
-    logstart: u32,
+    pub logstart: u32,
     /// Block number of first inode block.
     inodestart: u32,
     /// Block number of first free map block.
@@ -225,6 +225,8 @@ const MAX_FILE: usize = NDIRECT + NINDIRECT;
 pub struct DeviceNo(NonZeroU32);
 
 impl DeviceNo {
+    pub const INVALID: Self = Self(NonZeroU32::new(u32::MAX).unwrap());
+
     pub const fn new(n: u32) -> Option<Self> {
         let Some(n) = NonZeroU32::new(n) else {
             return None;
@@ -361,7 +363,7 @@ pub fn init(p: &Proc, dev: DeviceNo) {
     unsafe {
         read_superblock(p, dev, sb);
         assert_eq!((*sb).magic, FS_MAGIC);
-        log::init(dev, &(*sb));
+        log::init(p, dev, &(*sb));
     }
 }
 

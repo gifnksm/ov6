@@ -9,13 +9,6 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
-// bio.c
-struct buf*     bread(uint, uint);
-void            brelse(struct buf*);
-void            bwrite(struct buf*);
-void            bpin(struct buf*);
-void            bunpin(struct buf*);
-
 // exec.c
 int             exec(char*, char**);
 
@@ -49,7 +42,6 @@ void*           kalloc(void);
 void            kfree(void *);
 
 // log.c
-void            log_write(struct buf*);
 void            begin_op(void);
 void            end_op(void);
 

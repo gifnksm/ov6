@@ -4,7 +4,6 @@ R=target/riscv64gc-unknown-none-elf/release
 
 OBJS = \
   $K/string.o \
-  $K/log.o \
   $K/sysfile.o \
   $K/virtio_disk.o
 

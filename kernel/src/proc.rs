@@ -716,9 +716,9 @@ pub fn exit(p: &Proc, status: i32) -> ! {
             assert!(unsafe { *of.get() }.is_none());
         }
 
-        log::begin_op();
+        log::begin_op(p);
         fs::inode_put(p, unsafe { *p.cwd.get() }.unwrap());
-        log::end_op();
+        log::end_op(p);
         unsafe {
             *p.cwd.get() = None;
         }

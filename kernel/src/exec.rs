@@ -47,8 +47,8 @@ fn flags2perm(flags: u32) -> PtEntryFlags {
 }
 
 fn exec(path: &CStr, argv: *const *const u8) -> Result<usize, ()> {
-    let (elf, mut pagetable, mut sz) = log::do_op(|| {
-        let p = Proc::myproc().unwrap();
+    let p = Proc::myproc().unwrap();
+    let (elf, mut pagetable, mut sz) = log::do_op(p, || {
         let ip = fs::resolve_path(p, path.to_bytes()).ok_or(())?;
 
         fs::inode_with_lock(p, ip, |ip| {
@@ -82,8 +82,6 @@ fn exec(path: &CStr, argv: *const *const u8) -> Result<usize, ()> {
             Ok((elf, pagetable, sz))
         })
     })?;
-
-    let p = Proc::myproc().unwrap();
 
     if allocate_stack_pages(unsafe { pagetable.as_mut() }, &mut sz).is_err() {
         proc::free_pagetable(pagetable, sz);

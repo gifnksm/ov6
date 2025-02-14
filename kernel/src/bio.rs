@@ -9,38 +9,6 @@ use crate::{
     virtio_disk,
 };
 
-mod ffi {
-    use crate::fs::DeviceNo;
-
-    use super::*;
-
-    #[unsafe(no_mangle)]
-    extern "C" fn bread(dev: u32, block_no: u32) -> *mut Buf {
-        super::read(DeviceNo::new(dev).unwrap(), BlockNo::new(block_no).unwrap())
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn bwrite(buf: *mut Buf) {
-        let p = Proc::myproc().unwrap();
-        unsafe { super::write(p, buf.as_mut().unwrap()) }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn brelse(buf: *mut Buf) {
-        unsafe { buf.as_mut().unwrap().release(Proc::myproc().unwrap()) }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn bpin(buf: *mut Buf) {
-        unsafe { buf.as_mut().unwrap().pin() }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn bunpin(buf: *mut Buf) {
-        unsafe { buf.as_mut().unwrap().unpin() }
-    }
-}
-
 // Block size
 pub const BLOCK_SIZE: usize = 1024;
 
@@ -51,7 +19,7 @@ pub struct Buf {
     /// Does disk "own" buf?
     disk: i32,
     dev: Option<DeviceNo>,
-    block_no: Option<BlockNo>,
+    pub block_no: Option<BlockNo>,
     lock: SleepLock,
     refcnt: u32,
     // LRU cache list
