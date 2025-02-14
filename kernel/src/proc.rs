@@ -816,7 +816,7 @@ pub fn scheduler() -> ! {
     }
 
     loop {
-        // THe most recent process to run may have had interrupts
+        // The most recent process to run may have had interrupts
         // turned off; enable them to avoid a deadlock if all
         // processes are waiting.
         unsafe {

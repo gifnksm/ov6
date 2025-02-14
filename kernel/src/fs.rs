@@ -351,7 +351,7 @@ static mut SUPER_BLOCK: SuperBlock = unsafe { mem::zeroed() };
 
 /// Reads the super block.
 unsafe fn read_superblock(p: &Proc, dev: DeviceNo, sb: *mut SuperBlock) {
-    let bp = bio::read(dev, BlockNo::new(1).unwrap());
+    let bp = bio::read(p, dev, BlockNo::new(1).unwrap());
     unsafe {
         sb.copy_from(bp.data.as_ptr().cast(), 1);
     }
@@ -369,7 +369,7 @@ pub fn init(p: &Proc, dev: DeviceNo) {
 
 /// Zeros a block.
 fn block_zero(p: &Proc, dev: DeviceNo, block_no: BlockNo) {
-    let bp = bio::read(dev, block_no);
+    let bp = bio::read(p, dev, block_no);
     bp.data.fill(0);
     log::write(bp);
     bp.release(p);
@@ -406,7 +406,7 @@ fn block_alloc(p: &Proc, dev: DeviceNo) -> Option<BlockNo> {
 /// Frees a disk block.
 fn block_free(p: &Proc, dev: DeviceNo, b: BlockNo) {
     let sb = unsafe { (&raw const SUPER_BLOCK).as_ref() }.unwrap();
-    let bp = bio::read(dev, bit_block(b.value() as usize, sb));
+    let bp = bio::read(p, dev, bit_block(b.value() as usize, sb));
     let bi = b.value() as usize % BITS_PER_BLOCK;
     let m = 1 << (bi % 8);
     assert_ne!(bp.data[bi / 8] & m, 0, "freeing free block");
@@ -498,7 +498,7 @@ fn inode_alloc(p: &Proc, dev: DeviceNo, ty: i16) -> Option<NonNull<Inode>> {
 
     for inum in 1..(sb.ninodes) {
         let inum = InodeNo::new(inum).unwrap();
-        let bp = bio::read(dev, inode_block(inum, sb));
+        let bp = bio::read(p, dev, inode_block(inum, sb));
         unsafe {
             let dip = &mut bp.as_dinodes_mut()[inum.value() as usize % INODE_PER_BLOCK];
             if dip.ty == 0 {
@@ -526,7 +526,7 @@ fn inode_update(p: &Proc, ip: NonNull<Inode>) {
 
     unsafe {
         let ip = ip.as_ref();
-        let bp = bio::read(ip.dev.unwrap(), inode_block(ip.inum.unwrap(), sb));
+        let bp = bio::read(p, ip.dev.unwrap(), inode_block(ip.inum.unwrap(), sb));
         let dip = &mut bp.as_dinodes_mut()[ip.inum.unwrap().value() as usize % INODE_PER_BLOCK];
         dip.ty = ip.ty;
         dip.major = ip.major;
@@ -593,7 +593,7 @@ pub fn inode_lock(p: &Proc, ip: NonNull<Inode>) {
         (*ip).lock.acquire(p);
 
         if (*ip).valid == 0 {
-            let bp = bio::read((*ip).dev.unwrap(), inode_block((*ip).inum.unwrap(), sb));
+            let bp = bio::read(p, (*ip).dev.unwrap(), inode_block((*ip).inum.unwrap(), sb));
             let dip =
                 &mut bp.as_dinodes_mut()[(*ip).inum.unwrap().value() as usize % INODE_PER_BLOCK];
             (*ip).ty = dip.ty;

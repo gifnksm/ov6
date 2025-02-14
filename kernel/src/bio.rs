@@ -88,7 +88,7 @@ pub fn init() {
 ///
 /// If not found, allocate a buffer.
 /// In either case, return locked buffer.
-fn get(dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
+fn get(p: &Proc, dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
     let mut bcache = BCACHE.lock();
 
     // Is the block already cached?
@@ -100,7 +100,6 @@ fn get(dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
             bp.refcnt += 1;
             drop(bcache);
 
-            let p = Proc::myproc().unwrap();
             bp.lock.acquire(p);
             return bp;
         }
@@ -119,7 +118,6 @@ fn get(dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
             bp.refcnt = 1;
             drop(bcache);
 
-            let p = Proc::myproc().unwrap();
             bp.lock.acquire(p);
             return bp;
         }
@@ -128,8 +126,8 @@ fn get(dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
 }
 
 /// Returns a locked buf with the contents of the indicated block.
-pub fn read(dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
-    let b = get(dev, block_no);
+pub fn read(p: &Proc, dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
+    let b = get(p, dev, block_no);
     if b.valid == 0 {
         virtio_disk::read(b);
         b.valid = 1;
@@ -201,7 +199,7 @@ pub fn with_buf<F, T>(p: &Proc, dev: DeviceNo, block_no: BlockNo, f: F) -> T
 where
     F: FnOnce(&mut Buf) -> T,
 {
-    let buf = read(dev, block_no);
+    let buf = read(p, dev, block_no);
     let res = f(buf);
     buf.release(p);
     res

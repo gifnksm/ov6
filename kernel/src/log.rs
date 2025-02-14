@@ -54,7 +54,7 @@ mod ffi {
 #[repr(C)]
 struct LogHeader {
     n: u32,
-    block: [u32; LOG_SIZE],
+    block: [Option<BlockNo>; LOG_SIZE],
 }
 
 struct Log {
@@ -78,7 +78,7 @@ static mut LOG: Log = Log {
     dev: DeviceNo::INVALID,
     lh: LogHeader {
         n: 0,
-        block: [0; LOG_SIZE],
+        block: [None; LOG_SIZE],
     },
 };
 
@@ -94,11 +94,8 @@ impl Log {
     /// Copies committed blocks from log to their home location.
     fn install_trans(&mut self, p: &Proc, recovering: bool) {
         for tail in 0..self.lh.n {
-            let lbuf = bio::read(self.dev, BlockNo::new(self.start + tail + 1).unwrap()); // read log block
-            let dbuf = bio::read(
-                self.dev,
-                BlockNo::new(self.lh.block[tail as usize]).unwrap(),
-            ); // read dst
+            let lbuf = bio::read(p, self.dev, BlockNo::new(self.start + tail + 1).unwrap()); // read log block
+            let dbuf = bio::read(p, self.dev, self.lh.block[tail as usize].unwrap()); // read dst
             dbuf.data.copy_from_slice(&lbuf.data);
             bio::write(p, dbuf); // write dst to disk
             if !recovering {
@@ -111,7 +108,7 @@ impl Log {
 
     /// Reads the log header from disk into the in-memory log header.
     fn read_head(&mut self, p: &Proc) {
-        let buf = bio::read(self.dev, BlockNo::new(self.start).unwrap());
+        let buf = bio::read(p, self.dev, BlockNo::new(self.start).unwrap());
         let lh = buf.data.as_ptr().cast::<LogHeader>();
         unsafe {
             self.lh.n = (*lh).n;
@@ -126,7 +123,7 @@ impl Log {
     /// This is the true point at which the
     /// current transaction commits.
     fn write_head(&mut self, p: &Proc) {
-        let buf = bio::read(self.dev, BlockNo::new(self.start).unwrap());
+        let buf = bio::read(p, self.dev, BlockNo::new(self.start).unwrap());
         let hb = buf.data.as_mut_ptr().cast::<LogHeader>();
         unsafe {
             (*hb).n = self.lh.n;
@@ -199,11 +196,8 @@ impl Log {
 
     fn write_body(&mut self, p: &Proc) {
         for tail in 0..self.lh.n {
-            let to = bio::read(self.dev, BlockNo::new(self.start + tail + 1).unwrap()); // log block
-            let from = bio::read(
-                self.dev,
-                BlockNo::new(self.lh.block[tail as usize]).unwrap(),
-            ); // cache block
+            let to = bio::read(p, self.dev, BlockNo::new(self.start + tail + 1).unwrap()); // log block
+            let from = bio::read(p, self.dev, self.lh.block[tail as usize].unwrap()); // cache block
             to.data.copy_from_slice(&from.data);
             bio::write(p, to); // write the log
             from.release(p);
@@ -227,9 +221,9 @@ impl Log {
         assert!(self.outstanding > 0);
 
         let i = (0..self.lh.n as usize)
-            .find(|i| self.lh.block[*i] == b.block_no.unwrap().value()) // log absorption
+            .find(|i| self.lh.block[*i] == b.block_no) // log absorption
             .unwrap_or(self.lh.n as usize);
-        self.lh.block[i] = b.block_no.unwrap().value();
+        self.lh.block[i] = b.block_no;
         if i == self.lh.n as usize {
             // Add new block to log
             b.pin();
