@@ -38,6 +38,7 @@ mod syscall_proc;
 mod trampoline;
 mod trap;
 mod uart;
+mod virtio;
 mod virtio_disk;
 mod vm;
 

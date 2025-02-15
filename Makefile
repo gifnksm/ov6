@@ -2,9 +2,7 @@ K=kernel
 U=user
 R=target/riscv64gc-unknown-none-elf/release
 
-OBJS = \
-  $K/string.o \
-  $K/virtio_disk.o
+OBJS =
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin

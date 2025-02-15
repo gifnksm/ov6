@@ -16,7 +16,7 @@ pub struct Buf {
     /// Has data been read from disk?
     valid: i32,
     /// Does disk "own" buf?
-    disk: i32,
+    pub disk: i32,
     dev: Option<DeviceNo>,
     pub block_no: Option<BlockNo>,
     lock: SleepLock,

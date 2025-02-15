@@ -1,7 +1,6 @@
 //! Formatted console output
 
 use core::{
-    ffi::{CStr, c_char},
     fmt::{self, Write as _},
     hint,
     sync::atomic::{AtomicBool, Ordering},
@@ -13,20 +12,6 @@ use crate::{
 };
 
 pub static PANICKED: AtomicBool = AtomicBool::new(false);
-
-mod ffi {
-    use super::*;
-
-    #[unsafe(no_mangle)]
-    unsafe extern "C" fn panic(msg: *const c_char) -> ! {
-        let msg = unsafe {
-            CStr::from_ptr(msg)
-                .to_str()
-                .unwrap_or("panic message is not a valid UTF-8 string")
-        };
-        panic!("{msg}");
-    }
-}
 
 // lock to avoid interleaving concurrent print's.
 struct Print {

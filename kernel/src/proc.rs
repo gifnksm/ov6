@@ -54,22 +54,6 @@ impl ProcId {
 /// Must be acquired before any `Proc::lock`.
 static WAIT_LOCK: SpinLock = SpinLock::new(c"wait_lock");
 
-mod ffi {
-    use crate::spinlock::SpinLock;
-
-    use super::*;
-
-    #[unsafe(no_mangle)]
-    extern "C" fn sleep(chan: *const c_void, lk: *mut SpinLock) {
-        unsafe { super::sleep_raw(chan, lk.as_ref().unwrap()) }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn wakeup(chan: *const c_void) {
-        super::wakeup(chan)
-    }
-}
-
 /// Saved registers for kernel context switches.
 #[repr(C)]
 pub struct Context {

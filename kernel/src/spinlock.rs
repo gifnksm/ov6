@@ -19,25 +19,6 @@ pub struct SpinLock {
 
 const _: () = assert!(size_of::<AtomicU32>() == size_of::<c_uint>());
 
-mod ffi {
-    use super::*;
-
-    #[unsafe(no_mangle)]
-    extern "C" fn initlock(lock: *mut SpinLock, name: *const c_char) {
-        unsafe { *lock = SpinLock::new(CStr::from_ptr(name)) };
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn acquire(lock: *const SpinLock) {
-        unsafe { (*lock).acquire() }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn release(lock: *const SpinLock) {
-        unsafe { (*lock).release() }
-    }
-}
-
 unsafe impl Sync for SpinLock {}
 
 impl SpinLock {

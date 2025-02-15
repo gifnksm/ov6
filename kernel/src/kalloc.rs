@@ -15,17 +15,6 @@ use crate::{
     vm::{PAGE_SIZE, PageRound as _},
 };
 
-mod ffi {
-    use super::*;
-
-    #[unsafe(no_mangle)]
-    extern "C" fn kalloc() -> *mut c_void {
-        super::alloc_page()
-            .map(NonNull::as_ptr)
-            .unwrap_or_else(ptr::null_mut)
-    }
-}
-
 /// First address after kernel.
 const fn end() -> NonNull<c_void> {
     unsafe extern "C" {
