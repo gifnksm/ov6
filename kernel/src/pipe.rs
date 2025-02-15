@@ -8,26 +8,6 @@ use crate::{
     vm::{self, VirtAddr},
 };
 
-mod ffi {
-    use core::{ffi::c_int, ptr};
-
-    use super::*;
-
-    #[unsafe(no_mangle)]
-    extern "C" fn pipealloc(f0: *mut *mut File, f1: *mut *mut File) -> c_int {
-        match super::alloc() {
-            Ok(res) => {
-                unsafe {
-                    *f0 = ptr::from_ref(res.0).cast_mut();
-                    *f1 = ptr::from_ref(res.1).cast_mut();
-                }
-                0
-            }
-            Err(()) => -1,
-        }
-    }
-}
-
 const PIPE_SIZE: usize = 512;
 
 #[repr(C)]

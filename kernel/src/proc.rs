@@ -3,7 +3,7 @@ use core::{
     cell::UnsafeCell,
     cmp,
     ffi::{CStr, c_char, c_int, c_void},
-    fmt,
+    fmt, mem,
     ops::Range,
     ptr::{self, NonNull},
     slice,
@@ -58,16 +58,6 @@ mod ffi {
     use crate::spinlock::SpinLock;
 
     use super::*;
-
-    #[unsafe(no_mangle)]
-    extern "C" fn cpuid() -> c_int {
-        super::cpuid() as c_int
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn myproc() -> *mut Proc {
-        super::Proc::try_current().map_or(ptr::null_mut(), |p| ptr::from_ref(p).cast_mut())
-    }
 
     #[unsafe(no_mangle)]
     extern "C" fn sleep(chan: *const c_void, lk: *mut SpinLock) {
@@ -357,6 +347,32 @@ impl Proc {
         unsafe { *self.parent.get() }.map(|mut p| unsafe { p.as_mut() })
     }
 
+    pub fn ofile(&self, fd: usize) -> Option<NonNull<File>> {
+        unsafe { *self.ofile.get(fd)?.get() }
+    }
+
+    pub fn add_ofile(&self, file: NonNull<File>) -> Option<usize> {
+        for (i, of) in self.ofile.iter().enumerate() {
+            if unsafe { *of.get() }.is_none() {
+                unsafe {
+                    *of.get() = Some(file);
+                }
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    pub fn unset_ofile(&self, fd: usize) {
+        unsafe {
+            *self.ofile.get(fd).unwrap().get() = None;
+        }
+    }
+
+    pub fn update_cwd(&self, cwd: NonNull<Inode>) -> NonNull<Inode> {
+        unsafe { mem::replace(&mut *self.cwd.get(), Some(cwd)) }.unwrap()
+    }
+
     fn allocate_pid() -> ProcId {
         static NEXT_PID: AtomicI32 = AtomicI32::new(1);
         let pid = NEXT_PID.fetch_add(1, Ordering::Relaxed);
@@ -598,7 +614,7 @@ pub fn user_init() {
 
     unsafe {
         *p.name.get() = *b"initcode\0\0\0\0\0\0\0\0";
-        *p.cwd.get() = fs::resolve_path(p, b"/");
+        *p.cwd.get() = Some(fs::resolve_path(p, b"/").unwrap());
         *p.state.get() = ProcState::Runnable;
     }
 

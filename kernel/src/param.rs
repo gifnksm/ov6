@@ -33,5 +33,8 @@ pub const LOG_SIZE: usize = MAX_OP_BLOCKS * 3;
 /// Size of disk block cache.
 pub const NBUF: usize = MAX_OP_BLOCKS * 3;
 
+/// Maximum file path name.
+pub const MAX_PATH: usize = 128;
+
 /// User stack pages
 pub const USER_STACK: usize = 1;

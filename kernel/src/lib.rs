@@ -15,6 +15,7 @@ mod bio;
 mod console;
 mod elf;
 mod exec;
+mod fcntl;
 mod file;
 mod fs;
 mod kalloc;

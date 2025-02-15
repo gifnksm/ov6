@@ -20,61 +20,6 @@ use crate::{
 
 pub const CONSOLE: usize = 1;
 
-mod ffi {
-
-    use core::ptr;
-
-    use super::*;
-
-    #[unsafe(no_mangle)]
-    extern "C" fn filealloc() -> *mut File {
-        super::alloc().map_or(ptr::null_mut(), |f| ptr::from_ref(f).cast_mut())
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn filedup(f: *mut File) -> *mut File {
-        ptr::from_ref(super::dup(unsafe { f.as_ref() }.unwrap())).cast_mut()
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn fileclose(f: *mut File) {
-        super::close(unsafe { f.as_mut() }.unwrap())
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn filestat(f: *mut File, addr: u64) -> c_int {
-        let p = Proc::current();
-        let f = unsafe { f.as_mut() }.unwrap();
-        let addr = VirtAddr::new(addr as usize);
-        match super::stat(p, f, addr) {
-            Ok(()) => 0,
-            Err(()) => -1,
-        }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn fileread(f: *mut File, addr: u64, n: c_int) -> c_int {
-        let p = Proc::current();
-        let f = unsafe { f.as_mut() }.unwrap();
-        let addr = VirtAddr::new(addr as usize);
-        match super::read(p, f, addr, n as usize) {
-            Ok(sz) => sz as c_int,
-            Err(()) => -1,
-        }
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn filewrite(f: *mut File, addr: u64, n: c_int) -> c_int {
-        let p = Proc::current();
-        let f = unsafe { f.as_mut() }.unwrap();
-        let addr = VirtAddr::new(addr as usize);
-        match super::write(p, f, addr, n as usize) {
-            Ok(sz) => sz as c_int,
-            Err(()) => -1,
-        }
-    }
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(i32)]
 pub enum FileType {
@@ -129,6 +74,24 @@ impl File {
         self.readable = 0;
         self.writable = 1;
         self.pipe = Some(pipe);
+    }
+
+    pub fn init_device(&mut self, major: i16, ip: NonNull<Inode>, readable: bool, writable: bool) {
+        assert_eq!(self.ty, FileType::None);
+        self.ty = FileType::Device;
+        self.readable = readable as u8;
+        self.writable = writable as u8;
+        self.major = major;
+        self.ip = Some(ip);
+    }
+
+    pub fn init_inode(&mut self, ip: NonNull<Inode>, readable: bool, writable: bool) {
+        assert_eq!(self.ty, FileType::None);
+        self.ty = FileType::Inode;
+        self.readable = readable as u8;
+        self.writable = writable as u8;
+        *self.off.get_mut() = 0;
+        self.ip = Some(ip);
     }
 }
 

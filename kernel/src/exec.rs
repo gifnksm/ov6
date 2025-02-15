@@ -9,32 +9,6 @@ use crate::{
     vm::{self, PAGE_SIZE, PageRound as _, PageTable, PtEntryFlags, VirtAddr},
 };
 
-mod ffi {
-    use core::ffi::{c_char, c_int};
-
-    use super::*;
-
-    #[unsafe(no_mangle)]
-    fn exec(path: *const c_char, argv: *const *const c_char) -> c_int {
-        match unsafe { super::exec(CStr::from_ptr(path), argv) } {
-            Ok(argc) => argc as c_int,
-            Err(()) => -1,
-        }
-    }
-
-    #[unsafe(no_mangle)]
-    fn loadseg(pagetable: *mut PageTable, va: u64, ip: *mut Inode, offset: u32, sz: u32) -> c_int {
-        let p = Proc::current();
-        let pagetable = unsafe { pagetable.as_ref().unwrap() };
-        let va = VirtAddr::new(va as usize);
-        let ip = NonNull::new(ip).unwrap();
-        match super::load_segment(p, pagetable, va, ip, offset as usize, sz as usize) {
-            Ok(()) => 0,
-            Err(()) => -1,
-        }
-    }
-}
-
 fn flags2perm(flags: u32) -> PtEntryFlags {
     let mut perm = PtEntryFlags::empty();
     if flags & 0x1 != 0 {
@@ -46,10 +20,10 @@ fn flags2perm(flags: u32) -> PtEntryFlags {
     perm
 }
 
-fn exec(path: &CStr, argv: *const *const u8) -> Result<usize, ()> {
+pub fn exec(path: &[u8], argv: *const *const u8) -> Result<usize, ()> {
     let p = Proc::current();
     let (elf, mut pagetable, mut sz) = log::do_op(|| {
-        let ip = fs::resolve_path(p, path.to_bytes()).ok_or(())?;
+        let ip = fs::resolve_path(p, path)?;
 
         fs::inode_with_lock(ip, |ip| {
             // Check ELF header
@@ -103,16 +77,15 @@ fn exec(path: &CStr, argv: *const *const u8) -> Result<usize, ()> {
     p.trapframe_mut().unwrap().a1 = sp as u64;
 
     // Save program name for debugging.
-    let path_bytes = path.to_bytes_with_nul();
-    let path_bytes = path_bytes
+    let name = path
         .iter()
         .position(|&c| c == b'/')
-        .map(|i| &path_bytes[i..])
-        .unwrap_or(path_bytes);
+        .map(|i| &path[i..])
+        .unwrap_or(path);
     let dst = unsafe { p.name_mut().as_mut() };
     dst.fill(0);
-    let copy_len = usize::min(dst.len() - 1, path_bytes.len());
-    dst[..copy_len].copy_from_slice(&path_bytes[..copy_len]);
+    let copy_len = usize::min(dst.len() - 1, name.len());
+    dst[..copy_len].copy_from_slice(&name[..copy_len]);
 
     // Commit to the user image.
     p.update_pagetable(pagetable, sz);

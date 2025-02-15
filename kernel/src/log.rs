@@ -33,18 +33,6 @@ use crate::{
     spinlock::SpinLock,
 };
 
-mod ffi {
-    #[unsafe(no_mangle)]
-    extern "C" fn begin_op() {
-        super::begin_op();
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn end_op() {
-        super::end_op();
-    }
-}
-
 /// Contents of the header block, used for both the on-disk header block
 /// and to keep track in memory of logged block# before commit.
 #[repr(C)]

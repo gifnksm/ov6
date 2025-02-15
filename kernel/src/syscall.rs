@@ -31,79 +31,22 @@ pub const SYS_LINK: usize = 19;
 pub const SYS_MKDIR: usize = 20;
 pub const SYS_CLOSE: usize = 21;
 
-mod ffi {
-    use core::ffi::{c_char, c_int};
-
-    use super::*;
-
-    #[unsafe(no_mangle)]
-    unsafe extern "C" fn fetchaddr(addr: u64, ip: *mut usize) -> c_int {
-        let p = Proc::current();
-        super::fetch_addr(p, VirtAddr::new(addr as usize))
-            .map(|val| {
-                unsafe {
-                    *ip = val;
-                }
-                0
-            })
-            .unwrap_or(-1)
-    }
-
-    #[unsafe(no_mangle)]
-    unsafe extern "C" fn fetchstr(addr: u64, buf: *mut c_char, max: c_int) -> c_int {
-        let p = Proc::current();
-        let buf = unsafe { core::slice::from_raw_parts_mut(buf.cast(), max as usize) };
-        super::fetch_str(p, VirtAddr::new(addr as usize), buf)
-            .map(|len| len as c_int)
-            .unwrap_or(-1)
-    }
-
-    #[unsafe(no_mangle)]
-    unsafe extern "C" fn argint(n: c_int, ip: *mut c_int) {
-        let p = Proc::current();
-        unsafe {
-            *ip = super::arg_int(p, n as usize) as c_int;
-        }
-    }
-
-    #[unsafe(no_mangle)]
-    unsafe extern "C" fn argaddr(n: c_int, ip: *mut u64) {
-        let p = Proc::current();
-        unsafe {
-            *ip = super::arg_addr(p, n as usize).addr() as u64;
-        }
-    }
-
-    #[unsafe(no_mangle)]
-    unsafe extern "C" fn argstr(n: c_int, buf: *mut c_char, max: c_int) -> c_int {
-        let p = Proc::current();
-        let buf = unsafe { core::slice::from_raw_parts_mut(buf.cast(), max as usize) };
-        super::arg_str(p, n as usize, buf)
-            .map(|len| len as c_int)
-            .unwrap_or(-1)
-    }
-
-    #[unsafe(no_mangle)]
-    unsafe extern "C" fn syscall() {
-        let p = Proc::current();
-        super::syscall(p)
-    }
-}
-
 /// Fetches a `usize` at `addr` from the current process.
-fn fetch_addr(p: &Proc, addr: VirtAddr) -> Result<usize, ()> {
+pub fn fetch_addr(p: &Proc, addr: VirtAddr) -> Result<VirtAddr, ()> {
     if !p.is_valid_addr(addr..addr.byte_add(size_of::<usize>())) {
         return Err(());
     }
-    vm::copy_in(p.pagetable().unwrap(), addr)
+    let va = vm::copy_in(p.pagetable().unwrap(), addr)?;
+    Ok(VirtAddr::new(va))
 }
 
 /// Fetches the nul-terminated string at addr from the current process.
 ///
 /// Returns length of the string, not including nul.
-fn fetch_str(p: &Proc, addr: VirtAddr, buf: &mut [u8]) -> Result<usize, ()> {
+pub fn fetch_str<'a>(p: &Proc, addr: VirtAddr, buf: &'a mut [u8]) -> Result<&'a [u8], ()> {
     vm::copy_in_str(p.pagetable().unwrap(), buf, addr)?;
-    Ok(buf.iter().position(|&c| c == 0).unwrap())
+    let len = buf.iter().position(|&c| c == 0).unwrap();
+    Ok(&buf[..len])
 }
 
 fn arg_raw(p: &Proc, n: usize) -> usize {
@@ -136,7 +79,7 @@ pub fn arg_addr(p: &Proc, n: usize) -> VirtAddr {
 ///
 /// Copies into buf, at most buf's length.
 /// Returns string length if Ok, or Err if the string is not nul-terminated.
-fn arg_str(p: &Proc, n: usize, buf: &mut [u8]) -> Result<usize, ()> {
+pub fn arg_str<'a>(p: &Proc, n: usize, buf: &'a mut [u8]) -> Result<&'a [u8], ()> {
     let addr = arg_addr(p, n);
     fetch_str(p, addr, buf)
 }
@@ -144,27 +87,27 @@ fn arg_str(p: &Proc, n: usize, buf: &mut [u8]) -> Result<usize, ()> {
 pub fn syscall(p: &Proc) {
     let n = p.trapframe().unwrap().a7 as usize;
     let f = match n {
-        SYS_FORK => syscall_proc::fork,
-        SYS_EXIT => syscall_proc::exit,
-        SYS_WAIT => syscall_proc::wait,
-        SYS_PIPE => syscall_file::pipe,
-        SYS_READ => syscall_file::read,
-        SYS_KILL => syscall_proc::kill,
-        SYS_EXEC => syscall_file::exec,
-        SYS_FSTAT => syscall_file::fstat,
-        SYS_CHDIR => syscall_file::chdir,
-        SYS_DUP => syscall_file::dup,
-        SYS_GETPID => syscall_proc::getpid,
-        SYS_SBRK => syscall_proc::sbrk,
-        SYS_SLEEP => syscall_proc::sleep,
-        SYS_UPTIME => syscall_proc::uptime,
-        SYS_OPEN => syscall_file::open,
-        SYS_WRITE => syscall_file::write,
-        SYS_MKNOD => syscall_file::mknod,
-        SYS_UNLINK => syscall_file::unlink,
-        SYS_LINK => syscall_file::link,
-        SYS_MKDIR => syscall_file::mkdir,
-        SYS_CLOSE => syscall_file::close,
+        SYS_FORK => syscall_proc::sys_fork,
+        SYS_EXIT => syscall_proc::sys_exit,
+        SYS_WAIT => syscall_proc::sys_wait,
+        SYS_PIPE => syscall_file::sys_pipe,
+        SYS_READ => syscall_file::sys_read,
+        SYS_KILL => syscall_proc::sys_kill,
+        SYS_EXEC => syscall_file::sys_exec,
+        SYS_FSTAT => syscall_file::sys_fstat,
+        SYS_CHDIR => syscall_file::sys_chdir,
+        SYS_DUP => syscall_file::sys_dup,
+        SYS_GETPID => syscall_proc::sys_getpid,
+        SYS_SBRK => syscall_proc::sys_sbrk,
+        SYS_SLEEP => syscall_proc::sys_sleep,
+        SYS_UPTIME => syscall_proc::sys_uptime,
+        SYS_OPEN => syscall_file::sys_open,
+        SYS_WRITE => syscall_file::sys_write,
+        SYS_MKNOD => syscall_file::sys_mknod,
+        SYS_UNLINK => syscall_file::sys_unlink,
+        SYS_LINK => syscall_file::sys_link,
+        SYS_MKDIR => syscall_file::sys_mkdir,
+        SYS_CLOSE => syscall_file::sys_close,
         _ => {
             println!("{} {}: unknown sys call {}\n", p.pid(), p.name(), n);
             p.trapframe_mut().unwrap().a0 = u64::MAX;
@@ -173,12 +116,4 @@ pub fn syscall(p: &Proc) {
     };
     let res = f(p).map(|f| f as u64).unwrap_or(u64::MAX);
     p.trapframe_mut().unwrap().a0 = res as u64;
-}
-
-pub fn wrap_syscall(f: unsafe extern "C" fn() -> u64) -> Result<usize, ()> {
-    let res = unsafe { f() } as isize;
-    if res < 0 {
-        return Err(());
-    }
-    Ok(res as usize)
 }

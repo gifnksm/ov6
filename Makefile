@@ -4,7 +4,6 @@ R=target/riscv64gc-unknown-none-elf/release
 
 OBJS = \
   $K/string.o \
-  $K/sysfile.o \
   $K/virtio_disk.o
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-

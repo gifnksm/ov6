@@ -1,5 +1,5 @@
 use core::{
-    ffi::{c_int, c_void},
+    ffi::c_void,
     mem,
     num::NonZero,
     ops::Range,
@@ -16,27 +16,6 @@ use crate::{
     memlayout::{KERN_BASE, PHYS_TOP, PLIC, TRAMPOLINE, UART0, VIRTIO0},
     proc, trampoline,
 };
-
-mod ffi {
-    use core::{ffi::c_char, slice};
-
-    use super::*;
-
-    #[unsafe(no_mangle)]
-    extern "C" fn copyout(
-        pagetable: *mut PageTable,
-        dst_va: u64,
-        src: *const c_char,
-        len: u64,
-    ) -> c_int {
-        let pagetable = unsafe { pagetable.as_ref().unwrap() };
-        let src = unsafe { slice::from_raw_parts(src, len as usize) };
-        match super::copy_out_bytes(pagetable, VirtAddr(dst_va as usize), src) {
-            Ok(()) => 0,
-            Err(()) => -1,
-        }
-    }
-}
 
 /// Bytes per page
 pub const PAGE_SIZE: usize = 4096;

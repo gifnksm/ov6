@@ -24,11 +24,6 @@ mod ffi {
             .map(NonNull::as_ptr)
             .unwrap_or_else(ptr::null_mut)
     }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn kfree(pa: *mut c_void) {
-        super::free_page(NonNull::new(pa).unwrap())
-    }
 }
 
 /// First address after kernel.
