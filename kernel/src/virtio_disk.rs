@@ -5,7 +5,7 @@ use crate::{
     kalloc,
     memlayout::VIRTIO0,
     proc,
-    spinlock::SpinLock,
+    spinlock::Mutex,
     virtio::{
         MmioRegister, NUM, VIRTIO_BLK_F_CONFIG_WCE, VIRTIO_BLK_F_MQ, VIRTIO_BLK_F_RO,
         VIRTIO_BLK_F_SCSI, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT, VIRTIO_CONFIG_S_ACKNOWLEDGE,
@@ -25,7 +25,7 @@ struct Disk {
     /// There are NUM descriptors.
     /// Most commands consist of a "chain" (a linked list) of a couple of
     /// these descriptors.
-    desc: *mut VirtqDesc,
+    desc: *mut [VirtqDesc; NUM],
 
     /// A ring in which the driver writes descriptor numbers
     /// that the driver would like the device to process.
@@ -41,8 +41,8 @@ struct Disk {
     used: *mut VirtqUsed,
 
     // our own book-keeping.
-    free: [u8; NUM], // is a descriptor free?
-    used_idx: u16,   // we've looked this far in used[2..NUM].
+    free: [bool; NUM], // is a descriptor free?
+    used_idx: u16,     // we've looked this far in used[2..NUM].
 
     /// Track info about in-flight operations,
     /// for use when completion interrupt arrives.
@@ -54,9 +54,9 @@ struct Disk {
     ///
     /// One-for-one with descriptors, for convenience.
     ops: [VirtioBlkReq; NUM],
-
-    vdisk_lock: SpinLock,
 }
+
+unsafe impl Send for Disk {}
 
 #[repr(C)]
 struct Info {
@@ -72,35 +72,26 @@ fn reg_write(r: MmioRegister, value: u32) {
     unsafe { ptr::with_exposed_provenance_mut::<u32>(VIRTIO0 + r as usize).write_volatile(value) }
 }
 
-fn lock() -> &'static mut Disk {
-    static mut DISK: Disk = Disk {
-        desc: ptr::null_mut(),
-        avail: ptr::null_mut(),
-        used: ptr::null_mut(),
-        free: [0; NUM],
-        used_idx: 0,
-        info: [const {
-            Info {
-                b: ptr::null_mut(),
-                status: 0,
-            }
-        }; NUM],
-        ops: [const {
-            VirtioBlkReq {
-                ty: 0,
-                reserved: 0,
-                sector: 0,
-            }
-        }; NUM],
-        vdisk_lock: SpinLock::new(c"virtio_disk"),
-    };
-
-    unsafe {
-        let disk = &raw mut DISK;
-        (*disk).vdisk_lock.acquire();
-        disk.as_mut().unwrap()
-    }
-}
+static DISK: Mutex<Disk> = Mutex::new(Disk {
+    desc: ptr::null_mut(),
+    avail: ptr::null_mut(),
+    used: ptr::null_mut(),
+    free: [false; NUM],
+    used_idx: 0,
+    info: [const {
+        Info {
+            b: ptr::null_mut(),
+            status: 0,
+        }
+    }; NUM],
+    ops: [const {
+        VirtioBlkReq {
+            ty: 0,
+            reserved: 0,
+            sector: 0,
+        }
+    }; NUM],
+});
 
 pub fn init() {
     assert_eq!(reg_read(MmioRegister::MagicValue), 0x7472_6976);
@@ -108,7 +99,7 @@ pub fn init() {
     assert_eq!(reg_read(MmioRegister::DeviceId), 2);
     assert_eq!(reg_read(MmioRegister::VendorId), 0x554d_4551);
 
-    let disk = lock();
+    let mut disk = DISK.lock();
 
     let mut status = 0;
 
@@ -186,35 +177,32 @@ pub fn init() {
     reg_write(MmioRegister::QueueReady, 1);
 
     // all NUM descriptors start out unused.
-    disk.free.fill(1);
+    disk.free.fill(true);
 
     // tell device we're completely ready.
     status |= VIRTIO_CONFIG_S_DRIVER_OK;
     reg_write(MmioRegister::Status, status);
-
-    disk.vdisk_lock.release();
 }
 
 /// Finds a free descriptor, marks it non-free, returns its index.
 fn alloc_desc(disk: &mut Disk) -> Option<usize> {
-    let idx = disk.free.iter().position(|&b| b != 0)?;
-    disk.free[idx] = 0;
+    let idx = disk.free.iter().position(|&free| free)?;
+    disk.free[idx] = false;
     Some(idx)
 }
 
 /// Marks a descriptor as free.
 fn free_desc(disk: &mut Disk, i: usize) {
     assert!(i < NUM);
-    assert_eq!(disk.free[i], 0);
+    assert!(!disk.free[i]);
     unsafe {
-        let desc = disk.desc.add(i);
-        *desc = VirtqDesc {
+        (*disk.desc)[i] = VirtqDesc {
             addr: 0,
             len: 0,
             flags: 0,
             next: 0,
         };
-        disk.free[i] = 1;
+        disk.free[i] = true;
     };
     proc::wakeup((&raw const disk.free[0]).cast());
 }
@@ -222,7 +210,7 @@ fn free_desc(disk: &mut Disk, i: usize) {
 /// Frees a chain of descriptors.
 fn free_chain(disk: &mut Disk, mut i: usize) {
     loop {
-        let desc = unsafe { &*disk.desc.add(i) };
+        let desc = unsafe { &(*disk.desc)[i] };
         let flag = desc.flags;
         let next = desc.next;
         free_desc(disk, i);
@@ -255,7 +243,7 @@ fn alloc3_desc(disk: &mut Disk) -> Option<[usize; 3]> {
 fn read_or_write(b: &mut Buf, write: bool) {
     let sector = (b.block_no.unwrap().value() as usize * (BLOCK_SIZE / 512)) as u64;
 
-    let disk = lock();
+    let mut disk = DISK.lock();
 
     // the spec's Section 5.2 says that legacy block operations use
     // three descriptors: one for type/reserved/sector, one for the
@@ -263,10 +251,10 @@ fn read_or_write(b: &mut Buf, write: bool) {
 
     // allocate three descriptors.
     let idx = loop {
-        if let Some(idx) = alloc3_desc(disk) {
+        if let Some(idx) = alloc3_desc(&mut disk) {
             break idx;
         }
-        proc::sleep_raw((&raw const disk.free[0]).cast(), &disk.vdisk_lock);
+        proc::sleep((&raw const disk.free[0]).cast(), &mut disk);
     };
 
     // format the three descriptors.
@@ -281,16 +269,17 @@ fn read_or_write(b: &mut Buf, write: bool) {
         reserved: 0,
         sector,
     };
+    let buf0_addr = ptr::from_mut(buf0).addr();
 
     unsafe {
-        disk.desc.add(idx[0]).write(VirtqDesc {
-            addr: ptr::from_mut(buf0).addr() as u64,
+        (*disk.desc)[idx[0]] = VirtqDesc {
+            addr: buf0_addr as u64,
             len: size_of::<VirtioBlkReq>() as u32,
             flags: VRING_DESC_F_NEXT,
             next: idx[1] as u16,
-        });
+        };
 
-        disk.desc.add(idx[1]).write(VirtqDesc {
+        (*disk.desc)[idx[1]] = VirtqDesc {
             addr: (&raw mut b.data).addr() as u64,
             len: BLOCK_SIZE as u32,
             flags: if write {
@@ -299,15 +288,15 @@ fn read_or_write(b: &mut Buf, write: bool) {
                 VRING_DESC_F_WRITE // device writes b.data
             } | VRING_DESC_F_NEXT,
             next: idx[2] as u16,
-        });
+        };
 
         disk.info[idx[0]].status = 0xff; // device writes 0 on success
-        disk.desc.add(idx[2]).write(VirtqDesc {
+        (*disk.desc)[idx[2]] = VirtqDesc {
             addr: (&raw mut disk.info[idx[0]].status).addr() as u64,
             len: 1,
             flags: VRING_DESC_F_WRITE,
             next: 0,
-        });
+        };
     }
 
     // record struct buf for `handle_interrupt()`.
@@ -316,8 +305,8 @@ fn read_or_write(b: &mut Buf, write: bool) {
 
     // tell the device the first index in our chain of descriptors.
     unsafe {
-        (*disk.avail).ring[(*disk.avail).idx.load(Ordering::Relaxed) as usize % NUM] =
-            idx[0] as u16;
+        let avail_idx = (*disk.avail).idx.load(Ordering::Relaxed) as usize;
+        (*disk.avail).ring[avail_idx % NUM] = idx[0] as u16;
     }
 
     // tell the device another avail ring entry is available.
@@ -329,13 +318,11 @@ fn read_or_write(b: &mut Buf, write: bool) {
 
     // Wait for `handle_interrupts()` to say request has finished.
     while b.disk != 0 {
-        proc::sleep_raw(ptr::from_mut(b).cast(), &disk.vdisk_lock);
+        proc::sleep(ptr::from_mut(b).cast(), &mut disk);
     }
 
     disk.info[idx[0]].b = ptr::null_mut();
-    free_chain(disk, idx[0]);
-
-    disk.vdisk_lock.release();
+    free_chain(&mut disk, idx[0]);
 }
 
 pub fn read(b: &mut Buf) {
@@ -347,7 +334,7 @@ pub fn write(b: &mut Buf) {
 }
 
 pub fn handle_interrupt() {
-    let disk = lock();
+    let mut disk = DISK.lock();
 
     // the device won't raise another interrupt until we tell it
     // we've seen this interrupt, which the following line does.
@@ -376,6 +363,4 @@ pub fn handle_interrupt() {
             disk.used_idx += 1;
         }
     }
-
-    disk.vdisk_lock.release();
 }
