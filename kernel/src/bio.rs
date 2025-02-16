@@ -11,12 +11,10 @@ use crate::{
 // Block size
 pub const BLOCK_SIZE: usize = 1024;
 
-#[repr(C)]
 pub struct Buf {
     /// Has data been read from disk?
     valid: i32,
     /// Does disk "own" buf?
-    pub disk: i32,
     dev: Option<DeviceNo>,
     pub block_no: Option<BlockNo>,
     lock: SleepLock,
@@ -29,7 +27,6 @@ pub struct Buf {
 
 unsafe impl Send for Buf {}
 
-#[repr(C)]
 struct BlockCache {
     buf: [Buf; NBUF],
 
@@ -44,7 +41,6 @@ static BCACHE: Mutex<BlockCache> = Mutex::new(BlockCache {
     buf: [const {
         Buf {
             valid: 0,
-            disk: 0,
             dev: None,
             block_no: None,
             lock: SleepLock::new(c"buffer"),
@@ -56,7 +52,6 @@ static BCACHE: Mutex<BlockCache> = Mutex::new(BlockCache {
     }; NBUF],
     head: Buf {
         valid: 0,
-        disk: 0,
         dev: None,
         block_no: None,
         lock: SleepLock::new(c"buffer"),
@@ -128,7 +123,8 @@ fn get(dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
 pub fn read(dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
     let b = get(dev, block_no);
     if b.valid == 0 {
-        virtio_disk::read(b);
+        let offset = b.block_no.unwrap().value() as usize * BLOCK_SIZE;
+        virtio_disk::read(offset, &mut b.data);
         b.valid = 1;
     }
     b
@@ -139,7 +135,8 @@ pub fn read(dev: DeviceNo, block_no: BlockNo) -> &'static mut Buf {
 /// Must be locked.
 pub fn write(b: &mut Buf) {
     assert!(b.lock.holding());
-    virtio_disk::write(b);
+    let offset = b.block_no.unwrap().value() as usize * BLOCK_SIZE;
+    virtio_disk::write(offset, &b.data);
 }
 
 impl Buf {

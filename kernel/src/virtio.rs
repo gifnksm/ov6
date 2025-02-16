@@ -102,3 +102,6 @@ pub struct VirtioBlkReq {
     pub reserved: u32,
     pub sector: u64,
 }
+
+/// Sector size for virtio block devices.
+pub const BLK_SECTOR_SIZE: usize = 512;

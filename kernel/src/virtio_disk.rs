@@ -1,17 +1,21 @@
-use core::{ptr, sync::atomic::Ordering};
+use core::{
+    ptr,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use crate::{
-    bio::{BLOCK_SIZE, Buf},
+    bio::BLOCK_SIZE,
     kalloc,
     memlayout::VIRTIO0,
     proc,
     spinlock::Mutex,
     virtio::{
-        MmioRegister, NUM, VIRTIO_BLK_F_CONFIG_WCE, VIRTIO_BLK_F_MQ, VIRTIO_BLK_F_RO,
-        VIRTIO_BLK_F_SCSI, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT, VIRTIO_CONFIG_S_ACKNOWLEDGE,
-        VIRTIO_CONFIG_S_DRIVER, VIRTIO_CONFIG_S_DRIVER_OK, VIRTIO_CONFIG_S_FEATURES_OK,
-        VIRTIO_F_ANY_LAYOUT, VIRTIO_RING_F_EVENT_IDX, VIRTIO_RING_F_INDIRECT_DESC,
-        VRING_DESC_F_NEXT, VRING_DESC_F_WRITE, VirtioBlkReq, VirtqAvail, VirtqDesc, VirtqUsed,
+        BLK_SECTOR_SIZE, MmioRegister, NUM, VIRTIO_BLK_F_CONFIG_WCE, VIRTIO_BLK_F_MQ,
+        VIRTIO_BLK_F_RO, VIRTIO_BLK_F_SCSI, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
+        VIRTIO_CONFIG_S_ACKNOWLEDGE, VIRTIO_CONFIG_S_DRIVER, VIRTIO_CONFIG_S_DRIVER_OK,
+        VIRTIO_CONFIG_S_FEATURES_OK, VIRTIO_F_ANY_LAYOUT, VIRTIO_RING_F_EVENT_IDX,
+        VIRTIO_RING_F_INDIRECT_DESC, VRING_DESC_F_NEXT, VRING_DESC_F_WRITE, VirtioBlkReq,
+        VirtqAvail, VirtqDesc, VirtqUsed,
     },
     vm::PAGE_SIZE,
 };
@@ -48,7 +52,7 @@ struct Disk {
     /// for use when completion interrupt arrives.
     ///
     /// Indexed by first descriptor index of chain.
-    info: [Info; NUM],
+    info: [TrackInfo; NUM],
 
     /// Disk command headers.
     ///
@@ -58,10 +62,10 @@ struct Disk {
 
 unsafe impl Send for Disk {}
 
-#[repr(C)]
-struct Info {
-    b: *mut Buf,
+struct TrackInfo {
+    data: *const u8,
     status: u8,
+    in_progress: AtomicBool,
 }
 
 fn reg_read(r: MmioRegister) -> u32 {
@@ -79,9 +83,10 @@ static DISK: Mutex<Disk> = Mutex::new(Disk {
     free: [false; NUM],
     used_idx: 0,
     info: [const {
-        Info {
-            b: ptr::null_mut(),
+        TrackInfo {
+            data: ptr::null_mut(),
             status: 0,
+            in_progress: AtomicBool::new(false),
         }
     }; NUM],
     ops: [const {
@@ -240,9 +245,7 @@ fn alloc3_desc(disk: &mut Disk) -> Option<[usize; 3]> {
     Some(idx)
 }
 
-fn read_or_write(b: &mut Buf, write: bool) {
-    let sector = (b.block_no.unwrap().value() as usize * (BLOCK_SIZE / 512)) as u64;
-
+fn read_or_write(offset: usize, data: &[u8], write: bool) {
     let mut disk = DISK.lock();
 
     // the spec's Section 5.2 says that legacy block operations use
@@ -258,6 +261,9 @@ fn read_or_write(b: &mut Buf, write: bool) {
     };
 
     // format the three descriptors.
+
+    assert!(offset % BLK_SECTOR_SIZE == 0);
+    let sector = (offset / BLK_SECTOR_SIZE) as u64;
 
     let buf0 = &mut disk.ops[idx[0]];
     *buf0 = VirtioBlkReq {
@@ -280,7 +286,7 @@ fn read_or_write(b: &mut Buf, write: bool) {
         };
 
         (*disk.desc)[idx[1]] = VirtqDesc {
-            addr: (&raw mut b.data).addr() as u64,
+            addr: data.as_ptr().addr() as u64,
             len: BLOCK_SIZE as u32,
             flags: if write {
                 0 // device reads b.date
@@ -300,8 +306,8 @@ fn read_or_write(b: &mut Buf, write: bool) {
     }
 
     // record struct buf for `handle_interrupt()`.
-    b.disk = 1;
-    disk.info[idx[0]].b = b;
+    disk.info[idx[0]].data = data.as_ptr();
+    disk.info[idx[0]].in_progress.store(true, Ordering::Release);
 
     // tell the device the first index in our chain of descriptors.
     unsafe {
@@ -317,20 +323,20 @@ fn read_or_write(b: &mut Buf, write: bool) {
     reg_write(MmioRegister::QueueNotify, 0); // value is queue number
 
     // Wait for `handle_interrupts()` to say request has finished.
-    while b.disk != 0 {
-        proc::sleep(ptr::from_mut(b).cast(), &mut disk);
+    while disk.info[idx[0]].in_progress.load(Ordering::Acquire) {
+        proc::sleep(data.as_ptr().cast(), &mut disk);
     }
 
-    disk.info[idx[0]].b = ptr::null_mut();
+    disk.info[idx[0]].data = ptr::null_mut();
     free_chain(&mut disk, idx[0]);
 }
 
-pub fn read(b: &mut Buf) {
-    read_or_write(b, false);
+pub fn read(offset: usize, data: &mut [u8]) {
+    read_or_write(offset, data, false);
 }
 
-pub fn write(b: &mut Buf) {
-    read_or_write(b, true)
+pub fn write(offset: usize, data: &[u8]) {
+    read_or_write(offset, data, true)
 }
 
 pub fn handle_interrupt() {
@@ -356,9 +362,9 @@ pub fn handle_interrupt() {
 
             assert_eq!(disk.info[id as usize].status, 0);
 
-            let b = disk.info[id as usize].b;
-            (*b).disk = 0; // disk is done with buf
-            proc::wakeup(b.cast());
+            let info = &disk.info[id as usize];
+            info.in_progress.store(false, Ordering::Release); // disk is done with buf
+            proc::wakeup(info.data.cast());
 
             disk.used_idx += 1;
         }
