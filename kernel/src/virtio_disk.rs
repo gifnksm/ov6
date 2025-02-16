@@ -8,7 +8,7 @@ use crate::{
     kalloc,
     memlayout::VIRTIO0,
     proc,
-    spinlock::SpinLock,
+    sync::SpinLock,
     virtio::{
         BLK_SECTOR_SIZE, ConfigStatus, DeviceFeatures, MmioRegister, VirtioBlkReq,
         VirtioBlkReqType, VirtqAvail, VirtqDesc, VirtqDescFlags, VirtqUsed,

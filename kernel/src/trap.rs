@@ -15,7 +15,7 @@ use crate::{
     memlayout::{UART0_IRQ, VIRTIO0_IRQ},
     plic, println,
     proc::{self, Proc},
-    spinlock::SpinLock,
+    sync::SpinLock,
     syscall, trampoline, uart, virtio_disk,
     vm::PAGE_SIZE,
 };

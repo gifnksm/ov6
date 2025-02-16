@@ -4,7 +4,7 @@ use crate::{
     file::{self, File},
     kalloc,
     proc::{self, Proc},
-    spinlock::SpinLock,
+    sync::SpinLock,
     vm::{self, VirtAddr},
 };
 

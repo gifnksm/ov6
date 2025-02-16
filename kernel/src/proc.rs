@@ -16,9 +16,9 @@ use crate::{
     fs, interrupt, kalloc, log,
     memlayout::{TRAMPOLINE, TRAPFRAME, kstack},
     param::{NOFILE, NPROC, ROOT_DEV},
-    println,
-    spinlock::{RawSpinLock, SpinLockGuard},
-    switch, trampoline, trap,
+    println, switch,
+    sync::{RawSpinLock, SpinLockGuard},
+    trampoline, trap,
     vm::{self, PAGE_SIZE, PageTable, PhysAddr, PtEntryFlags, VirtAddr},
 };
 

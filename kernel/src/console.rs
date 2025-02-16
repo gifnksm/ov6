@@ -14,7 +14,7 @@ use core::ffi::c_int;
 use crate::{
     file::{self, DevSw},
     proc::{self, Proc},
-    spinlock::SpinLock,
+    sync::SpinLock,
     uart,
 };
 

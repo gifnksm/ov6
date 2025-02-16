@@ -13,8 +13,7 @@ use crate::{
     param::{MAX_OP_BLOCKS, NDEV, NFILE},
     pipe::{self, Pipe},
     proc::Proc,
-    sleeplock::SleepLock,
-    spinlock::RawSpinLock,
+    sync::{RawSpinLock, SleepLock},
     vm::{self, VirtAddr},
 };
 

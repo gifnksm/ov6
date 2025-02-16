@@ -11,7 +11,7 @@ use core::{
 
 use crate::{
     memlayout::PHYS_TOP,
-    spinlock::SpinLock,
+    sync::SpinLock,
     vm::{PAGE_SIZE, PageRound as _},
 };
 

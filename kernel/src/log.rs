@@ -31,7 +31,7 @@ use crate::{
     fs::{BlockNo, DeviceNo, SuperBlock},
     param::{LOG_SIZE, MAX_OP_BLOCKS},
     proc,
-    spinlock::RawSpinLock,
+    sync::RawSpinLock,
 };
 
 /// Contents of the header block, used for both the on-disk header block

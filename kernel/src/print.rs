@@ -8,7 +8,7 @@ use core::{
 
 use crate::{
     console,
-    spinlock::{SpinLock, SpinLockGuard},
+    sync::{SpinLock, SpinLockGuard},
 };
 
 pub static PANICKED: AtomicBool = AtomicBool::new(false);

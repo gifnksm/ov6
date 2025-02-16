@@ -3,8 +3,7 @@ use core::ptr::{self, NonNull};
 use crate::{
     fs::{BlockNo, DInode, DeviceNo, INODE_PER_BLOCK, NINDIRECT},
     param::NBUF,
-    sleeplock::SleepLock,
-    spinlock::SpinLock,
+    sync::{SleepLock, SpinLock},
     virtio_disk,
 };
 

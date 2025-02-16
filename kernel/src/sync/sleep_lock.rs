@@ -7,7 +7,7 @@ use core::{
 
 use crate::{
     proc::{self, Proc, ProcId},
-    spinlock::RawSpinLock,
+    sync::RawSpinLock,
 };
 
 #[repr(C)]

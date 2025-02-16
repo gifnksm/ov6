@@ -2,7 +2,7 @@
 
 use core::{hint, ptr, sync::atomic::Ordering};
 
-use crate::{console, interrupt, memlayout::UART0, print::PANICKED, proc, spinlock::SpinLock};
+use crate::{console, interrupt, memlayout::UART0, print::PANICKED, proc, sync::SpinLock};
 
 const unsafe fn reg(offset: usize) -> *mut u8 {
     unsafe { ptr::without_provenance_mut::<u8>(UART0).byte_add(offset) }

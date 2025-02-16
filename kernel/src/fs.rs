@@ -24,8 +24,8 @@ use crate::{
     log,
     param::{NINODE, ROOT_DEV},
     proc::{self, Proc},
-    spinlock::SpinLock,
     stat::{Stat, T_DEVICE, T_DIR, T_FILE},
+    sync::SpinLock,
     vm::VirtAddr,
 };
 
