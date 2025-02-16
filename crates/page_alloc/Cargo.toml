@@ -1,0 +1,6 @@
+[package]
+name = "page_alloc"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

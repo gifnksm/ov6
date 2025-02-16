@@ -12,5 +12,6 @@ test = false
 bench = false
 
 [dependencies]
-bitflags = "2.8.0"
+bitflags.workspace = true
+page_alloc.workspace = true
 riscv.workspace = true

@@ -260,7 +260,9 @@ pub fn sys_exec(p: &Proc) -> Result<usize, ()> {
 
     if res.is_err() {
         for arg in argv.iter().filter_map(|&a| a) {
-            page::free_page(arg);
+            unsafe {
+                page::free_page(arg);
+            }
         }
         return Err(());
     }
@@ -268,7 +270,9 @@ pub fn sys_exec(p: &Proc) -> Result<usize, ()> {
     let ret = exec::exec(path, argv.as_ptr().cast());
 
     for arg in argv.iter().filter_map(|&a| a) {
-        page::free_page(arg);
+        unsafe {
+            page::free_page(arg);
+        }
     }
 
     ret

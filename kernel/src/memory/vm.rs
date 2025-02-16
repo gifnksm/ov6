@@ -466,7 +466,9 @@ impl PageTable {
                 let child = unsafe { child_ptr.as_mut() };
                 child.free_descendant();
             }
-            page::free_page(child_ptr.cast());
+            unsafe {
+                page::free_page(child_ptr.cast());
+            }
             pte.clear();
         }
     }
@@ -646,7 +648,9 @@ pub mod user {
     pub fn unmap(pagetable: &mut PageTable, va: VirtAddr, npages: usize, do_free: bool) {
         for pa in pagetable.unmap_pages(va, npages) {
             if do_free {
-                page::free_page(pa.as_mut_ptr());
+                unsafe {
+                    page::free_page(pa.as_mut_ptr());
+                }
             }
         }
     }
@@ -702,7 +706,9 @@ pub mod user {
                 )
                 .is_err()
             {
-                page::free_page(mem.cast());
+                unsafe {
+                    page::free_page(mem.cast());
+                }
                 dealloc(pagetable, va, oldsz);
                 return Err(());
             }

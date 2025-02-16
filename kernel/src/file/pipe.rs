@@ -78,7 +78,9 @@ pub fn close(pipe: NonNull<Pipe>, writable: bool) {
         do_free = !pi.readopen && !pi.writeopen;
     };
     if do_free {
-        page::free_page(pipe.cast());
+        unsafe {
+            page::free_page(pipe.cast());
+        }
     }
 }
 

@@ -400,7 +400,9 @@ impl Proc {
         assert!(self.lock.holding());
 
         if let Some(tf) = unsafe { *self.trapframe.get() }.take() {
-            page::free_page(tf.cast());
+            unsafe {
+                page::free_page(tf.cast());
+            }
         }
         if let Some(pt) = unsafe { *self.pagetable.get() }.take() {
             free_pagetable(pt, unsafe { *self.sz.get() });
