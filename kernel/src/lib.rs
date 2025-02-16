@@ -18,6 +18,7 @@ mod exec;
 mod fcntl;
 mod file;
 mod fs;
+mod interrupt;
 mod kalloc;
 mod kernel_vec;
 mod log;

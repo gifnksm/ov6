@@ -10,15 +10,13 @@ use core::{
     sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, Ordering},
 };
 
-use riscv::register::sstatus;
-
 use crate::{
     file::{self, File, Inode},
-    fs, kalloc, log,
+    fs, interrupt, kalloc, log,
     memlayout::{TRAMPOLINE, TRAPFRAME, kstack},
     param::{NCPU, NOFILE, NPROC, ROOT_DEV},
     println,
-    spinlock::{self, RawSpinLock, SpinLockGuard},
+    spinlock::{RawSpinLock, SpinLockGuard},
     switch, trampoline, trap,
     vm::{self, PAGE_SIZE, PageTable, PhysAddr, PtEntryFlags, VirtAddr},
 };
@@ -262,10 +260,11 @@ impl Proc {
 
     /// Returns the current process.
     pub fn try_current() -> Option<&'static Self> {
-        spinlock::push_off();
-        let c = Cpu::mycpu();
-        let p = unsafe { *c.proc.get() };
-        spinlock::pop_off();
+        let p = interrupt::with_push_disabled(|| {
+            let c = Cpu::mycpu();
+            unsafe { *c.proc.get() }
+        });
+
         p.map(|p| unsafe { p.as_ref() })
     }
 
@@ -823,9 +822,7 @@ pub fn scheduler() -> ! {
         // The most recent process to run may have had interrupts
         // turned off; enable them to avoid a deadlock if all
         // processes are waiting.
-        unsafe {
-            sstatus::set_sie();
-        }
+        interrupt::enable();
 
         let mut found = false;
         for p in &PROC {
@@ -856,7 +853,7 @@ pub fn scheduler() -> ! {
         if !found {
             unsafe {
                 // nothing to run, stop running on this core until an interrupt.
-                sstatus::set_sie();
+                interrupt::enable();
                 asm!("wfi");
             }
         }
@@ -875,7 +872,7 @@ fn sched(p: &Proc) {
     assert!(p.lock.holding());
     assert_eq!(unsafe { *Cpu::mycpu().noff.get() }, 1);
     assert_ne!(unsafe { *p.state.get() }, ProcState::Running);
-    assert!(!sstatus::read().sie());
+    assert!(!interrupt::is_enabled());
 
     let intena = unsafe { *Cpu::mycpu().intena.get() };
     switch::switch(p.context.get(), Cpu::mycpu().context.get());

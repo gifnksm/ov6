@@ -5,9 +5,7 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use riscv::register::sstatus;
-
-use crate::proc::Cpu;
+use crate::{interrupt, proc::Cpu};
 
 pub struct RawSpinLock {
     locked: AtomicBool,
@@ -28,7 +26,8 @@ impl RawSpinLock {
     ///
     /// Loops (spins) until the lock is acquired.
     pub fn acquire(&self) {
-        push_off(); // disable interrupts to avoid deadlock.
+        // disable interrupts to avoid deadlock.
+        interrupt::push_disabled().forget(); // drop re-enables interrupts, so we must forget it here.
 
         assert!(!self.holding());
 
@@ -60,14 +59,16 @@ impl RawSpinLock {
         // On RISC-V, this emits a fence instruction.
         self.locked.store(false, Ordering::Release);
 
-        pop_off();
+        unsafe {
+            interrupt::pop_disabled();
+        }
     }
 
     /// Checks whether this cpu is holding the lock.
     ///
     /// Interrupts must be off.
     pub fn holding(&self) -> bool {
-        assert!(!sstatus::read().sie());
+        assert!(!interrupt::is_enabled());
         self.locked.load(Ordering::Relaxed)
             && unsafe { *self.cpu.get() }
                 .map(|c| ptr::eq(c, Cpu::mycpu()))
@@ -129,33 +130,5 @@ impl<T> DerefMut for SpinLockGuard<'_, T> {
 impl<T> SpinLockGuard<'_, T> {
     pub unsafe fn spinlock(&self) -> &RawSpinLock {
         &self.lock.lock
-    }
-}
-
-// push_off/pop_off are like clear_sie()/set_sie() except that they are matched:
-// it takes two pop_off()s to undo two push_off()s.  Also, if interrupts
-// are initially off, then push_off, pop_off leaves them off.
-
-pub fn push_off() {
-    let old = sstatus::read().sie();
-
-    unsafe {
-        sstatus::clear_sie();
-        if *Cpu::mycpu().noff.get() == 0 {
-            *Cpu::mycpu().intena.get() = old.into();
-        }
-        *Cpu::mycpu().noff.get() += 1;
-    }
-}
-
-pub fn pop_off() {
-    unsafe {
-        let c = Cpu::mycpu();
-        assert!(!sstatus::read().sie());
-        assert!(*c.noff.get() > 0);
-        *c.noff.get() -= 1;
-        if *c.noff.get() == 0 && *c.intena.get() != 0 {
-            sstatus::set_sie();
-        }
     }
 }

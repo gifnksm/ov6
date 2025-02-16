@@ -11,7 +11,7 @@ use riscv::{
 };
 
 use crate::{
-    kernel_vec,
+    interrupt, kernel_vec,
     memlayout::{UART0_IRQ, VIRTIO0_IRQ},
     plic, println,
     proc::{self, Proc},
@@ -61,9 +61,7 @@ extern "C" fn trap_user() {
 
         // an interrupt will change sepc, scause, and sstatus,
         // so enable only now that we're done with those registers.
-        unsafe {
-            sstatus::set_sie();
-        }
+        interrupt::enable();
 
         syscall::syscall(p);
     } else {
@@ -100,9 +98,7 @@ pub fn trap_user_ret(p: &Proc) {
     // we're about to switch destination of traps from
     // kerneltrap() to usertrap(), so turn off interrupts until
     // we're back in user space, where usertrap() is correct.
-    unsafe {
-        sstatus::clear_sie();
-    }
+    interrupt::disable();
 
     // send syscalls, interrupts, and exceptions to uservec in trampoline.S
     let trampoline_uservec = trampoline::user_vec_addr();
@@ -158,7 +154,7 @@ pub extern "C" fn trap_kernel() {
     let scause = scause::read();
 
     assert_eq!(sstatus.spp(), SPP::Supervisor, "from supervisor mode");
-    assert!(!sstatus.sie());
+    assert!(!interrupt::is_enabled());
 
     let which_dev = handle_dev_interrupt();
     if which_dev == IntrKind::NotRecognized {

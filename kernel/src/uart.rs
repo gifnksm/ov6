@@ -2,13 +2,7 @@
 
 use core::{hint, ptr, sync::atomic::Ordering};
 
-use crate::{
-    console,
-    memlayout::UART0,
-    print::PANICKED,
-    proc::{self},
-    spinlock::{self, SpinLock},
-};
+use crate::{console, interrupt, memlayout::UART0, print::PANICKED, proc, spinlock::SpinLock};
 
 const unsafe fn reg(offset: usize) -> *mut u8 {
     unsafe { ptr::without_provenance_mut::<u8>(UART0).byte_add(offset) }
@@ -152,24 +146,22 @@ pub fn putc(c: char) {
 /// It spins waiting for the uart's
 /// output register to be empty.
 pub fn putc_sync(c: char) {
-    spinlock::push_off();
+    interrupt::with_push_disabled(|| {
+        if PANICKED.load(Ordering::Relaxed) {
+            loop {
+                hint::spin_loop();
+            }
+        }
 
-    if PANICKED.load(Ordering::Relaxed) {
-        loop {
+        // wait for Transmit Holding Empty to be set in LSR.
+        while (unsafe { read_reg(LSR) } & LSR_TX_IDLE) == 0 {
             hint::spin_loop();
         }
-    }
 
-    // wait for Transmit Holding Empty to be set in LSR.
-    while (unsafe { read_reg(LSR) } & LSR_TX_IDLE) == 0 {
-        hint::spin_loop();
-    }
-
-    unsafe {
-        write_reg(THR, c as u8);
-    }
-
-    spinlock::pop_off();
+        unsafe {
+            write_reg(THR, c as u8);
+        }
+    });
 }
 
 /// Starts sending characters from the output buffer.
