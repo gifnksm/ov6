@@ -8,7 +8,7 @@ use crate::{
     kalloc,
     memlayout::VIRTIO0,
     proc,
-    spinlock::Mutex,
+    spinlock::SpinLock,
     virtio::{
         BLK_SECTOR_SIZE, ConfigStatus, DeviceFeatures, MmioRegister, VirtioBlkReq,
         VirtioBlkReqType, VirtqAvail, VirtqDesc, VirtqDescFlags, VirtqUsed,
@@ -75,7 +75,7 @@ fn reg_write(r: MmioRegister, value: u32) {
     unsafe { ptr::with_exposed_provenance_mut::<u32>(VIRTIO0 + r as usize).write_volatile(value) }
 }
 
-static DISK: Mutex<Disk> = Mutex::new(Disk {
+static DISK: SpinLock<Disk> = SpinLock::new(Disk {
     desc: ptr::null_mut(),
     avail: ptr::null_mut(),
     used: ptr::null_mut(),

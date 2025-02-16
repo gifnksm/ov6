@@ -31,7 +31,7 @@ use crate::{
     fs::{BlockNo, DeviceNo, SuperBlock},
     param::{LOG_SIZE, MAX_OP_BLOCKS},
     proc,
-    spinlock::SpinLock,
+    spinlock::RawSpinLock,
 };
 
 /// Contents of the header block, used for both the on-disk header block
@@ -43,7 +43,7 @@ struct LogHeader {
 }
 
 struct Log {
-    lock: SpinLock,
+    lock: RawSpinLock,
     start: u32,
     size: u32,
     /// How many FS sys calls are executing.
@@ -55,7 +55,7 @@ struct Log {
 }
 
 static mut LOG: Log = Log {
-    lock: SpinLock::new(c"log"),
+    lock: RawSpinLock::new(),
     start: 0,
     size: 0,
     outstanding: 0,

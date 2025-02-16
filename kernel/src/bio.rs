@@ -4,7 +4,7 @@ use crate::{
     fs::{BlockNo, DInode, DeviceNo, INODE_PER_BLOCK, NINDIRECT},
     param::NBUF,
     sleeplock::SleepLock,
-    spinlock::Mutex,
+    spinlock::SpinLock,
     virtio_disk,
 };
 
@@ -37,7 +37,7 @@ struct BlockCache {
     head: Buf,
 }
 
-static BCACHE: Mutex<BlockCache> = Mutex::new(BlockCache {
+static BCACHE: SpinLock<BlockCache> = SpinLock::new(BlockCache {
     buf: [const {
         Buf {
             valid: 0,

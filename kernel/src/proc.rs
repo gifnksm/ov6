@@ -18,7 +18,7 @@ use crate::{
     memlayout::{TRAMPOLINE, TRAPFRAME, kstack},
     param::{NCPU, NOFILE, NPROC, ROOT_DEV},
     println,
-    spinlock::{self, MutexGuard, SpinLock},
+    spinlock::{self, RawSpinLock, SpinLockGuard},
     switch, trampoline, trap,
     vm::{self, PAGE_SIZE, PageTable, PhysAddr, PtEntryFlags, VirtAddr},
 };
@@ -52,7 +52,7 @@ impl ProcId {
 ///
 /// Helps obey the memory model when using `Proc::parent`.
 /// Must be acquired before any `Proc::lock`.
-static WAIT_LOCK: SpinLock = SpinLock::new(c"wait_lock");
+static WAIT_LOCK: RawSpinLock = RawSpinLock::new();
 
 /// Saved registers for kernel context switches.
 #[repr(C)]
@@ -195,7 +195,7 @@ enum ProcState {
 /// Per-process state.
 #[repr(C)]
 pub struct Proc {
-    lock: SpinLock,
+    lock: RawSpinLock,
 
     // lock must be held when using these:
     /// Process state.
@@ -237,7 +237,7 @@ unsafe impl Sync for Proc {}
 impl Proc {
     const fn new() -> Self {
         Self {
-            lock: SpinLock::new(c"proc"),
+            lock: RawSpinLock::new(),
             state: UnsafeCell::new(ProcState::Unused),
             chan: UnsafeCell::new(ptr::null()),
             killed: UnsafeCell::new(0),
@@ -916,14 +916,14 @@ extern "C" fn forkret() {
 /// Automatically releases `lock` and sleeps on `chan``.
 ///
 /// Reacquires lock when awakened.
-pub fn sleep<T>(chan: *const c_void, lock: &mut MutexGuard<T>) {
+pub fn sleep<T>(chan: *const c_void, lock: &mut SpinLockGuard<T>) {
     unsafe { sleep_raw(chan, lock.spinlock()) }
 }
 
 /// Automatically releases `lock` and sleeps on `chan``.
 ///
 /// Reacquires lock when awakened.
-pub fn sleep_raw(chan: *const c_void, lock: &SpinLock) {
+pub fn sleep_raw(chan: *const c_void, lock: &RawSpinLock) {
     let p = Proc::current();
     // Must acquire `p.lock` in order to change
     // `p.state` and then call `sched()`.

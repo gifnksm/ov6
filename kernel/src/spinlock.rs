@@ -1,31 +1,25 @@
 use core::{
     cell::UnsafeCell,
-    ffi::{CStr, c_char, c_uint},
     ops::{Deref, DerefMut},
     ptr,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use riscv::register::sstatus;
 
 use crate::proc::Cpu;
 
-#[repr(C)]
-pub struct SpinLock {
-    locked: AtomicU32,
-    name: *const c_char,
+pub struct RawSpinLock {
+    locked: AtomicBool,
     cpu: UnsafeCell<Option<&'static Cpu>>,
 }
 
-const _: () = assert!(size_of::<AtomicU32>() == size_of::<c_uint>());
+unsafe impl Sync for RawSpinLock {}
 
-unsafe impl Sync for SpinLock {}
-
-impl SpinLock {
-    pub const fn new(name: &'static CStr) -> Self {
+impl RawSpinLock {
+    pub const fn new() -> Self {
         Self {
-            locked: AtomicU32::new(0),
-            name: name.as_ptr(),
+            locked: AtomicBool::new(false),
             cpu: UnsafeCell::new(None),
         }
     }
@@ -42,7 +36,7 @@ impl SpinLock {
         // past this point, to ensure that the critical section's memory
         // references happen strictly after the lock is acquired.
         // On RISC-V, this emits a fence instruction.
-        while self.locked.swap(1, Ordering::Acquire) != 0 {}
+        while self.locked.swap(true, Ordering::Acquire) {}
 
         // Record info about lock acquisition for holding() and debugging.
         unsafe {
@@ -64,7 +58,7 @@ impl SpinLock {
         // and that loads in the critical section occur strictly before
         // the locks is released.
         // On RISC-V, this emits a fence instruction.
-        self.locked.store(0, Ordering::Release);
+        self.locked.store(false, Ordering::Release);
 
         pop_off();
     }
@@ -74,29 +68,24 @@ impl SpinLock {
     /// Interrupts must be off.
     pub fn holding(&self) -> bool {
         assert!(!sstatus::read().sie());
-        self.locked.load(Ordering::Relaxed) != 0
+        self.locked.load(Ordering::Relaxed)
             && unsafe { *self.cpu.get() }
                 .map(|c| ptr::eq(c, Cpu::mycpu()))
                 .unwrap_or(false)
     }
 }
 
-#[repr(C)]
-pub struct Mutex<T> {
-    lock: SpinLock,
+pub struct SpinLock<T> {
+    lock: RawSpinLock,
     value: UnsafeCell<T>,
 }
 
-unsafe impl<T> Sync for Mutex<T> where T: Send {}
+unsafe impl<T> Sync for SpinLock<T> where T: Send {}
 
-impl<T> Mutex<T> {
+impl<T> SpinLock<T> {
     pub const fn new(value: T) -> Self {
         Self {
-            lock: SpinLock {
-                locked: AtomicU32::new(0),
-                name: ptr::null(),
-                cpu: UnsafeCell::new(None),
-            },
+            lock: RawSpinLock::new(),
             value: UnsafeCell::new(value),
         }
     }
@@ -104,26 +93,26 @@ impl<T> Mutex<T> {
     /// Acquires the lock.
     ///
     /// Loops (spins) until the lock is acquired.
-    pub fn lock(&self) -> MutexGuard<T> {
+    pub fn lock(&self) -> SpinLockGuard<T> {
         self.lock.acquire();
-        MutexGuard { lock: self }
+        SpinLockGuard { lock: self }
     }
 }
 
-pub struct MutexGuard<'a, T> {
-    lock: &'a Mutex<T>,
+pub struct SpinLockGuard<'a, T> {
+    lock: &'a SpinLock<T>,
 }
 
-unsafe impl<T> Send for MutexGuard<'_, T> where T: Send {}
-unsafe impl<T> Sync for MutexGuard<'_, T> where T: Sync {}
+unsafe impl<T> Send for SpinLockGuard<'_, T> where T: Send {}
+unsafe impl<T> Sync for SpinLockGuard<'_, T> where T: Sync {}
 
-impl<T> Drop for MutexGuard<'_, T> {
+impl<T> Drop for SpinLockGuard<'_, T> {
     fn drop(&mut self) {
         self.lock.lock.release();
     }
 }
 
-impl<T> Deref for MutexGuard<'_, T> {
+impl<T> Deref for SpinLockGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -131,14 +120,14 @@ impl<T> Deref for MutexGuard<'_, T> {
     }
 }
 
-impl<T> DerefMut for MutexGuard<'_, T> {
+impl<T> DerefMut for SpinLockGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.lock.value.get() }
     }
 }
 
-impl<T> MutexGuard<'_, T> {
-    pub unsafe fn spinlock(&self) -> &SpinLock {
+impl<T> SpinLockGuard<'_, T> {
+    pub unsafe fn spinlock(&self) -> &RawSpinLock {
         &self.lock.lock
     }
 }

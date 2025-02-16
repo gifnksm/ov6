@@ -7,7 +7,7 @@ use core::{
 
 use crate::{
     proc::{self, Proc, ProcId},
-    spinlock::SpinLock,
+    spinlock::RawSpinLock,
 };
 
 #[repr(C)]
@@ -15,7 +15,7 @@ pub struct SleepLock {
     /// Is the lock held?
     locked: AtomicU32,
     /// Spinlock protecting this sleep lock
-    lk: SpinLock,
+    lk: RawSpinLock,
 
     // For debugging:
     name: *const c_char,
@@ -26,7 +26,7 @@ impl SleepLock {
     pub const fn new(name: &'static CStr) -> Self {
         Self {
             locked: AtomicU32::new(0),
-            lk: SpinLock::new(c"sleep lock"),
+            lk: RawSpinLock::new(),
             name: name.as_ptr(),
             pid: UnsafeCell::new(ProcId::new(0)),
         }

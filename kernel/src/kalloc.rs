@@ -11,7 +11,7 @@ use core::{
 
 use crate::{
     memlayout::PHYS_TOP,
-    spinlock::Mutex,
+    spinlock::SpinLock,
     vm::{PAGE_SIZE, PageRound as _},
 };
 
@@ -38,7 +38,7 @@ struct Run {
 
 unsafe impl Send for Run {}
 
-static FREE_LIST: Mutex<Run> = Mutex::new(Run { next: None });
+static FREE_LIST: SpinLock<Run> = SpinLock::new(Run { next: None });
 
 pub fn init() {
     let pa_start = end();

@@ -8,7 +8,7 @@ use core::{
 
 use crate::{
     console,
-    spinlock::{Mutex, MutexGuard},
+    spinlock::{SpinLock, SpinLockGuard},
 };
 
 pub static PANICKED: AtomicBool = AtomicBool::new(false);
@@ -16,12 +16,12 @@ pub static PANICKED: AtomicBool = AtomicBool::new(false);
 // lock to avoid interleaving concurrent print's.
 struct Print {
     locking: AtomicBool,
-    lock: Mutex<()>,
+    lock: SpinLock<()>,
 }
 
 static PRINT: Print = Print {
     locking: AtomicBool::new(true),
-    lock: Mutex::new(()),
+    lock: SpinLock::new(()),
 };
 
 impl Print {
@@ -35,7 +35,7 @@ impl Print {
 }
 
 struct Writer<'a> {
-    _guard: Option<MutexGuard<'a, ()>>,
+    _guard: Option<SpinLockGuard<'a, ()>>,
 }
 
 impl fmt::Write for Writer<'_> {

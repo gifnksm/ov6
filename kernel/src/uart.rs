@@ -7,7 +7,7 @@ use crate::{
     memlayout::UART0,
     print::PANICKED,
     proc::{self},
-    spinlock::{self, Mutex},
+    spinlock::{self, SpinLock},
 };
 
 const unsafe fn reg(offset: usize) -> *mut u8 {
@@ -86,7 +86,7 @@ impl TxBuffer {
     }
 }
 
-static TX_BUFFER: Mutex<TxBuffer> = Mutex::new(TxBuffer {
+static TX_BUFFER: SpinLock<TxBuffer> = SpinLock::new(TxBuffer {
     buf: [0; 32],
     tx_w: 0,
     tx_r: 0,

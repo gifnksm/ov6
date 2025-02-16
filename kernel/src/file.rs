@@ -14,7 +14,7 @@ use crate::{
     pipe::{self, Pipe},
     proc::Proc,
     sleeplock::SleepLock,
-    spinlock::SpinLock,
+    spinlock::RawSpinLock,
     vm::{self, VirtAddr},
 };
 
@@ -151,7 +151,7 @@ const _: () = {
 
 #[repr(C)]
 struct FileTable {
-    lock: SpinLock,
+    lock: RawSpinLock,
     file: [File; NFILE],
 }
 
@@ -163,7 +163,7 @@ pub static mut DEVSW: [DevSw; NDEV] = [const {
 }; NDEV];
 
 static mut FTABLE: FileTable = FileTable {
-    lock: SpinLock::new(c"ftable"),
+    lock: RawSpinLock::new(),
     file: [const { File::zero() }; NFILE],
 };
 

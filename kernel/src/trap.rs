@@ -15,12 +15,12 @@ use crate::{
     memlayout::{UART0_IRQ, VIRTIO0_IRQ},
     plic, println,
     proc::{self, Proc},
-    spinlock::Mutex,
+    spinlock::SpinLock,
     syscall, trampoline, uart, virtio_disk,
     vm::PAGE_SIZE,
 };
 
-pub static TICKS: Mutex<u64> = Mutex::new(0);
+pub static TICKS: SpinLock<u64> = SpinLock::new(0);
 
 pub fn init_hart() {
     unsafe {

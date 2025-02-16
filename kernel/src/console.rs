@@ -14,7 +14,7 @@ use core::ffi::c_int;
 use crate::{
     file::{self, DevSw},
     proc::{self, Proc},
-    spinlock::Mutex,
+    spinlock::SpinLock,
     uart,
 };
 
@@ -53,7 +53,7 @@ struct Cons {
     e: usize,
 }
 
-static CONS: Mutex<Cons> = Mutex::new(Cons {
+static CONS: SpinLock<Cons> = SpinLock::new(Cons {
     buf: [0; 128],
     r: 0,
     w: 0,

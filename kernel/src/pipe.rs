@@ -4,7 +4,7 @@ use crate::{
     file::{self, File},
     kalloc,
     proc::{self, Proc},
-    spinlock::Mutex,
+    spinlock::SpinLock,
     vm::{self, VirtAddr},
 };
 
@@ -12,7 +12,7 @@ const PIPE_SIZE: usize = 512;
 
 #[repr(C)]
 pub struct Pipe {
-    data: Mutex<PipeData>,
+    data: SpinLock<PipeData>,
 }
 
 #[repr(C)]
@@ -44,7 +44,7 @@ pub fn alloc() -> Result<(&'static File, &'static File), ()> {
 
     unsafe {
         *pi.as_mut() = Pipe {
-            data: Mutex::new(PipeData {
+            data: SpinLock::new(PipeData {
                 data: [0; PIPE_SIZE],
                 nread: 0,
                 nwrite: 0,

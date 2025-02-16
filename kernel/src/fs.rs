@@ -24,7 +24,7 @@ use crate::{
     log,
     param::{NINODE, ROOT_DEV},
     proc::{self, Proc},
-    spinlock::Mutex,
+    spinlock::SpinLock,
     stat::{Stat, T_DEVICE, T_DIR, T_FILE},
     vm::VirtAddr,
 };
@@ -329,8 +329,8 @@ fn block_free(dev: DeviceNo, b: BlockNo) {
 // dev, and inum.  One must hold ip->lock in order to
 // read or write that inode's ip->valid, ip->size, ip->type, &c.
 
-static INODE_TABLE: Mutex<[UnsafeCell<Inode>; NINODE]> =
-    Mutex::new([const { UnsafeCell::new(Inode::zero()) }; NINODE]);
+static INODE_TABLE: SpinLock<[UnsafeCell<Inode>; NINODE]> =
+    SpinLock::new([const { UnsafeCell::new(Inode::zero()) }; NINODE]);
 
 /// Allocates an inode on device dev.
 ///
