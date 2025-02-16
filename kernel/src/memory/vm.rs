@@ -670,7 +670,7 @@ pub mod user {
         assert!(src.len() < PAGE_SIZE, "src.len()={:#x}", src.len());
 
         unsafe {
-            let mem = page::alloc_zeroed_page().unwrap().cast::<u8>();
+            let mem = page::alloc_zeroed_page().unwrap();
             pagetable
                 .map_page(VirtAddr(0), PhysAddr(mem.addr().get()), PtEntryFlags::URWX)
                 .unwrap();
@@ -694,7 +694,7 @@ pub mod user {
 
         let oldsz = page_roundup(oldsz);
         for va in (oldsz..newsz).step_by(PAGE_SIZE) {
-            let Some(mem) = page::alloc_zeroed_page().map(|p| p.cast::<u8>()) else {
+            let Some(mem) = page::alloc_zeroed_page() else {
                 dealloc(pagetable, va, oldsz);
                 return Err(());
             };
@@ -707,7 +707,7 @@ pub mod user {
                 .is_err()
             {
                 unsafe {
-                    page::free_page(mem.cast());
+                    page::free_page(mem);
                 }
                 dealloc(pagetable, va, oldsz);
                 return Err(());
@@ -784,9 +784,7 @@ pub mod user {
                     return Err(va);
                 };
                 unsafe {
-                    dst.cast::<u8>()
-                        .as_ptr()
-                        .copy_from(src_pa.as_ptr(), PAGE_SIZE);
+                    dst.as_ptr().copy_from(src_pa.as_ptr(), PAGE_SIZE);
                 }
                 if new
                     .map_page(VirtAddr(va), PhysAddr(dst.addr().get()), flags)

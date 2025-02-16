@@ -4,10 +4,7 @@
 //!
 //! Allocates whole 4096-byte pages.
 
-use core::{
-    ffi::c_void,
-    ptr::{self, NonNull},
-};
+use core::ptr::{self, NonNull};
 
 use page_alloc::{PageAllocator, RetrieveAllocator};
 
@@ -19,7 +16,7 @@ use crate::{
 use super::vm::PageRound as _;
 
 /// First address after kernel.
-const fn end() -> NonNull<c_void> {
+const fn end() -> NonNull<u8> {
     unsafe extern "C" {
         /// First address after kernel.
         ///
@@ -28,10 +25,10 @@ const fn end() -> NonNull<c_void> {
         static mut END: [u8; 0];
     }
 
-    NonNull::new((&raw mut END).cast()).unwrap()
+    NonNull::new(&raw mut END).unwrap().cast()
 }
 
-const fn top() -> NonNull<c_void> {
+const fn top() -> NonNull<u8> {
     NonNull::new(ptr::without_provenance_mut(PHYS_TOP)).unwrap()
 }
 
@@ -52,7 +49,7 @@ pub fn init() {
 
     unsafe {
         ALLOCATOR.init(SpinLock::new(PageAllocator::new(
-            pa_start.as_ptr().cast()..pa_end.as_ptr().cast(),
+            pa_start.as_ptr()..pa_end.as_ptr(),
         )));
     }
 }
@@ -60,31 +57,23 @@ pub fn init() {
 /// Frees the page of physical memory pointed at by pa,
 /// which normally should have been returned by a
 /// call to `kalloc()`.
-pub unsafe fn free_page(pa: NonNull<c_void>) {
-    assert_eq!(pa.addr().get() % PAGE_SIZE, 0, "pa = {pa:#p}");
-    assert!(pa >= end(), "pa = {:#p}, end = {:#p}", pa, end());
-    assert!(pa < top(), "pa = {:#p}, top = {:#p}", pa, top());
-
+pub unsafe fn free_page(pa: NonNull<u8>) {
     // Fill with junk to catch dangling refs.
     unsafe {
         pa.write_bytes(1, PAGE_SIZE);
     }
-
-    unsafe { ALLOCATOR.get().lock().free(pa.cast()) }
+    unsafe { ALLOCATOR.get().lock().free(pa) }
 }
 
 /// Allocates one 4096-byte page of physical memory.
 ///
 /// Returns a pointer that the kernel can use.
 /// Returns `None` if the memory cannot be allocated.
-pub fn alloc_page() -> Option<NonNull<c_void>> {
+pub fn alloc_page() -> Option<NonNull<u8>> {
     let p = ALLOCATOR.get().lock().alloc()?;
-    let p = p.cast::<c_void>();
-
     unsafe {
         p.write_bytes(5, PAGE_SIZE);
     }
-
     Some(p)
 }
 
@@ -92,9 +81,8 @@ pub fn alloc_page() -> Option<NonNull<c_void>> {
 ///
 /// Returns a pointer that the kernel can use.
 /// Returns `None` if the memory cannot be allocated.
-pub fn alloc_zeroed_page() -> Option<NonNull<c_void>> {
-    let p = ALLOCATOR.get().lock().alloc_zeroed()?;
-    Some(p.cast())
+pub fn alloc_zeroed_page() -> Option<NonNull<u8>> {
+    ALLOCATOR.get().lock().alloc_zeroed()
 }
 
 /// A pointer type that uniquely owns a page of type `T`.

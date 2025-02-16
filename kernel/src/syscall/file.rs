@@ -250,9 +250,8 @@ pub fn sys_exec(p: &Proc) -> Result<usize, ()> {
                 break;
             }
             argv[i] = Some(page::alloc_page().ok_or(())?);
-            let buf = unsafe {
-                core::slice::from_raw_parts_mut(argv[i].unwrap().cast().as_mut(), PAGE_SIZE)
-            };
+            let buf =
+                unsafe { core::slice::from_raw_parts_mut(argv[i].unwrap().as_ptr(), PAGE_SIZE) };
             syscall::fetch_str(p, uarg, buf)?;
         }
         Ok(())
