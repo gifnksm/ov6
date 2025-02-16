@@ -2,7 +2,7 @@ use core::arch::asm;
 
 use riscv::register::{mcounteren, mepc, mhartid, mie, mstatus, pmpaddr0, pmpcfg0, satp, sie};
 
-use crate::{main, param::NCPU};
+use crate::{cpu, main, param::NCPU};
 
 // entry.s needs one stack per CPU.
 pub const STACK_SIZE: usize = 4096;
@@ -39,10 +39,10 @@ pub extern "C" fn start() -> ! {
     // ask for clock interrupts;
     timerinit();
 
-    // keep each CPU's hartid in its tp register, for cpuid().
+    // keep each CPU's hartid in its tp register, for `cpu::id()`.
     let id = mhartid::read();
     unsafe {
-        asm!("mv tp, {}", in(reg) id);
+        cpu::set_id(id);
     }
 
     unsafe {

@@ -5,7 +5,7 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use crate::{interrupt, proc::Cpu};
+use crate::{cpu::Cpu, interrupt};
 
 pub struct RawSpinLock {
     locked: AtomicBool,
@@ -39,7 +39,7 @@ impl RawSpinLock {
 
         // Record info about lock acquisition for holding() and debugging.
         unsafe {
-            *self.cpu.get() = Some(Cpu::mycpu());
+            *self.cpu.get() = Some(Cpu::current());
         }
     }
 
@@ -71,7 +71,7 @@ impl RawSpinLock {
         assert!(!interrupt::is_enabled());
         self.locked.load(Ordering::Relaxed)
             && unsafe { *self.cpu.get() }
-                .map(|c| ptr::eq(c, Cpu::mycpu()))
+                .map(|c| ptr::eq(c, Cpu::current()))
                 .unwrap_or(false)
     }
 }

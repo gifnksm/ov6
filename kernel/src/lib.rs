@@ -13,6 +13,7 @@ use core::{
 
 mod bio;
 mod console;
+mod cpu;
 mod elf;
 mod exec;
 mod fcntl;
@@ -54,7 +55,7 @@ static STARTED: AtomicBool = AtomicBool::new(false);
 
 // start() jumps here in supervisor mode on all CPUs.
 extern "C" fn main() -> ! {
-    if proc::cpuid() == 0 {
+    if cpu::id() == 0 {
         console::init();
         println!();
         println!("xv6 kernel is booting");
@@ -74,7 +75,7 @@ extern "C" fn main() -> ! {
         while !STARTED.load(Ordering::Acquire) {
             hint::spin_loop();
         }
-        println!("hart {} starting", proc::cpuid());
+        println!("hart {} starting", cpu::id());
         vm::kernel::init_hart(); // turn on paging
         trap::init_hart(); // install kernel trap vector
         plic::init_hart(); // ask PLIC for device interrupts

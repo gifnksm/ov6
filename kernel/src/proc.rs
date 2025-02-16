@@ -11,17 +11,17 @@ use core::{
 };
 
 use crate::{
+    cpu::Cpu,
     file::{self, File, Inode},
     fs, interrupt, kalloc, log,
     memlayout::{TRAMPOLINE, TRAPFRAME, kstack},
-    param::{NCPU, NOFILE, NPROC, ROOT_DEV},
+    param::{NOFILE, NPROC, ROOT_DEV},
     println,
     spinlock::{RawSpinLock, SpinLockGuard},
     switch, trampoline, trap,
     vm::{self, PAGE_SIZE, PageTable, PhysAddr, PtEntryFlags, VirtAddr},
 };
 
-static CPUS: [Cpu; NCPU] = [const { Cpu::zero() }; NCPU];
 static PROC: [Proc; NPROC] = [const { Proc::new() }; NPROC];
 static INITPROC: AtomicPtr<Proc> = AtomicPtr::new(ptr::null_mut());
 
@@ -74,7 +74,7 @@ pub struct Context {
 }
 
 impl Context {
-    const fn zero() -> Self {
+    pub const fn zeroed() -> Self {
         Self {
             ra: 0,
             sp: 0,
@@ -94,42 +94,7 @@ impl Context {
     }
 
     const fn clear(&mut self) {
-        *self = Self::zero();
-    }
-}
-
-/// Per-CPU state.
-#[repr(C)]
-pub struct Cpu {
-    /// The process running on this Cpu, or null.
-    proc: UnsafeCell<Option<NonNull<Proc>>>,
-    /// switch() here to enter scheduler()
-    context: UnsafeCell<Context>,
-    /// Depth of `push_off()` nesting.
-    pub noff: UnsafeCell<c_int>,
-    /// Were interrupts enabled before `push_off()`?
-    pub intena: UnsafeCell<c_int>,
-}
-
-unsafe impl Sync for Cpu {}
-
-impl Cpu {
-    const fn zero() -> Self {
-        Self {
-            proc: UnsafeCell::new(None),
-            context: UnsafeCell::new(Context::zero()),
-            noff: UnsafeCell::new(0),
-            intena: UnsafeCell::new(0),
-        }
-    }
-
-    /// Returns this CPU's cpu struct.
-    ///
-    /// Interrupts must be disabled.
-    #[inline]
-    pub fn mycpu() -> &'static Self {
-        let id = cpuid();
-        &CPUS[id]
+        *self = Self::zeroed();
     }
 }
 
@@ -246,7 +211,7 @@ impl Proc {
             sz: UnsafeCell::new(0),
             pagetable: UnsafeCell::new(None),
             trapframe: UnsafeCell::new(None),
-            context: UnsafeCell::new(Context::zero()),
+            context: UnsafeCell::new(Context::zeroed()),
             ofile: [const { UnsafeCell::new(None) }; NOFILE],
             cwd: UnsafeCell::new(None),
             name: UnsafeCell::new([0; 16]),
@@ -261,7 +226,7 @@ impl Proc {
     /// Returns the current process.
     pub fn try_current() -> Option<&'static Self> {
         let p = interrupt::with_push_disabled(|| {
-            let c = Cpu::mycpu();
+            let c = Cpu::current();
             unsafe { *c.proc.get() }
         });
 
@@ -491,17 +456,6 @@ pub fn init() {
             *p.kstack.get() = kstack(i);
         }
     }
-}
-
-/// Returns current CPU's ID.
-///
-/// Must be called with interrupts disabled,
-/// to prevent race with process being moved
-/// to a different CPU.
-pub fn cpuid() -> usize {
-    let id: usize;
-    unsafe { asm!("mv {}, tp", out(reg) id) };
-    id
 }
 
 /// Creates a user page table for a given process, with no user memory,
@@ -812,7 +766,7 @@ pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, ()> {
 /// - eventually that process transfers control
 ///   via switch back to the scheduler.
 pub fn scheduler() -> ! {
-    let cpu = Cpu::mycpu();
+    let cpu = Cpu::current();
 
     unsafe {
         *cpu.proc.get() = None;
@@ -866,18 +820,17 @@ pub fn scheduler() -> ! {
 ///
 /// Saves and restores `Cpu:intena` because `inteta` is a property of this kernel thread,
 /// not this CPU. It should be `Proc::intena` and `Proc::noff`, but that would break in the
-/// fea places where a lock is held but
-/// there's no process.
+/// few places where a lock is held but there's no process.
 fn sched(p: &Proc) {
     assert!(p.lock.holding());
-    assert_eq!(unsafe { *Cpu::mycpu().noff.get() }, 1);
+    assert_eq!(interrupt::disabled_depth(), 1);
     assert_ne!(unsafe { *p.state.get() }, ProcState::Running);
     assert!(!interrupt::is_enabled());
 
-    let intena = unsafe { *Cpu::mycpu().intena.get() };
-    switch::switch(p.context.get(), Cpu::mycpu().context.get());
+    let int_enabled = interrupt::is_enabled_before_push();
+    switch::switch(p.context.get(), Cpu::current().context.get());
     unsafe {
-        *Cpu::mycpu().intena.get() = intena;
+        interrupt::force_set_before_push(int_enabled);
     }
 }
 

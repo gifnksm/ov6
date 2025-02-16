@@ -3,8 +3,8 @@
 use core::ptr;
 
 use crate::{
+    cpu,
     memlayout::{PLIC, UART0_IRQ, VIRTIO0_IRQ, plic_sclaim, plic_senable, plic_spriority},
-    proc,
 };
 
 pub fn init() {
@@ -16,7 +16,7 @@ pub fn init() {
 }
 
 pub fn init_hart() {
-    let hart = proc::cpuid();
+    let hart = cpu::id();
 
     // set enable bits for this hart's S-mode
     // for the uart and virtio disk.
@@ -33,13 +33,13 @@ pub fn init_hart() {
 
 /// Asks the PLIC what interrupt we should serve.
 pub fn claim() -> usize {
-    let hart = proc::cpuid();
+    let hart = cpu::id();
     let irq = unsafe { ptr::with_exposed_provenance_mut::<u32>(plic_sclaim(hart)).read_volatile() };
     irq as usize
 }
 
 /// Tells the PLIC we've served this IRQ.
 pub fn complete(irq: usize) {
-    let hart = proc::cpuid();
+    let hart = cpu::id();
     unsafe { ptr::without_provenance_mut::<u32>(plic_sclaim(hart)).write_volatile(irq as u32) };
 }

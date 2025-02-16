@@ -11,7 +11,7 @@ use riscv::{
 };
 
 use crate::{
-    interrupt, kernel_vec,
+    cpu, interrupt, kernel_vec,
     memlayout::{UART0_IRQ, VIRTIO0_IRQ},
     plic, println,
     proc::{self, Proc},
@@ -183,7 +183,7 @@ pub extern "C" fn trap_kernel() {
 }
 
 fn handle_clock_interrupt() {
-    if proc::cpuid() == 0 {
+    if cpu::id() == 0 {
         let mut ticks = TICKS.lock();
         *ticks += 1;
         proc::wakeup((&raw const TICKS).cast());
