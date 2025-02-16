@@ -10,17 +10,16 @@ use crate::{
     proc,
     spinlock::Mutex,
     virtio::{
-        BLK_SECTOR_SIZE, MmioRegister, NUM, VIRTIO_BLK_F_CONFIG_WCE, VIRTIO_BLK_F_MQ,
-        VIRTIO_BLK_F_RO, VIRTIO_BLK_F_SCSI, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
-        VIRTIO_CONFIG_S_ACKNOWLEDGE, VIRTIO_CONFIG_S_DRIVER, VIRTIO_CONFIG_S_DRIVER_OK,
-        VIRTIO_CONFIG_S_FEATURES_OK, VIRTIO_F_ANY_LAYOUT, VIRTIO_RING_F_EVENT_IDX,
-        VIRTIO_RING_F_INDIRECT_DESC, VRING_DESC_F_NEXT, VRING_DESC_F_WRITE, VirtioBlkReq,
-        VirtqAvail, VirtqDesc, VirtqUsed,
+        BLK_SECTOR_SIZE, ConfigStatus, DeviceFeatures, MmioRegister, VirtioBlkReq,
+        VirtioBlkReqType, VirtqAvail, VirtqDesc, VirtqDescFlags, VirtqUsed,
     },
     vm::PAGE_SIZE,
 };
 
-#[repr(C)]
+// This many virtio descriptors.
+// Must be a power of two.
+pub const NUM: usize = 8;
+
 struct Disk {
     /// A set (not a ring) of DMA descriptors, with which the
     /// driver tells the device where to read and write individual
@@ -36,13 +35,13 @@ struct Disk {
     ///
     /// It only includes the head descriptor of each chain.
     /// The ring has NUM elements.
-    avail: *mut VirtqAvail,
+    avail: *mut VirtqAvail<NUM>,
 
     /// A ring in which the device writes descriptor numbers that
     /// the device has finished processing (just the head of each chain).
     ///
     /// There are NUM used ring entries.
-    used: *mut VirtqUsed,
+    used: *mut VirtqUsed<NUM>,
 
     // our own book-keeping.
     free: [bool; NUM], // is a descriptor free?
@@ -91,7 +90,7 @@ static DISK: Mutex<Disk> = Mutex::new(Disk {
     }; NUM],
     ops: [const {
         VirtioBlkReq {
-            ty: 0,
+            ty: VirtioBlkReqType::In,
             reserved: 0,
             sector: 0,
         }
@@ -106,37 +105,37 @@ pub fn init() {
 
     let mut disk = DISK.lock();
 
-    let mut status = 0;
+    let mut status = ConfigStatus::empty();
 
     // reset device
-    reg_write(MmioRegister::Status, status);
+    reg_write(MmioRegister::Status, status.bits());
 
     // set ACKNOWLEDGE status bit
-    status |= VIRTIO_CONFIG_S_ACKNOWLEDGE;
-    reg_write(MmioRegister::Status, status);
+    status |= ConfigStatus::ACKNOWLEDGE;
+    reg_write(MmioRegister::Status, status.bits());
 
     // set DRIVER status bit
-    status |= VIRTIO_CONFIG_S_DRIVER;
-    reg_write(MmioRegister::Status, status);
+    status |= ConfigStatus::DRIVER;
+    reg_write(MmioRegister::Status, status.bits());
 
     // negotiate features
-    let mut features = reg_read(MmioRegister::DeviceFeatures);
-    features &= !(1 << VIRTIO_BLK_F_RO);
-    features &= !(1 << VIRTIO_BLK_F_SCSI);
-    features &= !(1 << VIRTIO_BLK_F_CONFIG_WCE);
-    features &= !(1 << VIRTIO_BLK_F_MQ);
-    features &= !(1 << VIRTIO_F_ANY_LAYOUT);
-    features &= !(1 << VIRTIO_RING_F_EVENT_IDX);
-    features &= !(1 << VIRTIO_RING_F_INDIRECT_DESC);
-    reg_write(MmioRegister::DriverFeatures, features);
+    let mut features = DeviceFeatures::from_bits_retain(reg_read(MmioRegister::DeviceFeatures));
+    features.remove(DeviceFeatures::BLK_RO);
+    features.remove(DeviceFeatures::BLK_SCSI);
+    features.remove(DeviceFeatures::BLK_CONFIG_WCE);
+    features.remove(DeviceFeatures::BLK_MQ);
+    features.remove(DeviceFeatures::ANY_LAYOUT);
+    features.remove(DeviceFeatures::RING_EVENT_IDX);
+    features.remove(DeviceFeatures::RING_INDIRECT_DESC);
+    reg_write(MmioRegister::DriverFeatures, features.bits());
 
     // tell device that feature negotiation is complete.
-    status |= VIRTIO_CONFIG_S_FEATURES_OK;
-    reg_write(MmioRegister::Status, status);
+    status |= ConfigStatus::FEATURES_OK;
+    reg_write(MmioRegister::Status, status.bits());
 
     // re-read status to ensure FEATURES_OK is set.
-    status = reg_read(MmioRegister::Status);
-    assert!((status & VIRTIO_CONFIG_S_FEATURES_OK) != 0);
+    status = ConfigStatus::from_bits_retain(reg_read(MmioRegister::Status));
+    assert!(status.contains(ConfigStatus::FEATURES_OK));
 
     // initialize queue 0.
     reg_write(MmioRegister::QueueSel, 0);
@@ -185,8 +184,8 @@ pub fn init() {
     disk.free.fill(true);
 
     // tell device we're completely ready.
-    status |= VIRTIO_CONFIG_S_DRIVER_OK;
-    reg_write(MmioRegister::Status, status);
+    status |= ConfigStatus::DRIVER_OK;
+    reg_write(MmioRegister::Status, status.bits());
 }
 
 /// Finds a free descriptor, marks it non-free, returns its index.
@@ -204,7 +203,7 @@ fn free_desc(disk: &mut Disk, i: usize) {
         (*disk.desc)[i] = VirtqDesc {
             addr: 0,
             len: 0,
-            flags: 0,
+            flags: VirtqDescFlags::empty(),
             next: 0,
         };
         disk.free[i] = true;
@@ -219,7 +218,7 @@ fn free_chain(disk: &mut Disk, mut i: usize) {
         let flag = desc.flags;
         let next = desc.next;
         free_desc(disk, i);
-        if flag & VRING_DESC_F_NEXT == 0 {
+        if !flag.contains(VirtqDescFlags::NEXT) {
             break;
         }
         i = next.into();
@@ -268,9 +267,9 @@ fn read_or_write(offset: usize, data: &[u8], write: bool) {
     let buf0 = &mut disk.ops[idx[0]];
     *buf0 = VirtioBlkReq {
         ty: if write {
-            VIRTIO_BLK_T_OUT // write the disk
+            VirtioBlkReqType::Out // write the disk
         } else {
-            VIRTIO_BLK_T_IN // read the disk
+            VirtioBlkReqType::In // read the disk
         },
         reserved: 0,
         sector,
@@ -281,7 +280,7 @@ fn read_or_write(offset: usize, data: &[u8], write: bool) {
         (*disk.desc)[idx[0]] = VirtqDesc {
             addr: buf0_addr as u64,
             len: size_of::<VirtioBlkReq>() as u32,
-            flags: VRING_DESC_F_NEXT,
+            flags: VirtqDescFlags::NEXT,
             next: idx[1] as u16,
         };
 
@@ -289,10 +288,10 @@ fn read_or_write(offset: usize, data: &[u8], write: bool) {
             addr: data.as_ptr().addr() as u64,
             len: BLOCK_SIZE as u32,
             flags: if write {
-                0 // device reads b.date
+                VirtqDescFlags::empty() // device reads b.date
             } else {
-                VRING_DESC_F_WRITE // device writes b.data
-            } | VRING_DESC_F_NEXT,
+                VirtqDescFlags::WRITE // device writes b.data
+            } | VirtqDescFlags::NEXT,
             next: idx[2] as u16,
         };
 
@@ -300,7 +299,7 @@ fn read_or_write(offset: usize, data: &[u8], write: bool) {
         (*disk.desc)[idx[2]] = VirtqDesc {
             addr: (&raw mut disk.info[idx[0]].status).addr() as u64,
             len: 1,
-            flags: VRING_DESC_F_WRITE,
+            flags: VirtqDescFlags::WRITE,
             next: 0,
         };
     }

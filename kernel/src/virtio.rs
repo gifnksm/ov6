@@ -7,9 +7,12 @@
 
 use core::sync::atomic::AtomicU16;
 
+use bitflags::bitflags;
+
 // Virtio MMIO control registers, mapped starting ad 0x1000_10000.
 // from qemu virtio_mmio.h
 #[repr(usize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MmioRegister {
     MagicValue = 0x000, // 0x74726976
     Version = 0x004,    // version; should be 2
@@ -34,41 +37,62 @@ pub enum MmioRegister {
 }
 
 // Status register bits, from qemu virtio_config.h
-pub const VIRTIO_CONFIG_S_ACKNOWLEDGE: u32 = 1;
-pub const VIRTIO_CONFIG_S_DRIVER: u32 = 2;
-pub const VIRTIO_CONFIG_S_DRIVER_OK: u32 = 4;
-pub const VIRTIO_CONFIG_S_FEATURES_OK: u32 = 8;
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct ConfigStatus: u32 {
+        const ACKNOWLEDGE = 1;
+        const DRIVER = 2;
+        const DRIVER_OK = 4;
+        const FEATURES_OK = 8;
+    }
+}
 
 // Device feature bits
-pub const VIRTIO_BLK_F_RO: usize = 5; // Disk is read-only
-pub const VIRTIO_BLK_F_SCSI: usize = 7; // Supports scsi command passthru
-pub const VIRTIO_BLK_F_CONFIG_WCE: usize = 11; // Writeback mode available in config
-pub const VIRTIO_BLK_F_MQ: usize = 12; // support more than one vq
-pub const VIRTIO_F_ANY_LAYOUT: usize = 27;
-pub const VIRTIO_RING_F_INDIRECT_DESC: usize = 28;
-pub const VIRTIO_RING_F_EVENT_IDX: usize = 29;
-
-// This many virtio descriptors.
-// Must be a power of two.
-pub const NUM: usize = 8;
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct DeviceFeatures: u32 {
+        /// Disk is read-only (`VIRTIO_BLK_F_RO`)
+        const BLK_RO = 1 << 5;
+        /// Supports scsi command passthru (`VIRTIO_BLK_F_SCSI`)
+        const BLK_SCSI = 1 << 7;
+        /// Writeback mode available in config (`VIRTIO_BLK_F_CONFIG_WCE`)
+        const BLK_CONFIG_WCE = 1 << 11;
+        /// support more than one vq (`VIRTIO_BLK_F_MQ`)
+        const BLK_MQ = 1 << 12;
+        /// `VIRTIO_F_ANY_LAYOUT`
+        const ANY_LAYOUT = 1 << 27;
+        /// `VIRTIO_RING_F_INDIRECT_DESC`
+        const RING_INDIRECT_DESC = 1 << 28;
+        /// `VIRTIO_RING_F_EVENT_IDX`
+        const RING_EVENT_IDX = 1 << 29;
+    }
+}
 
 // A single descriptor, from the spec.
 #[repr(C)]
 pub struct VirtqDesc {
     pub addr: u64,
     pub len: u32,
-    pub flags: u16,
+    pub flags: VirtqDescFlags,
     pub next: u16,
 }
-pub const VRING_DESC_F_NEXT: u16 = 1; // chained with another descriptor
-pub const VRING_DESC_F_WRITE: u16 = 2; // device writes (vs read)
+
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct VirtqDescFlags: u16 {
+        /// Chained with another descriptor.
+        const NEXT = 1;
+        /// Device writes (vs read).
+        const WRITE = 2;
+    }
+}
 
 // The (entire) avail ring, from the spec.
 #[repr(C)]
-pub struct VirtqAvail {
-    pub flags: u16,       // always zero
-    pub idx: AtomicU16,   // driver will write ring[idx] next
-    pub ring: [u16; NUM], // descriptor numbers of chain heads
+pub struct VirtqAvail<const N: usize> {
+    pub flags: u16,     // always zero
+    pub idx: AtomicU16, // driver will write ring[idx] next
+    pub ring: [u16; N], // descriptor numbers of chain heads
     pub unused: u16,
 }
 
@@ -81,24 +105,28 @@ pub struct VirtqUsedElem {
 }
 
 #[repr(C)]
-pub struct VirtqUsed {
+pub struct VirtqUsed<const N: usize> {
     pub flags: u16,     // always zero
     pub idx: AtomicU16, // device increments when it adds a ring[] entry
-    pub ring: [VirtqUsedElem; NUM],
+    pub ring: [VirtqUsedElem; N],
 }
 
 // These are specific to virtio block devices, e.g. disks,
 // described in Section 5.2 of the spec.
-
-pub const VIRTIO_BLK_T_IN: u32 = 0; // read the disk
-pub const VIRTIO_BLK_T_OUT: u32 = 1; // write the disk
+#[repr(u32)]
+pub enum VirtioBlkReqType {
+    /// Read the disk
+    In = 0,
+    /// Write the disk
+    Out = 1,
+}
 
 // The format of the first descriptor in a disk request.
 // to be followed by two more descriptors containing
 // the block, and a one-byte status.
 #[repr(C)]
 pub struct VirtioBlkReq {
-    pub ty: u32, // VIRTIO_BLK_T_IN or ..._OUT
+    pub ty: VirtioBlkReqType,
     pub reserved: u32,
     pub sector: u64,
 }
