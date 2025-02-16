@@ -12,9 +12,12 @@ use bitflags::bitflags;
 use riscv::{asm, register::satp};
 
 use crate::{
-    kalloc,
-    memlayout::{KERN_BASE, PHYS_TOP, PLIC, TRAMPOLINE, UART0, VIRTIO0},
-    proc, trampoline,
+    interrupt::trampoline,
+    memory::{
+        layout::{KERN_BASE, PHYS_TOP, PLIC, TRAMPOLINE, UART0, VIRTIO0},
+        page,
+    },
+    proc,
 };
 
 /// Bytes per page
@@ -248,7 +251,7 @@ pub struct PageTable([PtEntry; 512]);
 impl PageTable {
     /// Allocates a new empty page table.
     fn allocate() -> Result<NonNull<Self>, ()> {
-        let pt = kalloc::alloc_zeroed_page().ok_or(())?.cast::<Self>();
+        let pt = page::alloc_zeroed_page().ok_or(())?.cast::<Self>();
         Ok(pt)
     }
 
@@ -463,7 +466,7 @@ impl PageTable {
                 let child = unsafe { child_ptr.as_mut() };
                 child.free_descendant();
             }
-            kalloc::free_page(child_ptr.cast());
+            page::free_page(child_ptr.cast());
             pte.clear();
         }
     }
@@ -643,7 +646,7 @@ pub mod user {
     pub fn unmap(pagetable: &mut PageTable, va: VirtAddr, npages: usize, do_free: bool) {
         for pa in pagetable.unmap_pages(va, npages) {
             if do_free {
-                kalloc::free_page(pa.as_mut_ptr());
+                page::free_page(pa.as_mut_ptr());
             }
         }
     }
@@ -663,7 +666,7 @@ pub mod user {
         assert!(src.len() < PAGE_SIZE, "src.len()={:#x}", src.len());
 
         unsafe {
-            let mem = kalloc::alloc_zeroed_page().unwrap().cast::<u8>();
+            let mem = page::alloc_zeroed_page().unwrap().cast::<u8>();
             pagetable
                 .map_page(VirtAddr(0), PhysAddr(mem.addr().get()), PtEntryFlags::URWX)
                 .unwrap();
@@ -687,7 +690,7 @@ pub mod user {
 
         let oldsz = page_roundup(oldsz);
         for va in (oldsz..newsz).step_by(PAGE_SIZE) {
-            let Some(mem) = kalloc::alloc_zeroed_page().map(|p| p.cast::<u8>()) else {
+            let Some(mem) = page::alloc_zeroed_page().map(|p| p.cast::<u8>()) else {
                 dealloc(pagetable, va, oldsz);
                 return Err(());
             };
@@ -699,7 +702,7 @@ pub mod user {
                 )
                 .is_err()
             {
-                kalloc::free_page(mem.cast());
+                page::free_page(mem.cast());
                 dealloc(pagetable, va, oldsz);
                 return Err(());
             }
@@ -736,7 +739,7 @@ pub mod user {
             let mut pagetable_ptr =
                 NonNull::new(ptr::without_provenance_mut::<PageTable>(pagetable_addr)).unwrap();
             pagetable_ptr.as_mut().free_descendant();
-            kalloc::free_page(pagetable_ptr.cast());
+            page::free_page(pagetable_ptr.cast());
         }
     }
 
@@ -771,7 +774,7 @@ pub mod user {
                 assert!(pte.is_valid() && pte.is_leaf());
                 let src_pa = pte.phys_addr();
                 let flags = pte.flags();
-                let Some(dst) = kalloc::alloc_page() else {
+                let Some(dst) = page::alloc_page() else {
                     return Err(va);
                 };
                 unsafe {

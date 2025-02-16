@@ -27,8 +27,10 @@
 use core::ptr;
 
 use crate::{
-    bio::{self, Buf},
-    fs::{BlockNo, DeviceNo, SuperBlock},
+    fs::{
+        BlockNo, DeviceNo, SuperBlock,
+        bio::{self, Buf},
+    },
     param::{LOG_SIZE, MAX_OP_BLOCKS},
     proc,
     sync::RawSpinLock,

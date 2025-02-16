@@ -1,11 +1,14 @@
 use core::panic;
 
 use crate::{
+    memory::vm::{self, VirtAddr},
     println,
     proc::Proc,
-    syscall_file, syscall_proc,
-    vm::{self, VirtAddr},
 };
+
+mod fcntl;
+mod file;
+mod proc;
 
 // System call numbers
 
@@ -32,7 +35,7 @@ pub const SYS_MKDIR: usize = 20;
 pub const SYS_CLOSE: usize = 21;
 
 /// Fetches a `usize` at `addr` from the current process.
-pub fn fetch_addr(p: &Proc, addr: VirtAddr) -> Result<VirtAddr, ()> {
+fn fetch_addr(p: &Proc, addr: VirtAddr) -> Result<VirtAddr, ()> {
     if !p.is_valid_addr(addr..addr.byte_add(size_of::<usize>())) {
         return Err(());
     }
@@ -43,7 +46,7 @@ pub fn fetch_addr(p: &Proc, addr: VirtAddr) -> Result<VirtAddr, ()> {
 /// Fetches the nul-terminated string at addr from the current process.
 ///
 /// Returns length of the string, not including nul.
-pub fn fetch_str<'a>(p: &Proc, addr: VirtAddr, buf: &'a mut [u8]) -> Result<&'a [u8], ()> {
+fn fetch_str<'a>(p: &Proc, addr: VirtAddr, buf: &'a mut [u8]) -> Result<&'a [u8], ()> {
     vm::copy_in_str(p.pagetable().unwrap(), buf, addr)?;
     let len = buf.iter().position(|&c| c == 0).unwrap();
     Ok(&buf[..len])
@@ -87,27 +90,27 @@ pub fn arg_str<'a>(p: &Proc, n: usize, buf: &'a mut [u8]) -> Result<&'a [u8], ()
 pub fn syscall(p: &Proc) {
     let n = p.trapframe().unwrap().a7 as usize;
     let f = match n {
-        SYS_FORK => syscall_proc::sys_fork,
-        SYS_EXIT => syscall_proc::sys_exit,
-        SYS_WAIT => syscall_proc::sys_wait,
-        SYS_PIPE => syscall_file::sys_pipe,
-        SYS_READ => syscall_file::sys_read,
-        SYS_KILL => syscall_proc::sys_kill,
-        SYS_EXEC => syscall_file::sys_exec,
-        SYS_FSTAT => syscall_file::sys_fstat,
-        SYS_CHDIR => syscall_file::sys_chdir,
-        SYS_DUP => syscall_file::sys_dup,
-        SYS_GETPID => syscall_proc::sys_getpid,
-        SYS_SBRK => syscall_proc::sys_sbrk,
-        SYS_SLEEP => syscall_proc::sys_sleep,
-        SYS_UPTIME => syscall_proc::sys_uptime,
-        SYS_OPEN => syscall_file::sys_open,
-        SYS_WRITE => syscall_file::sys_write,
-        SYS_MKNOD => syscall_file::sys_mknod,
-        SYS_UNLINK => syscall_file::sys_unlink,
-        SYS_LINK => syscall_file::sys_link,
-        SYS_MKDIR => syscall_file::sys_mkdir,
-        SYS_CLOSE => syscall_file::sys_close,
+        SYS_FORK => self::proc::sys_fork,
+        SYS_EXIT => self::proc::sys_exit,
+        SYS_WAIT => self::proc::sys_wait,
+        SYS_PIPE => self::file::sys_pipe,
+        SYS_READ => self::file::sys_read,
+        SYS_KILL => self::proc::sys_kill,
+        SYS_EXEC => self::file::sys_exec,
+        SYS_FSTAT => self::file::sys_fstat,
+        SYS_CHDIR => self::file::sys_chdir,
+        SYS_DUP => self::file::sys_dup,
+        SYS_GETPID => self::proc::sys_getpid,
+        SYS_SBRK => self::proc::sys_sbrk,
+        SYS_SLEEP => self::proc::sys_sleep,
+        SYS_UPTIME => self::proc::sys_uptime,
+        SYS_OPEN => self::file::sys_open,
+        SYS_WRITE => self::file::sys_write,
+        SYS_MKNOD => self::file::sys_mknod,
+        SYS_UNLINK => self::file::sys_unlink,
+        SYS_LINK => self::file::sys_link,
+        SYS_MKDIR => self::file::sys_mkdir,
+        SYS_CLOSE => self::file::sys_close,
         _ => {
             println!("{} {}: unknown sys call {}\n", p.pid(), p.name(), n);
             p.trapframe_mut().unwrap().a0 = u64::MAX;

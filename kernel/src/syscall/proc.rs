@@ -1,7 +1,7 @@
 use crate::{
+    interrupt::trap::TICKS,
     proc::{self, Proc, ProcId},
     syscall,
-    trap::TICKS,
 };
 
 pub fn sys_fork(p: &Proc) -> Result<usize, ()> {

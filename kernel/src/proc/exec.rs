@@ -1,12 +1,14 @@
 use core::{ffi::CStr, ptr::NonNull, slice};
 
 use crate::{
-    elf::{ELF_MAGIC, ELF_PROG_LOAD, ElfHeader, ProgramHeader},
     file::Inode,
-    fs, log,
+    fs::{self, log},
+    memory::vm::{self, PAGE_SIZE, PageRound as _, PageTable, PtEntryFlags, VirtAddr},
     param::{MAX_ARG, USER_STACK},
-    proc::{self, Proc},
-    vm::{self, PAGE_SIZE, PageRound as _, PageTable, PtEntryFlags, VirtAddr},
+    proc::{
+        self, Proc,
+        elf::{ELF_MAGIC, ELF_PROG_LOAD, ElfHeader, ProgramHeader},
+    },
 };
 
 fn flags2perm(flags: u32) -> PtEntryFlags {

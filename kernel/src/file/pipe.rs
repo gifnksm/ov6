@@ -1,12 +1,15 @@
 use core::ptr::NonNull;
 
 use crate::{
-    file::{self, File},
-    kalloc,
+    memory::{
+        page,
+        vm::{self, VirtAddr},
+    },
     proc::{self, Proc},
     sync::SpinLock,
-    vm::{self, VirtAddr},
 };
+
+use super::File;
 
 const PIPE_SIZE: usize = 512;
 
@@ -29,16 +32,16 @@ struct PipeData {
 }
 
 pub fn alloc() -> Result<(&'static File, &'static File), ()> {
-    let Ok(f0) = file::alloc().ok_or(()) else {
+    let Ok(f0) = super::alloc().ok_or(()) else {
         return Err(());
     };
-    let Ok(f1) = file::alloc().ok_or(()) else {
-        file::close(f0);
+    let Ok(f1) = super::alloc().ok_or(()) else {
+        super::close(f0);
         return Err(());
     };
-    let Some(mut pi) = kalloc::alloc_page().map(|p| p.cast::<Pipe>()) else {
-        file::close(f0);
-        file::close(f1);
+    let Some(mut pi) = page::alloc_page().map(|p| p.cast::<Pipe>()) else {
+        super::close(f0);
+        super::close(f1);
         return Err(());
     };
 
@@ -75,7 +78,7 @@ pub fn close(pipe: NonNull<Pipe>, writable: bool) {
         do_free = !pi.readopen && !pi.writeopen;
     };
     if do_free {
-        kalloc::free_page(pipe.cast());
+        page::free_page(pipe.cast());
     }
 }
 

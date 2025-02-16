@@ -11,37 +11,19 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-mod bio;
+use self::fs::{bio, virtio_disk};
+
 mod console;
 mod cpu;
-mod elf;
-mod exec;
-mod fcntl;
 mod file;
 mod fs;
 mod interrupt;
-mod kalloc;
-mod kernel_vec;
-mod log;
-mod memlayout;
+mod memory;
 mod param;
-mod pipe;
-mod plic;
-mod print;
 mod proc;
 mod start;
-mod stat;
-mod switch;
 mod sync;
 mod syscall;
-mod syscall_file;
-mod syscall_proc;
-mod trampoline;
-mod trap;
-mod uart;
-mod virtio;
-mod virtio_disk;
-mod vm;
 
 global_asm!(
     include_str!("entry.s"),
@@ -59,13 +41,13 @@ extern "C" fn main() -> ! {
         println!();
         println!("xv6 kernel is booting");
         println!();
-        kalloc::init(); // physical page allocator
-        vm::kernel::init(); // create kernel page table
-        vm::kernel::init_hart(); // turn on paging
+        memory::page::init(); // physical page allocator
+        memory::vm::kernel::init(); // create kernel page table
+        memory::vm::kernel::init_hart(); // turn on paging
         proc::init(); // process table
-        trap::init_hart(); // install kernel trap vectort
-        plic::init(); // set up interrupt controller
-        plic::init_hart(); // ask PLIC for device interrupts
+        interrupt::trap::init_hart(); // install kernel trap vectort
+        interrupt::plic::init(); // set up interrupt controller
+        interrupt::plic::init_hart(); // ask PLIC for device interrupts
         bio::init(); // buffer cache
         virtio_disk::init(); // emulated hard disk
         proc::user_init(); // first user process
@@ -75,9 +57,9 @@ extern "C" fn main() -> ! {
             hint::spin_loop();
         }
         println!("hart {} starting", cpu::id());
-        vm::kernel::init_hart(); // turn on paging
-        trap::init_hart(); // install kernel trap vector
-        plic::init_hart(); // ask PLIC for device interrupts
+        memory::vm::kernel::init_hart(); // turn on paging
+        interrupt::trap::init_hart(); // install kernel trap vector
+        interrupt::plic::init_hart(); // ask PLIC for device interrupts
     }
 
     proc::scheduler();

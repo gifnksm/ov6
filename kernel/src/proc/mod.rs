@@ -13,14 +13,21 @@ use core::{
 use crate::{
     cpu::Cpu,
     file::{self, File, Inode},
-    fs, interrupt, kalloc, log,
-    memlayout::{TRAMPOLINE, TRAPFRAME, kstack},
+    fs::{self, log},
+    interrupt::{self, trampoline, trap},
+    memory::{
+        layout::{TRAMPOLINE, TRAPFRAME, kstack},
+        page,
+        vm::{self, PAGE_SIZE, PageTable, PhysAddr, PtEntryFlags, VirtAddr},
+    },
     param::{NOFILE, NPROC, ROOT_DEV},
-    println, switch,
+    println,
     sync::{RawSpinLock, SpinLockGuard},
-    trampoline, trap,
-    vm::{self, PAGE_SIZE, PageTable, PhysAddr, PtEntryFlags, VirtAddr},
 };
+
+pub mod elf;
+pub mod exec;
+pub mod switch;
 
 static PROC: [Proc; NPROC] = [const { Proc::new() }; NPROC];
 static INITPROC: AtomicPtr<Proc> = AtomicPtr::new(ptr::null_mut());
@@ -364,7 +371,7 @@ impl Proc {
                 *p.state.get() = ProcState::Used;
 
                 // Allocate a trapframe page.
-                *p.trapframe.get() = Some(kalloc::alloc_page().ok_or(())?.cast());
+                *p.trapframe.get() = Some(page::alloc_page().ok_or(())?.cast());
                 // An empty user page table.
                 *p.pagetable.get() = Some(create_pagetable(p).ok_or(())?);
                 // Set up new context to start executing ad forkret,
@@ -393,7 +400,7 @@ impl Proc {
         assert!(self.lock.holding());
 
         if let Some(tf) = unsafe { *self.trapframe.get() }.take() {
-            kalloc::free_page(tf.cast());
+            page::free_page(tf.cast());
         }
         if let Some(pt) = unsafe { *self.pagetable.get() }.take() {
             free_pagetable(pt, unsafe { *self.sz.get() });
@@ -437,7 +444,7 @@ impl Proc {
 /// guard page.
 pub fn map_stacks(kpgtbl: &mut PageTable) {
     for (i, _p) in PROC.iter().enumerate() {
-        let pa = kalloc::alloc_page().unwrap();
+        let pa = page::alloc_page().unwrap();
         let va = kstack(i);
         kpgtbl
             .map_page(

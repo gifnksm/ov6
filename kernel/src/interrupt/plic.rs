@@ -4,7 +4,7 @@ use core::ptr;
 
 use crate::{
     cpu,
-    memlayout::{PLIC, UART0_IRQ, VIRTIO0_IRQ, plic_sclaim, plic_senable, plic_spriority},
+    memory::layout::{PLIC, UART0_IRQ, VIRTIO0_IRQ, plic_sclaim, plic_senable, plic_spriority},
 };
 
 pub fn init() {

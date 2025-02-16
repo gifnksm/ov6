@@ -1,14 +1,15 @@
 use core::{array, mem, ptr, sync::atomic::Ordering};
 
 use crate::{
-    bio::BLOCK_SIZE,
-    kalloc::PageBox,
-    memlayout::VIRTIO0,
-    sync::{Once, SpinLock, SpinLockCondVar},
-    virtio::{
-        BLK_SECTOR_SIZE, ConfigStatus, DeviceFeatures, MmioRegister, VirtioBlkReq,
-        VirtioBlkReqType, VirtqAvail, VirtqDesc, VirtqDescFlags, VirtqUsed,
+    fs::{
+        bio::BLOCK_SIZE,
+        virtio::{
+            BLK_SECTOR_SIZE, ConfigStatus, DeviceFeatures, MmioRegister, VirtioBlkReq,
+            VirtioBlkReqType, VirtqAvail, VirtqDesc, VirtqDescFlags, VirtqUsed,
+        },
     },
+    memory::{layout::VIRTIO0, page::PageBox},
+    sync::{Once, SpinLock, SpinLockCondVar},
 };
 
 // This many virtio descriptors.

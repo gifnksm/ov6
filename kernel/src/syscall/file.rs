@@ -1,16 +1,19 @@
 use core::ptr::NonNull;
 
 use crate::{
-    fcntl::{O_CREATE, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY},
-    file::{self, File},
-    fs::{self, DIR_SIZE, inode_unlock_put},
-    kalloc, log,
+    file::{self, File, pipe},
+    fs::{
+        self, DIR_SIZE, inode_unlock_put, log,
+        stat::{T_DEVICE, T_DIR, T_FILE},
+    },
+    memory::{
+        page,
+        vm::{self, PAGE_SIZE},
+    },
     param::{MAX_ARG, MAX_PATH, NDEV},
-    pipe,
-    proc::Proc,
-    stat::{T_DEVICE, T_DIR, T_FILE},
+    proc::{Proc, exec},
     syscall,
-    vm::{self, PAGE_SIZE},
+    syscall::fcntl::{O_CREATE, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY},
 };
 
 /// Fetches the nth word-sized system call argument as a file descriptor
@@ -246,7 +249,7 @@ pub fn sys_exec(p: &Proc) -> Result<usize, ()> {
                 argv[i] = None;
                 break;
             }
-            argv[i] = Some(kalloc::alloc_page().ok_or(())?);
+            argv[i] = Some(page::alloc_page().ok_or(())?);
             let buf = unsafe {
                 core::slice::from_raw_parts_mut(argv[i].unwrap().cast().as_mut(), PAGE_SIZE)
             };
@@ -257,15 +260,15 @@ pub fn sys_exec(p: &Proc) -> Result<usize, ()> {
 
     if res.is_err() {
         for arg in argv.iter().filter_map(|&a| a) {
-            kalloc::free_page(arg);
+            page::free_page(arg);
         }
         return Err(());
     }
 
-    let ret = crate::exec::exec(path, argv.as_ptr().cast());
+    let ret = exec::exec(path, argv.as_ptr().cast());
 
     for arg in argv.iter().filter_map(|&a| a) {
-        kalloc::free_page(arg);
+        page::free_page(arg);
     }
 
     ret

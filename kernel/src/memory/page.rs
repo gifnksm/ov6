@@ -11,9 +11,11 @@ use core::{
 };
 
 use crate::{
-    memlayout::PHYS_TOP,
+    memory::{
+        layout::PHYS_TOP,
+        vm::{PAGE_SIZE, PageRound as _},
+    },
     sync::SpinLock,
-    vm::{PAGE_SIZE, PageRound as _},
 };
 
 /// First address after kernel.

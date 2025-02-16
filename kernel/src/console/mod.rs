@@ -15,8 +15,10 @@ use crate::{
     file::{self, DevSw},
     proc::{self, Proc},
     sync::SpinLock,
-    uart,
 };
+
+pub mod print;
+pub mod uart;
 
 const fn ctrl(x: u8) -> u8 {
     x - b'@'

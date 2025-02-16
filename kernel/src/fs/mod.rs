@@ -19,15 +19,19 @@ use core::{
 };
 
 use crate::{
-    bio,
     file::Inode,
-    log,
+    fs::stat::{Stat, T_DEVICE, T_DIR, T_FILE},
+    memory::vm::VirtAddr,
     param::{NINODE, ROOT_DEV},
     proc::{self, Proc},
-    stat::{Stat, T_DEVICE, T_DIR, T_FILE},
     sync::SpinLock,
-    vm::VirtAddr,
 };
+
+pub mod bio;
+pub mod log;
+pub mod stat;
+pub mod virtio;
+pub mod virtio_disk;
 
 /// Super block of the file system.
 ///

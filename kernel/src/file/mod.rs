@@ -7,17 +7,18 @@ use core::{
 };
 
 use crate::{
-    bio::BLOCK_SIZE,
-    fs::{self, BlockNo, DeviceNo, InodeNo, NDIRECT},
-    log,
+    fs::{self, BlockNo, DeviceNo, InodeNo, NDIRECT, bio::BLOCK_SIZE, log},
+    memory::vm::{self, VirtAddr},
     param::{MAX_OP_BLOCKS, NDEV, NFILE},
-    pipe::{self, Pipe},
     proc::Proc,
     sync::{RawSpinLock, SleepLock},
-    vm::{self, VirtAddr},
 };
 
+use self::pipe::Pipe;
+
 pub const CONSOLE: usize = 1;
+
+pub mod pipe;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(i32)]

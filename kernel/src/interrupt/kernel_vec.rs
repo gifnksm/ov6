@@ -1,6 +1,6 @@
 use core::arch::naked_asm;
 
-use crate::trap;
+use crate::interrupt::trap;
 
 /// Interrupts and exceptions while in supervisor mode come here.
 ///

@@ -11,14 +11,19 @@ use riscv::{
 };
 
 use crate::{
-    cpu, interrupt, kernel_vec,
-    memlayout::{UART0_IRQ, VIRTIO0_IRQ},
-    plic, println,
+    console::uart,
+    cpu, interrupt,
+    memory::{
+        layout::{UART0_IRQ, VIRTIO0_IRQ},
+        vm::PAGE_SIZE,
+    },
+    println,
     proc::{self, Proc},
     sync::SpinLock,
-    syscall, trampoline, uart, virtio_disk,
-    vm::PAGE_SIZE,
+    syscall, virtio_disk,
 };
+
+use super::{kernel_vec, plic, trampoline};
 
 pub static TICKS: SpinLock<u64> = SpinLock::new(0);
 
