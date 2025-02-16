@@ -248,10 +248,7 @@ pub struct PageTable([PtEntry; 512]);
 impl PageTable {
     /// Allocates a new empty page table.
     fn allocate() -> Result<NonNull<Self>, ()> {
-        let pt = kalloc::alloc_page().ok_or(())?.cast::<Self>();
-        unsafe {
-            pt.write_bytes(0, 1);
-        }
+        let pt = kalloc::alloc_zeroed_page().ok_or(())?.cast::<Self>();
         Ok(pt)
     }
 
@@ -666,11 +663,10 @@ pub mod user {
         assert!(src.len() < PAGE_SIZE, "src.len()={:#x}", src.len());
 
         unsafe {
-            let mem = kalloc::alloc_page().unwrap().cast::<u8>();
+            let mem = kalloc::alloc_zeroed_page().unwrap().cast::<u8>();
             pagetable
                 .map_page(VirtAddr(0), PhysAddr(mem.addr().get()), PtEntryFlags::URWX)
                 .unwrap();
-            mem.write_bytes(0, PAGE_SIZE);
             slice::from_raw_parts_mut(mem.as_ptr(), src.len()).copy_from_slice(src);
         }
     }
@@ -691,13 +687,10 @@ pub mod user {
 
         let oldsz = page_roundup(oldsz);
         for va in (oldsz..newsz).step_by(PAGE_SIZE) {
-            let Some(mem) = kalloc::alloc_page().map(|p| p.cast::<u8>()) else {
+            let Some(mem) = kalloc::alloc_zeroed_page().map(|p| p.cast::<u8>()) else {
                 dealloc(pagetable, va, oldsz);
                 return Err(());
             };
-            unsafe {
-                mem.write_bytes(0, PAGE_SIZE);
-            }
             if pagetable
                 .map_page(
                     VirtAddr(va),

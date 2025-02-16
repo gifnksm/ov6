@@ -6,6 +6,7 @@
 
 use core::{
     ffi::c_void,
+    ops::{Deref, DerefMut},
     ptr::{self, NonNull},
 };
 
@@ -77,7 +78,7 @@ pub fn free_page(pa: NonNull<c_void>) {
 /// Allocates one 4096-byte page of physical memory.
 ///
 /// Returns a pointer that the kernel can use.
-/// Returns null if the memory cannot be allocated.
+/// Returns `None` if the memory cannot be allocated.
 pub fn alloc_page() -> Option<NonNull<c_void>> {
     let mut free_list = FREE_LIST.lock();
     let r = free_list.next?;
@@ -93,4 +94,68 @@ pub fn alloc_page() -> Option<NonNull<c_void>> {
     }
 
     Some(r)
+}
+
+/// Allocates one 4096-byte zeroed page of physical memory.
+///
+/// Returns a pointer that the kernel can use.
+/// Returns `None` if the memory cannot be allocated.
+pub fn alloc_zeroed_page() -> Option<NonNull<c_void>> {
+    let page = alloc_page()?;
+    unsafe { page.cast::<u8>().write_bytes(0, PAGE_SIZE) }
+    Some(page)
+}
+
+/// A pointer type that uniquely owns a page of type `T`.
+#[derive(Debug)]
+pub struct PageBox<T> {
+    ptr: NonNull<T>,
+}
+
+impl<T> Deref for PageBox<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.ptr.as_ref() }
+    }
+}
+
+impl<T> DerefMut for PageBox<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.ptr.as_mut() }
+    }
+}
+
+impl<T> Drop for PageBox<T> {
+    fn drop(&mut self) {
+        unsafe {
+            ptr::drop_in_place(self.ptr.as_ptr());
+        }
+        free_page(self.ptr.cast())
+    }
+}
+
+impl<T> PageBox<T> {
+    /// Allocates a page and then places `value` into it.
+    pub fn new(value: T) -> PageBox<T> {
+        Self::try_new(value).unwrap()
+    }
+
+    /// Allocates a page and then places `value` into it, returning an error if the allocation fails.
+    pub fn try_new(value: T) -> Option<PageBox<T>> {
+        assert!(size_of::<T>() < PAGE_SIZE);
+        assert_eq!(PAGE_SIZE % align_of::<T>(), 0);
+
+        let ptr = alloc_page()?.cast();
+        unsafe {
+            ptr.write(value);
+        }
+
+        Some(Self { ptr })
+    }
+
+    /// Returns a raw pointer to the `PageBox`'s contents.
+    pub fn as_ptr(this: &Self) -> *const T {
+        this.ptr.as_ptr()
+    }
 }

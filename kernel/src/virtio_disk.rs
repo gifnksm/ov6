@@ -1,26 +1,24 @@
-use core::{
-    ptr,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use core::{array, mem, ptr, sync::atomic::Ordering};
 
 use crate::{
     bio::BLOCK_SIZE,
-    kalloc,
+    kalloc::PageBox,
     memlayout::VIRTIO0,
-    proc,
-    sync::SpinLock,
+    sync::{Once, SpinLock, SpinLockCondVar},
     virtio::{
         BLK_SECTOR_SIZE, ConfigStatus, DeviceFeatures, MmioRegister, VirtioBlkReq,
         VirtioBlkReqType, VirtqAvail, VirtqDesc, VirtqDescFlags, VirtqUsed,
     },
-    vm::PAGE_SIZE,
 };
 
 // This many virtio descriptors.
 // Must be a power of two.
 pub const NUM: usize = 8;
 
-struct Disk {
+struct Disk<const NUM: usize> {
+    /// MMIO register base address.
+    base_address: usize,
+
     /// A set (not a ring) of DMA descriptors, with which the
     /// driver tells the device where to read and write individual
     /// disk operations.
@@ -28,24 +26,26 @@ struct Disk {
     /// There are NUM descriptors.
     /// Most commands consist of a "chain" (a linked list) of a couple of
     /// these descriptors.
-    desc: *mut [VirtqDesc; NUM],
+    desc: PageBox<[VirtqDesc; NUM]>,
 
     /// A ring in which the driver writes descriptor numbers
     /// that the driver would like the device to process.
     ///
     /// It only includes the head descriptor of each chain.
     /// The ring has NUM elements.
-    avail: *mut VirtqAvail<NUM>,
+    avail: PageBox<VirtqAvail<NUM>>,
 
     /// A ring in which the device writes descriptor numbers that
     /// the device has finished processing (just the head of each chain).
     ///
     /// There are NUM used ring entries.
-    used: *mut VirtqUsed<NUM>,
+    used: PageBox<VirtqUsed<NUM>>,
 
-    // our own book-keeping.
-    free: [bool; NUM], // is a descriptor free?
-    used_idx: u16,     // we've looked this far in used[2..NUM].
+    /// Condition variable signaled when descriptors are freed.
+    desc_freed: &'static SpinLockCondVar,
+    /// An array of booleans indicating whether a descriptor is free.
+    free: [bool; NUM],
+    used_idx: u16,
 
     /// Track info about in-flight operations,
     /// for use when completion interrupt arrives.
@@ -59,232 +59,216 @@ struct Disk {
     ops: [VirtioBlkReq; NUM],
 }
 
-unsafe impl Send for Disk {}
+unsafe impl<const N: usize> Send for Disk<N> {}
 
 struct TrackInfo {
     data: *const u8,
     status: u8,
-    in_progress: AtomicBool,
+    in_progress: bool,
+    completed: &'static SpinLockCondVar,
 }
 
-fn reg_read(r: MmioRegister) -> u32 {
-    unsafe { ptr::with_exposed_provenance::<u32>(VIRTIO0 + r as usize).read_volatile() }
-}
+static DISK: Once<SpinLock<Disk<NUM>>> = Once::new();
 
-fn reg_write(r: MmioRegister, value: u32) {
-    unsafe { ptr::with_exposed_provenance_mut::<u32>(VIRTIO0 + r as usize).write_volatile(value) }
-}
-
-static DISK: SpinLock<Disk> = SpinLock::new(Disk {
-    desc: ptr::null_mut(),
-    avail: ptr::null_mut(),
-    used: ptr::null_mut(),
-    free: [false; NUM],
-    used_idx: 0,
-    info: [const {
-        TrackInfo {
-            data: ptr::null_mut(),
-            status: 0,
-            in_progress: AtomicBool::new(false),
+impl<const N: usize> Disk<N> {
+    fn new(
+        base_address: usize,
+        desc_freed: &'static SpinLockCondVar,
+        completed: &'static [SpinLockCondVar; N],
+    ) -> Self {
+        Disk {
+            base_address,
+            desc: PageBox::new(unsafe { mem::zeroed() }),
+            avail: PageBox::new(unsafe { mem::zeroed() }),
+            used: PageBox::new(unsafe { mem::zeroed() }),
+            desc_freed,
+            free: [true; N],
+            used_idx: 0,
+            info: array::from_fn(|i| TrackInfo {
+                data: ptr::null_mut(),
+                status: 0,
+                in_progress: false,
+                completed: &completed[i],
+            }),
+            ops: [const {
+                VirtioBlkReq {
+                    ty: VirtioBlkReqType::In,
+                    reserved: 0,
+                    sector: 0,
+                }
+            }; N],
         }
-    }; NUM],
-    ops: [const {
-        VirtioBlkReq {
-            ty: VirtioBlkReqType::In,
-            reserved: 0,
-            sector: 0,
+    }
+
+    fn read_reg(&self, reg: MmioRegister) -> u32 {
+        unsafe {
+            ptr::with_exposed_provenance::<u32>(self.base_address + reg as usize).read_volatile()
         }
-    }; NUM],
-});
-
-pub fn init() {
-    assert_eq!(reg_read(MmioRegister::MagicValue), 0x7472_6976);
-    assert_eq!(reg_read(MmioRegister::Version), 2);
-    assert_eq!(reg_read(MmioRegister::DeviceId), 2);
-    assert_eq!(reg_read(MmioRegister::VendorId), 0x554d_4551);
-
-    let mut disk = DISK.lock();
-
-    let mut status = ConfigStatus::empty();
-
-    // reset device
-    reg_write(MmioRegister::Status, status.bits());
-
-    // set ACKNOWLEDGE status bit
-    status |= ConfigStatus::ACKNOWLEDGE;
-    reg_write(MmioRegister::Status, status.bits());
-
-    // set DRIVER status bit
-    status |= ConfigStatus::DRIVER;
-    reg_write(MmioRegister::Status, status.bits());
-
-    // negotiate features
-    let mut features = DeviceFeatures::from_bits_retain(reg_read(MmioRegister::DeviceFeatures));
-    features.remove(DeviceFeatures::BLK_RO);
-    features.remove(DeviceFeatures::BLK_SCSI);
-    features.remove(DeviceFeatures::BLK_CONFIG_WCE);
-    features.remove(DeviceFeatures::BLK_MQ);
-    features.remove(DeviceFeatures::ANY_LAYOUT);
-    features.remove(DeviceFeatures::RING_EVENT_IDX);
-    features.remove(DeviceFeatures::RING_INDIRECT_DESC);
-    reg_write(MmioRegister::DriverFeatures, features.bits());
-
-    // tell device that feature negotiation is complete.
-    status |= ConfigStatus::FEATURES_OK;
-    reg_write(MmioRegister::Status, status.bits());
-
-    // re-read status to ensure FEATURES_OK is set.
-    status = ConfigStatus::from_bits_retain(reg_read(MmioRegister::Status));
-    assert!(status.contains(ConfigStatus::FEATURES_OK));
-
-    // initialize queue 0.
-    reg_write(MmioRegister::QueueSel, 0);
-
-    // ensure queue 0 is not in use.
-    assert_eq!(reg_read(MmioRegister::QueueReady), 0);
-
-    // check maximum queue size.
-    let max = reg_read(MmioRegister::QueueNumMax);
-    assert!(max != 0);
-    assert!(max as usize >= NUM);
-
-    // allocate and zero queue memory.
-    unsafe {
-        disk.desc = kalloc::alloc_page().unwrap().as_ptr().cast();
-        disk.avail = kalloc::alloc_page().unwrap().as_ptr().cast();
-        disk.used = kalloc::alloc_page().unwrap().as_ptr().cast();
-
-        disk.desc.cast::<u8>().write_bytes(0, PAGE_SIZE);
-        disk.avail.cast::<u8>().write_bytes(0, PAGE_SIZE);
-        disk.used.cast::<u8>().write_bytes(0, PAGE_SIZE);
     }
 
-    // set queue size.
-    reg_write(MmioRegister::QueueNum, NUM as u32);
-
-    // write physical addresses.
-    fn low(p: usize) -> u32 {
-        (p & 0xffff_ffff) as u32
-    }
-    fn high(p: usize) -> u32 {
-        ((p >> 32) & 0xffff_ffff) as u32
+    fn write_reg(&self, reg: MmioRegister, value: u32) {
+        unsafe {
+            ptr::with_exposed_provenance_mut::<u32>(self.base_address + reg as usize)
+                .write_volatile(value)
+        }
     }
 
-    reg_write(MmioRegister::QueueDescLow, low(disk.desc.addr()));
-    reg_write(MmioRegister::QueueDescHigh, high(disk.desc.addr()));
-    reg_write(MmioRegister::DriverDescLow, low(disk.avail.addr()));
-    reg_write(MmioRegister::DriverDescHigh, high(disk.avail.addr()));
-    reg_write(MmioRegister::DeviceDescLow, low(disk.used.addr()));
-    reg_write(MmioRegister::DeviceDescHigh, high(disk.used.addr()));
+    fn init(&mut self) {
+        assert_eq!(self.read_reg(MmioRegister::MagicValue), 0x7472_6976);
+        assert_eq!(self.read_reg(MmioRegister::Version), 2);
+        assert_eq!(self.read_reg(MmioRegister::DeviceId), 2);
+        assert_eq!(self.read_reg(MmioRegister::VendorId), 0x554d_4551);
 
-    // queue is ready.
-    reg_write(MmioRegister::QueueReady, 1);
+        let mut status = ConfigStatus::empty();
 
-    // all NUM descriptors start out unused.
-    disk.free.fill(true);
+        // reset device
+        self.write_reg(MmioRegister::Status, status.bits());
 
-    // tell device we're completely ready.
-    status |= ConfigStatus::DRIVER_OK;
-    reg_write(MmioRegister::Status, status.bits());
-}
+        // set ACKNOWLEDGE status bit
+        status |= ConfigStatus::ACKNOWLEDGE;
+        self.write_reg(MmioRegister::Status, status.bits());
 
-/// Finds a free descriptor, marks it non-free, returns its index.
-fn alloc_desc(disk: &mut Disk) -> Option<usize> {
-    let idx = disk.free.iter().position(|&free| free)?;
-    disk.free[idx] = false;
-    Some(idx)
-}
+        // set DRIVER status bit
+        status |= ConfigStatus::DRIVER;
+        self.write_reg(MmioRegister::Status, status.bits());
 
-/// Marks a descriptor as free.
-fn free_desc(disk: &mut Disk, i: usize) {
-    assert!(i < NUM);
-    assert!(!disk.free[i]);
-    unsafe {
-        (*disk.desc)[i] = VirtqDesc {
+        // negotiate features
+        let mut features =
+            DeviceFeatures::from_bits_retain(self.read_reg(MmioRegister::DeviceFeatures));
+        features.remove(DeviceFeatures::BLK_RO);
+        features.remove(DeviceFeatures::BLK_SCSI);
+        features.remove(DeviceFeatures::BLK_CONFIG_WCE);
+        features.remove(DeviceFeatures::BLK_MQ);
+        features.remove(DeviceFeatures::ANY_LAYOUT);
+        features.remove(DeviceFeatures::RING_EVENT_IDX);
+        features.remove(DeviceFeatures::RING_INDIRECT_DESC);
+        self.write_reg(MmioRegister::DriverFeatures, features.bits());
+
+        // tell device that feature negotiation is complete.
+        status |= ConfigStatus::FEATURES_OK;
+        self.write_reg(MmioRegister::Status, status.bits());
+
+        // re-read status to ensure FEATURES_OK is set.
+        status = ConfigStatus::from_bits_retain(self.read_reg(MmioRegister::Status));
+        assert!(status.contains(ConfigStatus::FEATURES_OK));
+
+        // initialize queue 0.
+        self.write_reg(MmioRegister::QueueSel, 0);
+
+        // ensure queue 0 is not in use.
+        assert_eq!(self.read_reg(MmioRegister::QueueReady), 0);
+
+        // check maximum queue size.
+        let max = self.read_reg(MmioRegister::QueueNumMax);
+        assert!(max != 0);
+        assert!(max as usize >= N);
+
+        // set queue size.
+        self.write_reg(MmioRegister::QueueNum, N as u32);
+
+        // write physical addresses.
+        fn addr_low<T>(p: &PageBox<T>) -> u32 {
+            let addr = PageBox::as_ptr(p).addr();
+            (addr & 0xffff_ffff) as u32
+        }
+        fn addr_high<T>(p: &PageBox<T>) -> u32 {
+            let addr = PageBox::as_ptr(p).addr();
+            ((addr >> 32) & 0xffff_ffff) as u32
+        }
+
+        self.write_reg(MmioRegister::QueueDescLow, addr_low(&self.desc));
+        self.write_reg(MmioRegister::QueueDescHigh, addr_high(&self.desc));
+        self.write_reg(MmioRegister::DriverDescLow, addr_low(&self.avail));
+        self.write_reg(MmioRegister::DriverDescHigh, addr_high(&self.avail));
+        self.write_reg(MmioRegister::DeviceDescLow, addr_low(&self.used));
+        self.write_reg(MmioRegister::DeviceDescHigh, addr_high(&self.used));
+
+        // queue is ready.
+        self.write_reg(MmioRegister::QueueReady, 1);
+
+        // tell device we're completely ready.
+        status |= ConfigStatus::DRIVER_OK;
+        self.write_reg(MmioRegister::Status, status.bits());
+    }
+
+    /// Finds a free descriptor, marks it non-free, returns its index.
+    fn alloc_desc(&mut self) -> Option<usize> {
+        let idx = self.free.iter().position(|free| *free)?;
+        self.free[idx] = false;
+        Some(idx)
+    }
+
+    /// Marks a descriptor as free.
+    fn free_desc(&mut self, i: usize) {
+        assert!(i < NUM);
+        assert!(!self.free[i]);
+        self.desc[i] = VirtqDesc {
             addr: 0,
             len: 0,
             flags: VirtqDescFlags::empty(),
             next: 0,
         };
-        disk.free[i] = true;
-    };
-    proc::wakeup((&raw const disk.free[0]).cast());
-}
-
-/// Frees a chain of descriptors.
-fn free_chain(disk: &mut Disk, mut i: usize) {
-    loop {
-        let desc = unsafe { &(*disk.desc)[i] };
-        let flag = desc.flags;
-        let next = desc.next;
-        free_desc(disk, i);
-        if !flag.contains(VirtqDescFlags::NEXT) {
-            break;
-        }
-        i = next.into();
+        self.free[i] = true;
+        self.desc_freed.notify();
     }
-}
 
-/// Allocates three descriptors (they need not be contiguous).
-///
-/// Disk transfers always use three descriptors.
-fn alloc3_desc(disk: &mut Disk) -> Option<[usize; 3]> {
-    let mut idx = [0; 3];
-    for i in 0..3 {
-        match alloc_desc(disk) {
-            Some(x) => idx[i] = x,
-            None => {
-                for j in &idx[0..i] {
-                    free_desc(disk, *j);
+    // Frees a chain of descriptors.
+    fn free_chain(&mut self, mut i: usize) {
+        loop {
+            let desc = &self.desc[i];
+            let flag = desc.flags;
+            let next = desc.next;
+            self.free_desc(i);
+            if !flag.contains(VirtqDescFlags::NEXT) {
+                break;
+            }
+            i = next.into();
+        }
+    }
+
+    /// Allocates three descriptors (they need not be contiguous).
+    ///
+    /// Disk transfers always use three descriptors.
+    fn alloc3_desc(&mut self) -> Option<[usize; 3]> {
+        let mut idx = [0; 3];
+        for i in 0..3 {
+            match self.alloc_desc() {
+                Some(x) => idx[i] = x,
+                None => {
+                    for j in &idx[0..i] {
+                        self.free_desc(*j);
+                    }
+                    return None;
                 }
-                return None;
             }
         }
+        Some(idx)
     }
-    Some(idx)
-}
 
-fn read_or_write(offset: usize, data: &[u8], write: bool) {
-    let mut disk = DISK.lock();
+    fn send_request(&mut self, offset: usize, data: &[u8], write: bool, desc_idx: [usize; 3]) {
+        assert!(offset % BLK_SECTOR_SIZE == 0);
+        let sector = (offset / BLK_SECTOR_SIZE) as u64;
 
-    // the spec's Section 5.2 says that legacy block operations use
-    // three descriptors: one for type/reserved/sector, one for the
-    // data, one for a 1-byte status result.
+        let buf0 = &mut self.ops[desc_idx[0]];
+        *buf0 = VirtioBlkReq {
+            ty: if write {
+                VirtioBlkReqType::Out // write the disk
+            } else {
+                VirtioBlkReqType::In // read the disk
+            },
+            reserved: 0,
+            sector,
+        };
+        let buf0_addr = ptr::from_mut(buf0).addr();
 
-    // allocate three descriptors.
-    let idx = loop {
-        if let Some(idx) = alloc3_desc(&mut disk) {
-            break idx;
-        }
-        proc::sleep((&raw const disk.free[0]).cast(), &mut disk);
-    };
-
-    // format the three descriptors.
-
-    assert!(offset % BLK_SECTOR_SIZE == 0);
-    let sector = (offset / BLK_SECTOR_SIZE) as u64;
-
-    let buf0 = &mut disk.ops[idx[0]];
-    *buf0 = VirtioBlkReq {
-        ty: if write {
-            VirtioBlkReqType::Out // write the disk
-        } else {
-            VirtioBlkReqType::In // read the disk
-        },
-        reserved: 0,
-        sector,
-    };
-    let buf0_addr = ptr::from_mut(buf0).addr();
-
-    unsafe {
-        (*disk.desc)[idx[0]] = VirtqDesc {
+        self.desc[desc_idx[0]] = VirtqDesc {
             addr: buf0_addr as u64,
             len: size_of::<VirtioBlkReq>() as u32,
             flags: VirtqDescFlags::NEXT,
-            next: idx[1] as u16,
+            next: desc_idx[1] as u16,
         };
 
-        (*disk.desc)[idx[1]] = VirtqDesc {
+        self.desc[desc_idx[1]] = VirtqDesc {
             addr: data.as_ptr().addr() as u64,
             len: BLOCK_SIZE as u32,
             flags: if write {
@@ -292,42 +276,65 @@ fn read_or_write(offset: usize, data: &[u8], write: bool) {
             } else {
                 VirtqDescFlags::WRITE // device writes b.data
             } | VirtqDescFlags::NEXT,
-            next: idx[2] as u16,
+            next: desc_idx[2] as u16,
         };
 
-        disk.info[idx[0]].status = 0xff; // device writes 0 on success
-        (*disk.desc)[idx[2]] = VirtqDesc {
-            addr: (&raw mut disk.info[idx[0]].status).addr() as u64,
+        self.info[desc_idx[0]].status = 0xff; // device writes 0 on success
+        self.desc[desc_idx[2]] = VirtqDesc {
+            addr: (&raw mut self.info[desc_idx[0]].status).addr() as u64,
             len: 1,
             flags: VirtqDescFlags::WRITE,
             next: 0,
         };
+
+        // record struct buf for `handle_interrupt()`.
+        self.info[desc_idx[0]].data = data.as_ptr();
+        self.info[desc_idx[0]].in_progress = true;
+
+        // tell the device the first index in our chain of descriptors.
+        let avail_idx = self.avail.idx.load(Ordering::Relaxed) as usize;
+        self.avail.ring[avail_idx % NUM] = desc_idx[0] as u16;
+
+        // tell the device another avail ring entry is available.
+        self.avail.idx.fetch_add(1, Ordering::AcqRel);
+
+        self.write_reg(MmioRegister::QueueNotify, 0); // value is queue number
+    }
+}
+
+pub fn init() {
+    static REQ_COMPLETED: [SpinLockCondVar; NUM] = [const { SpinLockCondVar::new() }; NUM];
+    static DESC_FREED: SpinLockCondVar = SpinLockCondVar::new();
+
+    let mut disk = Disk::<NUM>::new(VIRTIO0, &DESC_FREED, &REQ_COMPLETED);
+    disk.init();
+    DISK.init(SpinLock::new(disk))
+}
+
+fn read_or_write(offset: usize, data: &[u8], write: bool) {
+    let mut disk = DISK.get().lock();
+
+    // the spec's Section 5.2 says that legacy block operations use
+    // three descriptors: one for type/reserved/sector, one for the
+    // data, one for a 1-byte status result.
+
+    // allocate three descriptors.
+    let desc_idx = loop {
+        if let Some(idx) = disk.alloc3_desc() {
+            break idx;
+        }
+        disk = disk.desc_freed.wait(disk);
+    };
+
+    // send request and wait for `handle_interrupts()` to say request has finished.
+    disk.send_request(offset, data, write, desc_idx);
+    while disk.info[desc_idx[0]].in_progress {
+        disk = disk.info[desc_idx[0]].completed.wait(disk);
     }
 
-    // record struct buf for `handle_interrupt()`.
-    disk.info[idx[0]].data = data.as_ptr();
-    disk.info[idx[0]].in_progress.store(true, Ordering::Release);
-
-    // tell the device the first index in our chain of descriptors.
-    unsafe {
-        let avail_idx = (*disk.avail).idx.load(Ordering::Relaxed) as usize;
-        (*disk.avail).ring[avail_idx % NUM] = idx[0] as u16;
-    }
-
-    // tell the device another avail ring entry is available.
-    unsafe {
-        (*disk.avail).idx.fetch_add(1, Ordering::AcqRel);
-    }
-
-    reg_write(MmioRegister::QueueNotify, 0); // value is queue number
-
-    // Wait for `handle_interrupts()` to say request has finished.
-    while disk.info[idx[0]].in_progress.load(Ordering::Acquire) {
-        proc::sleep(data.as_ptr().cast(), &mut disk);
-    }
-
-    disk.info[idx[0]].data = ptr::null_mut();
-    free_chain(&mut disk, idx[0]);
+    // deallocate descriptors.
+    disk.info[desc_idx[0]].data = ptr::null_mut();
+    disk.free_chain(desc_idx[0]);
 }
 
 pub fn read(offset: usize, data: &mut [u8]) {
@@ -339,7 +346,7 @@ pub fn write(offset: usize, data: &[u8]) {
 }
 
 pub fn handle_interrupt() {
-    let mut disk = DISK.lock();
+    let mut disk = DISK.get().lock();
 
     // the device won't raise another interrupt until we tell it
     // we've seen this interrupt, which the following line does.
@@ -347,25 +354,23 @@ pub fn handle_interrupt() {
     // the "used" ring, in which case we may process the new
     // completion entries in this interrupt, and have nothing to do
     // in the next interrupt, which is harmless.
-    reg_write(
+    disk.write_reg(
         MmioRegister::InterruptAck,
-        reg_read(MmioRegister::InterruptStatus) & 0x3,
+        disk.read_reg(MmioRegister::InterruptStatus) & 0x3,
     );
 
     // the device increments disk.used.idx when it
     // adds an entry to the used ring.
 
-    unsafe {
-        while disk.used_idx != (*disk.used).idx.load(Ordering::Acquire) {
-            let id = (*disk.used).ring[disk.used_idx as usize % NUM].id;
+    while disk.used_idx != disk.used.idx.load(Ordering::Acquire) {
+        let id = disk.used.ring[disk.used_idx as usize % NUM].id as usize;
 
-            assert_eq!(disk.info[id as usize].status, 0);
+        let info = &mut disk.info[id];
 
-            let info = &disk.info[id as usize];
-            info.in_progress.store(false, Ordering::Release); // disk is done with buf
-            proc::wakeup(info.data.cast());
+        assert_eq!(info.status, 0);
+        info.in_progress = false; // disk is done with buf
+        info.completed.notify();
 
-            disk.used_idx += 1;
-        }
+        disk.used_idx += 1;
     }
 }

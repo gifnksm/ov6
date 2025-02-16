@@ -2,10 +2,10 @@ use core::{
     cell::UnsafeCell,
     ops::{Deref, DerefMut},
     ptr,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
-use crate::{cpu::Cpu, interrupt};
+use crate::{cpu::Cpu, interrupt, proc};
 
 pub struct RawSpinLock {
     locked: AtomicBool,
@@ -130,5 +130,33 @@ impl<T> DerefMut for SpinLockGuard<'_, T> {
 impl<T> SpinLockGuard<'_, T> {
     pub unsafe fn spinlock(&self) -> &RawSpinLock {
         &self.lock.lock
+    }
+}
+
+pub struct SpinLockCondVar {
+    counter: AtomicU64,
+}
+
+impl SpinLockCondVar {
+    pub const fn new() -> Self {
+        Self {
+            counter: AtomicU64::new(0),
+        }
+    }
+
+    pub fn wait<'a, T>(&self, mut guard: SpinLockGuard<'a, T>) -> SpinLockGuard<'a, T> {
+        let counter = self.counter.load(Ordering::Relaxed);
+        loop {
+            proc::sleep(ptr::from_ref(&self.counter).cast(), &mut guard);
+            if counter != self.counter.load(Ordering::Relaxed) {
+                break;
+            }
+        }
+        guard
+    }
+
+    pub fn notify(&self) {
+        self.counter.fetch_add(1, Ordering::Relaxed);
+        proc::wakeup(ptr::from_ref(&self.counter).cast());
     }
 }
