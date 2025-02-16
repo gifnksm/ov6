@@ -15,7 +15,8 @@
 //! The log is a physical re-do log containiing disk blocks.
 //!
 //! The on-disk log format:
-//! ```
+//!
+//! ```text
 //! header block, containing block #s for block A, B, C, ...
 //! block A
 //! block B
