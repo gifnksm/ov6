@@ -6,8 +6,8 @@ version.workspace = true
 edition.workspace = true
 forced-target = "riscv64gc-unknown-none-elf"
 
-[lib]
-crate-type = ["staticlib"]
+[[bin]]
+name = "kernel"
 test = false
 bench = false
 

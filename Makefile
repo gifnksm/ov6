@@ -2,8 +2,6 @@ K=kernel
 U=user
 R=target/riscv64gc-unknown-none-elf/release
 
-OBJS =
-
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin
 #TOOLPREFIX =
@@ -56,10 +54,16 @@ endif
 
 LDFLAGS = -z max-page-size=4096
 
-$K/kernel: $(OBJS) $K/kernel.ld $U/initcode $R/libkernel.a
-	$(LD) $(LDFLAGS) -T $K/kernel.ld -o $K/kernel $(OBJS) $R/libkernel.a
-	$(OBJDUMP) -SC $K/kernel > $K/kernel.asm
-	$(OBJDUMP) -t $K/kernel | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' | c++filt > $K/kernel.sym
+all: $K/kernel $K/kernel.asm $K/kernel.sym fs.img $U/initcode
+
+$K/kernel: $R/kernel
+	cp $< $@
+
+%.asm: %
+	$(OBJDUMP) -SC $< > $@
+
+%.sym: %
+	$(OBJDUMP) -t $< | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' | c++filt > $@
 
 $U/initcode: $U/initcode.S
 	$(CC) $(CFLAGS) -march=rv64g -nostdinc -I. -Ikernel -c $U/initcode.S -o $U/initcode.o
@@ -89,7 +93,7 @@ $U/_forktest: $U/forktest.o $(ULIB)
 	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $U/_forktest $U/forktest.o $U/ulib.o $U/usys.o
 	$(OBJDUMP) -SC $U/_forktest > $U/forktest.asm
 
-$R/libkernel.a: FORCE
+$R/kernel: FORCE
 	cargo build --release
 
 mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
@@ -171,4 +175,4 @@ qemu-gdb: $K/kernel .gdbinit fs.img
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
 FORCE:
-.PHONY: FORCE clean qemu qemu-gdb tags check cargo-clippy typos
+.PHONY: FORCE all clean qemu qemu-gdb tags check cargo-clippy typos

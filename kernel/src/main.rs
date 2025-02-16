@@ -4,6 +4,7 @@
 #![feature(naked_functions)]
 #![feature(non_null_from_ref)]
 #![no_std]
+#![no_main]
 
 use core::{
     arch::global_asm,
