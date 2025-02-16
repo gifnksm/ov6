@@ -192,7 +192,6 @@ impl DirEntry {
 
 // there should be one superblock per disk device, but we run with
 // only one device
-#[unsafe(export_name = "sb")]
 static mut SUPER_BLOCK: SuperBlock = unsafe { mem::zeroed() };
 
 /// Reads the super block.
@@ -330,7 +329,6 @@ fn block_free(dev: DeviceNo, b: BlockNo) {
 // dev, and inum.  One must hold ip->lock in order to
 // read or write that inode's ip->valid, ip->size, ip->type, &c.
 
-#[unsafe(export_name = "itable")]
 static INODE_TABLE: Mutex<[UnsafeCell<Inode>; NINODE]> =
     Mutex::new([const { UnsafeCell::new(Inode::zero()) }; NINODE]);
 

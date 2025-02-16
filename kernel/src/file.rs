@@ -155,7 +155,6 @@ struct FileTable {
     file: [File; NFILE],
 }
 
-#[unsafe(export_name = "devsw")]
 pub static mut DEVSW: [DevSw; NDEV] = [const {
     DevSw {
         read: None,
@@ -163,7 +162,6 @@ pub static mut DEVSW: [DevSw; NDEV] = [const {
     }
 }; NDEV];
 
-#[unsafe(export_name = "ftable")]
 static mut FTABLE: FileTable = FileTable {
     lock: SpinLock::new(c"ftable"),
     file: [const { File::zero() }; NFILE],
