@@ -231,20 +231,20 @@ fn block_alloc(dev: DeviceNo) -> Option<BlockNo> {
     let sb = unsafe { (&raw const SUPER_BLOCK).as_ref() }.unwrap();
     let sb_size = sb.size as usize;
     for bn0 in (0..sb_size).step_by(BITS_PER_BLOCK) {
-        let Some(bn) = block_io::with_buf(dev, bit_block(bn0, sb), |bp| {
-            let (bni, m) = (0..BITS_PER_BLOCK)
-                .take_while(|bni| bn0 + *bni < sb_size)
-                .map(|bni| (bni, 1 << (bni % 8)))
-                .find(|(bni, m)| {
-                    bp.data_mut()[bni / 8] & m == 0 // block is free
-                })?;
-            bp.data_mut()[bni / 8] |= m; // mark block in use
-            log::write(bp);
-            let bn = BlockNo::new((bn0 + bni) as u32).unwrap();
-            Some(bn)
-        }) else {
+        let mut bp = block_io::read(dev, bit_block(bn0, sb));
+        let Some((bni, m)) = (0..BITS_PER_BLOCK)
+            .take_while(|bni| bn0 + *bni < sb_size)
+            .map(|bni| (bni, 1 << (bni % 8)))
+            .find(|(bni, m)| {
+                bp.data_mut()[bni / 8] & m == 0 // block is free
+            })
+        else {
             continue;
         };
+
+        bp.data_mut()[bni / 8] |= m; // mark block in use
+        log::write(&mut bp);
+        let bn = BlockNo::new((bn0 + bni) as u32).unwrap();
         block_zero(dev, bn);
         return Some(bn);
     }
@@ -552,18 +552,16 @@ fn inode_block_map(ip: NonNull<Inode>, ibn: usize) -> Option<BlockNo> {
                 }
             };
 
-            return block_io::with_buf((*ip).dev.unwrap(), bn, |bp| {
-                let bnp = &mut bp.as_indirect_blocks_mut()[ibn];
-                match *bnp {
-                    Some(bn) => Some(bn),
-                    None => {
-                        let bn = block_alloc((*ip).dev.unwrap())?;
-                        *bnp = Some(bn);
-                        log::write(bp);
-                        Some(bn)
-                    }
-                }
-            });
+            let mut bp = block_io::read((*ip).dev.unwrap(), bn);
+            let bnp = &mut bp.as_indirect_blocks_mut()[ibn];
+            if let Some(bn) = *bnp {
+                return Some(bn);
+            }
+
+            let bn = block_alloc((*ip).dev.unwrap())?;
+            *bnp = Some(bn);
+            log::write(&mut bp);
+            return Some(bn);
         }
 
         panic!("out of range: bn={ibn}");
@@ -584,14 +582,14 @@ pub fn inode_trunc(ip: NonNull<Inode>) {
         }
 
         if let Some(bn) = (*ip).addrs[NDIRECT].take() {
-            block_io::with_buf((*ip).dev.unwrap(), bn, |bp| {
-                let bnp = bp.as_indirect_blocks_mut();
-                for bn in bnp.iter_mut() {
-                    if let Some(bn) = bn.take() {
-                        block_free((*ip).dev.unwrap(), bn);
-                    }
+            let mut bp = block_io::read((*ip).dev.unwrap(), bn);
+            let bnp = bp.as_indirect_blocks_mut();
+            for bn in bnp.iter_mut() {
+                if let Some(bn) = bn.take() {
+                    block_free((*ip).dev.unwrap(), bn);
                 }
-            });
+            }
+            drop(bp);
             block_free((*ip).dev.unwrap(), bn);
         }
 
@@ -650,16 +648,14 @@ pub fn read_inode(
             let Some(bn) = inode_block_map(NonNull::new(ip).unwrap(), off / BLOCK_SIZE) else {
                 break;
             };
-            let m = block_io::with_buf((*ip).dev.unwrap(), bn, |bp| {
-                let m = usize::min(n - tot, BLOCK_SIZE - off % BLOCK_SIZE);
-                proc::either_copy_out_bytes(
-                    p,
-                    user_dst,
-                    dst.addr(),
-                    &bp.data()[off % BLOCK_SIZE..][..m],
-                )?;
-                Ok(m)
-            })?;
+            let bp = block_io::read((*ip).dev.unwrap(), bn);
+            let m = usize::min(n - tot, BLOCK_SIZE - off % BLOCK_SIZE);
+            proc::either_copy_out_bytes(
+                p,
+                user_dst,
+                dst.addr(),
+                &bp.data()[off % BLOCK_SIZE..][..m],
+            )?;
             tot += m;
         }
         Ok(tot)
@@ -717,17 +713,17 @@ pub fn write_inode(
             let Some(bn) = inode_block_map(NonNull::new(ip).unwrap(), off / BLOCK_SIZE) else {
                 break;
             };
-            let m = block_io::with_buf((*ip).dev.unwrap(), bn, |bp| {
-                let m = usize::min(n - tot, BLOCK_SIZE - off % BLOCK_SIZE);
-                proc::either_copy_in_bytes(
-                    p,
-                    &mut bp.data_mut()[off % BLOCK_SIZE..][..m],
-                    user_src,
-                    src.addr(),
-                )?;
-                log::write(bp);
-                Ok(m)
-            })?;
+
+            let mut bp = block_io::read((*ip).dev.unwrap(), bn);
+            let m = usize::min(n - tot, BLOCK_SIZE - off % BLOCK_SIZE);
+            proc::either_copy_in_bytes(
+                p,
+                &mut bp.data_mut()[off % BLOCK_SIZE..][..m],
+                user_src,
+                src.addr(),
+            )?;
+            log::write(&mut bp);
+
             tot += m;
         }
 

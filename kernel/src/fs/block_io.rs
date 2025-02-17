@@ -281,13 +281,3 @@ pub fn read(dev: DeviceNo, block_no: BlockNo) -> BlockRef<'static> {
     buf.read();
     buf
 }
-
-pub fn with_buf<F, T>(dev: DeviceNo, block_no: BlockNo, f: F) -> T
-where
-    F: FnOnce(&mut BlockRef) -> T,
-{
-    let mut buf = read(dev, block_no);
-    let res = f(&mut buf);
-    drop(buf);
-    res
-}
