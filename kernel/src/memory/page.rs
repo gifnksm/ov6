@@ -84,6 +84,3 @@ pub fn alloc_page() -> Option<NonNull<u8>> {
 pub fn alloc_zeroed_page() -> Option<NonNull<u8>> {
     PAGE_FRAME_ALLOCATOR.get().lock().alloc_zeroed()
 }
-
-/// A pointer type that uniquely owns a page of type `T`.
-pub type PageBox<T> = page_alloc::PageBox<T, PageFrameAllocatorRetriever, PAGE_SIZE>;

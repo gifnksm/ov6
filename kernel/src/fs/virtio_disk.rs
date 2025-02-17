@@ -1,4 +1,6 @@
-use core::{array, mem, ptr, sync::atomic::Ordering};
+use core::{array, mem, pin::Pin, ptr, sync::atomic::Ordering};
+
+use alloc::boxed::Box;
 
 use crate::{
     fs::{
@@ -8,7 +10,7 @@ use crate::{
             VirtioBlkReqType, VirtqAvail, VirtqDesc, VirtqDescFlags, VirtqUsed,
         },
     },
-    memory::{layout::VIRTIO0, page::PageBox},
+    memory::layout::VIRTIO0,
     sync::{Once, SpinLock, SpinLockCondVar},
 };
 
@@ -27,20 +29,20 @@ struct Disk<const NUM: usize> {
     /// There are NUM descriptors.
     /// Most commands consist of a "chain" (a linked list) of a couple of
     /// these descriptors.
-    desc: PageBox<[VirtqDesc; NUM]>,
+    desc: Pin<Box<[VirtqDesc; NUM]>>,
 
     /// A ring in which the driver writes descriptor numbers
     /// that the driver would like the device to process.
     ///
     /// It only includes the head descriptor of each chain.
     /// The ring has NUM elements.
-    avail: PageBox<VirtqAvail<NUM>>,
+    avail: Pin<Box<VirtqAvail<NUM>>>,
 
     /// A ring in which the device writes descriptor numbers that
     /// the device has finished processing (just the head of each chain).
     ///
     /// There are NUM used ring entries.
-    used: PageBox<VirtqUsed<NUM>>,
+    used: Pin<Box<VirtqUsed<NUM>>>,
 
     /// Condition variable signaled when descriptors are freed.
     desc_freed: &'static SpinLockCondVar,
@@ -79,9 +81,9 @@ impl<const N: usize> Disk<N> {
     ) -> Self {
         Disk {
             base_address,
-            desc: PageBox::new(unsafe { mem::zeroed() }),
-            avail: PageBox::new(unsafe { mem::zeroed() }),
-            used: PageBox::new(unsafe { mem::zeroed() }),
+            desc: Box::into_pin(Box::new(unsafe { mem::zeroed() })),
+            avail: Box::into_pin(Box::new(unsafe { mem::zeroed() })),
+            used: Box::into_pin(Box::new(unsafe { mem::zeroed() })),
             desc_freed,
             free: [true; N],
             used_idx: 0,
@@ -168,21 +170,21 @@ impl<const N: usize> Disk<N> {
         self.write_reg(MmioRegister::QueueNum, N as u32);
 
         // write physical addresses.
-        fn addr_low<T>(p: &PageBox<T>) -> u32 {
-            let addr = PageBox::as_ptr(p).addr();
+        fn addr_low<T>(p: &T) -> u32 {
+            let addr = ptr::from_ref(p).addr();
             (addr & 0xffff_ffff) as u32
         }
-        fn addr_high<T>(p: &PageBox<T>) -> u32 {
-            let addr = PageBox::as_ptr(p).addr();
+        fn addr_high<T>(p: &T) -> u32 {
+            let addr = ptr::from_ref(p).addr();
             ((addr >> 32) & 0xffff_ffff) as u32
         }
 
-        self.write_reg(MmioRegister::QueueDescLow, addr_low(&self.desc));
-        self.write_reg(MmioRegister::QueueDescHigh, addr_high(&self.desc));
-        self.write_reg(MmioRegister::DriverDescLow, addr_low(&self.avail));
-        self.write_reg(MmioRegister::DriverDescHigh, addr_high(&self.avail));
-        self.write_reg(MmioRegister::DeviceDescLow, addr_low(&self.used));
-        self.write_reg(MmioRegister::DeviceDescHigh, addr_high(&self.used));
+        self.write_reg(MmioRegister::QueueDescLow, addr_low(&*self.desc));
+        self.write_reg(MmioRegister::QueueDescHigh, addr_high(&*self.desc));
+        self.write_reg(MmioRegister::DriverDescLow, addr_low(&*self.avail));
+        self.write_reg(MmioRegister::DriverDescHigh, addr_high(&*self.avail));
+        self.write_reg(MmioRegister::DeviceDescLow, addr_low(&*self.used));
+        self.write_reg(MmioRegister::DeviceDescHigh, addr_high(&*self.used));
 
         // queue is ready.
         self.write_reg(MmioRegister::QueueReady, 1);
