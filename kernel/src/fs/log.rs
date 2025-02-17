@@ -81,8 +81,9 @@ impl Log {
     /// Copies committed blocks from log to their home location.
     fn install_trans(&mut self, recovering: bool) {
         for tail in 0..self.lh.n {
-            let lbuf = block_io::read(self.dev, BlockNo::new(self.start + tail + 1).unwrap()); // read log block
-            let mut dbuf = block_io::read(self.dev, self.lh.block[tail as usize].unwrap()); // read dst
+            let lbuf = block_io::get(self.dev, BlockNo::new(self.start + tail + 1).unwrap()).read(); // read log block
+            let mut dbuf = block_io::get(self.dev, self.lh.block[tail as usize].unwrap())
+                .set_data(lbuf.data()); // copy from log to dst
             dbuf.data_mut().copy_from_slice(lbuf.data());
             dbuf.write(); // write dst to disk
             if !recovering {
@@ -95,7 +96,7 @@ impl Log {
 
     /// Reads the log header from disk into the in-memory log header.
     fn read_head(&mut self) {
-        let buf = block_io::read(self.dev, BlockNo::new(self.start).unwrap());
+        let buf = block_io::get(self.dev, BlockNo::new(self.start).unwrap()).read();
         let lh = buf.data().as_ptr().cast::<LogHeader>();
         unsafe {
             self.lh.n = (*lh).n;
@@ -109,7 +110,7 @@ impl Log {
     /// This is the true point at which the
     /// current transaction commits.
     fn write_head(&mut self) {
-        let mut buf = block_io::read(self.dev, BlockNo::new(self.start).unwrap());
+        let mut buf = block_io::get(self.dev, BlockNo::new(self.start).unwrap()).zeroed();
         let hb = buf.data_mut().as_mut_ptr().cast::<LogHeader>();
         unsafe {
             (*hb).n = self.lh.n;
@@ -181,9 +182,9 @@ impl Log {
 
     fn write_body(&mut self) {
         for tail in 0..self.lh.n {
-            let mut to = block_io::read(self.dev, BlockNo::new(self.start + tail + 1).unwrap()); // log block
-            let from = block_io::read(self.dev, self.lh.block[tail as usize].unwrap()); // cache block
-            to.data_mut().copy_from_slice(from.data());
+            let from = block_io::get(self.dev, self.lh.block[tail as usize].unwrap()).read(); // cache block
+            let mut to = block_io::get(self.dev, BlockNo::new(self.start + tail + 1).unwrap())
+                .set_data(from.data()); // log block
             to.write(); // write the log
         }
     }
@@ -198,7 +199,7 @@ impl Log {
         }
     }
 
-    fn write(&mut self, b: &mut BlockRef) {
+    fn write(&mut self, b: &mut BlockRef<true>) {
         self.lock.acquire();
         assert!((self.lh.n as usize) < LOG_SIZE && self.lh.n < self.size - 1);
         assert!(self.outstanding > 0);
@@ -251,7 +252,7 @@ where
     res
 }
 
-pub fn write(b: &mut BlockRef) {
+pub fn write(b: &mut BlockRef<true>) {
     let log = unsafe { (&raw mut LOG).as_mut() }.unwrap();
     log.write(b);
 }
