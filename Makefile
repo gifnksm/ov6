@@ -139,8 +139,16 @@ clean:
 
 check: cargo-clippy typos doc
 
+test: cargo-test cargo-miri-test
+
 cargo-clippy:
 	cargo clippy --workspace --all-targets
+
+cargo-test:
+	cargo test --workspace
+
+cargo-miri-test:
+	cargo miri test --workspace
 
 typos:
 	typos
