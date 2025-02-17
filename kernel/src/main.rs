@@ -14,6 +14,8 @@ use core::{
 
 use self::fs::{bio, virtio_disk};
 
+extern crate alloc;
+
 mod console;
 mod cpu;
 mod file;

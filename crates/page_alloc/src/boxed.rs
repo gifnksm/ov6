@@ -5,12 +5,12 @@ use core::{
     ptr::{self, NonNull},
 };
 
-use crate::RetrieveAllocator;
+use crate::RetrievePageFrameAllocator;
 
 /// A pointer type that uniquely owns a page of type `T`.
 pub struct PageBox<T, A, const PAGE_SIZE: usize>
 where
-    A: RetrieveAllocator<PAGE_SIZE>,
+    A: RetrievePageFrameAllocator<PAGE_SIZE>,
 {
     ptr: NonNull<T>,
     _allocator: PhantomData<A>,
@@ -18,7 +18,7 @@ where
 
 impl<T, A, const PAGE_SIZE: usize> Deref for PageBox<T, A, PAGE_SIZE>
 where
-    A: RetrieveAllocator<PAGE_SIZE>,
+    A: RetrievePageFrameAllocator<PAGE_SIZE>,
 {
     type Target = T;
 
@@ -29,7 +29,7 @@ where
 
 impl<T, A, const PAGE_SIZE: usize> DerefMut for PageBox<T, A, PAGE_SIZE>
 where
-    A: RetrieveAllocator<PAGE_SIZE>,
+    A: RetrievePageFrameAllocator<PAGE_SIZE>,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { self.ptr.as_mut() }
@@ -38,7 +38,7 @@ where
 
 impl<T, A, const PAGE_SIZE: usize> PageBox<T, A, PAGE_SIZE>
 where
-    A: RetrieveAllocator<PAGE_SIZE>,
+    A: RetrievePageFrameAllocator<PAGE_SIZE>,
 {
     /// Allocates a page and then places `x` into it.
     pub fn new(x: T) -> Self {
@@ -79,7 +79,7 @@ where
 
 impl<T, A, const PAGE_SIZE: usize> Drop for PageBox<T, A, PAGE_SIZE>
 where
-    A: RetrieveAllocator<PAGE_SIZE>,
+    A: RetrievePageFrameAllocator<PAGE_SIZE>,
 {
     fn drop(&mut self) {
         let mut allocator = A::retrieve_allocator();
@@ -96,11 +96,11 @@ mod tests {
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
     use super::*;
-    use crate::PageAllocator;
+    use crate::PageFrameAllocator;
 
     const PAGE_SIZE: usize = 64;
 
-    static ALLOCATOR: OnceLock<Mutex<PageAllocator<PAGE_SIZE>>> = OnceLock::new();
+    static ALLOCATOR: OnceLock<Mutex<PageFrameAllocator<PAGE_SIZE>>> = OnceLock::new();
 
     #[repr(align(64))]
     struct Heap(UnsafeCell<[u8; PAGE_SIZE * 100]>);
@@ -109,8 +109,8 @@ mod tests {
     static HEAP: Heap = Heap(UnsafeCell::new([0; PAGE_SIZE * 100]));
 
     struct Retriever;
-    impl RetrieveAllocator<PAGE_SIZE> for Retriever {
-        type AllocatorRef = MutexGuard<'static, PageAllocator<PAGE_SIZE>>;
+    impl RetrievePageFrameAllocator<PAGE_SIZE> for Retriever {
+        type AllocatorRef = MutexGuard<'static, PageFrameAllocator<PAGE_SIZE>>;
 
         fn retrieve_allocator() -> Self::AllocatorRef {
             ALLOCATOR.get().unwrap().lock().unwrap()
@@ -123,7 +123,7 @@ mod tests {
     fn test_page_box() {
         ALLOCATOR
             .set(Mutex::new(unsafe {
-                PageAllocator::new((*HEAP.0.get()).as_mut_ptr_range())
+                PageFrameAllocator::new((*HEAP.0.get()).as_mut_ptr_range())
             }))
             .unwrap();
 
