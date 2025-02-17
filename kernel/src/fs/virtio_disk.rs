@@ -4,7 +4,7 @@ use alloc::boxed::Box;
 
 use crate::{
     fs::{
-        bio::BLOCK_SIZE,
+        block_io::BLOCK_SIZE,
         virtio::{
             BLK_SECTOR_SIZE, ConfigStatus, DeviceFeatures, MmioRegister, VirtioBlkReq,
             VirtioBlkReqType, VirtqAvail, VirtqDesc, VirtqDescFlags, VirtqUsed,

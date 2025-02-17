@@ -7,11 +7,11 @@ use core::{
 };
 
 use crate::{
-    fs::{self, BlockNo, DeviceNo, InodeNo, NDIRECT, bio::BLOCK_SIZE, log},
+    fs::{self, BlockNo, DeviceNo, InodeNo, NDIRECT, block_io::BLOCK_SIZE, log},
     memory::vm::{self, VirtAddr},
     param::{MAX_OP_BLOCKS, NDEV, NFILE},
     proc::Proc,
-    sync::{RawSpinLock, SleepLock},
+    sync::{RawSleepLock, RawSpinLock},
 };
 
 use self::pipe::Pipe;
@@ -105,7 +105,7 @@ pub struct Inode {
     /// Reference count
     pub refcount: i32,
     /// Protects everything below here.
-    pub lock: SleepLock,
+    pub lock: RawSleepLock,
     /// Inode has been read from disk?
     pub valid: i32,
 
@@ -126,7 +126,7 @@ impl Inode {
             dev: None,
             inum: None,
             refcount: 0,
-            lock: SleepLock::new(c"inode"),
+            lock: RawSleepLock::new(),
             valid: 0,
             ty: 0,
             major: 0,

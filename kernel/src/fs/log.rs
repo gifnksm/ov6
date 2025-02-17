@@ -29,7 +29,7 @@ use core::ptr;
 use crate::{
     fs::{
         BlockNo, DeviceNo, SuperBlock,
-        bio::{self, Buf},
+        block_io::{self, BlockRef},
     },
     param::{LOG_SIZE, MAX_OP_BLOCKS},
     proc,
@@ -81,28 +81,27 @@ impl Log {
     /// Copies committed blocks from log to their home location.
     fn install_trans(&mut self, recovering: bool) {
         for tail in 0..self.lh.n {
-            let lbuf = bio::read(self.dev, BlockNo::new(self.start + tail + 1).unwrap()); // read log block
-            let dbuf = bio::read(self.dev, self.lh.block[tail as usize].unwrap()); // read dst
-            dbuf.data.copy_from_slice(&lbuf.data);
-            bio::write(dbuf); // write dst to disk
+            let lbuf = block_io::read(self.dev, BlockNo::new(self.start + tail + 1).unwrap()); // read log block
+            let mut dbuf = block_io::read(self.dev, self.lh.block[tail as usize].unwrap()); // read dst
+            dbuf.data_mut().copy_from_slice(lbuf.data());
+            dbuf.write(); // write dst to disk
             if !recovering {
-                dbuf.unpin();
+                unsafe {
+                    dbuf.unpin();
+                }
             }
-            lbuf.release();
-            dbuf.release();
         }
     }
 
     /// Reads the log header from disk into the in-memory log header.
     fn read_head(&mut self) {
-        let buf = bio::read(self.dev, BlockNo::new(self.start).unwrap());
-        let lh = buf.data.as_ptr().cast::<LogHeader>();
+        let buf = block_io::read(self.dev, BlockNo::new(self.start).unwrap());
+        let lh = buf.data().as_ptr().cast::<LogHeader>();
         unsafe {
             self.lh.n = (*lh).n;
             let n = self.lh.n as usize;
             self.lh.block[..n].copy_from_slice(&(*lh).block[..n]);
         }
-        buf.release();
     }
 
     /// Writes in-memory log header to disk.
@@ -110,15 +109,14 @@ impl Log {
     /// This is the true point at which the
     /// current transaction commits.
     fn write_head(&mut self) {
-        let buf = bio::read(self.dev, BlockNo::new(self.start).unwrap());
-        let hb = buf.data.as_mut_ptr().cast::<LogHeader>();
+        let mut buf = block_io::read(self.dev, BlockNo::new(self.start).unwrap());
+        let hb = buf.data_mut().as_mut_ptr().cast::<LogHeader>();
         unsafe {
             (*hb).n = self.lh.n;
             let n = self.lh.n as usize;
             (*hb).block[..n].copy_from_slice(&self.lh.block[..n]);
         }
-        bio::write(buf);
-        buf.release();
+        buf.write();
     }
 
     fn recover_from_log(&mut self) {
@@ -183,12 +181,10 @@ impl Log {
 
     fn write_body(&mut self) {
         for tail in 0..self.lh.n {
-            let to = bio::read(self.dev, BlockNo::new(self.start + tail + 1).unwrap()); // log block
-            let from = bio::read(self.dev, self.lh.block[tail as usize].unwrap()); // cache block
-            to.data.copy_from_slice(&from.data);
-            bio::write(to); // write the log
-            from.release();
-            to.release();
+            let mut to = block_io::read(self.dev, BlockNo::new(self.start + tail + 1).unwrap()); // log block
+            let from = block_io::read(self.dev, self.lh.block[tail as usize].unwrap()); // cache block
+            to.data_mut().copy_from_slice(from.data());
+            to.write(); // write the log
         }
     }
 
@@ -202,15 +198,15 @@ impl Log {
         }
     }
 
-    fn write(&mut self, b: &mut Buf) {
+    fn write(&mut self, b: &mut BlockRef) {
         self.lock.acquire();
         assert!((self.lh.n as usize) < LOG_SIZE && self.lh.n < self.size - 1);
         assert!(self.outstanding > 0);
 
         let i = (0..self.lh.n as usize)
-            .find(|i| self.lh.block[*i] == b.block_no) // log absorption
+            .find(|i| self.lh.block[*i] == Some(b.block_no())) // log absorption
             .unwrap_or(self.lh.n as usize);
-        self.lh.block[i] = b.block_no;
+        self.lh.block[i] = Some(b.block_no());
         if i == self.lh.n as usize {
             // Add new block to log
             b.pin();
@@ -255,7 +251,7 @@ where
     res
 }
 
-pub fn write(b: &mut Buf) {
+pub fn write(b: &mut BlockRef) {
     let log = unsafe { (&raw mut LOG).as_mut() }.unwrap();
     log.write(b);
 }

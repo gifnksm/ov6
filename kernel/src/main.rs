@@ -1,5 +1,6 @@
 #![feature(c_variadic)]
 #![feature(extern_types)]
+#![feature(extract_if)]
 #![feature(fn_align)]
 #![feature(naked_functions)]
 #![feature(non_null_from_ref)]
@@ -12,7 +13,7 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use self::fs::{bio, virtio_disk};
+use self::fs::{block_io, virtio_disk};
 
 extern crate alloc;
 
@@ -51,7 +52,7 @@ extern "C" fn main() -> ! {
         interrupt::trap::init_hart(); // install kernel trap vectort
         interrupt::plic::init(); // set up interrupt controller
         interrupt::plic::init_hart(); // ask PLIC for device interrupts
-        bio::init(); // buffer cache
+        block_io::init(); // buffer cache
         virtio_disk::init(); // emulated hard disk
         proc::user_init(); // first user process
         STARTED.store(true, Ordering::Release);

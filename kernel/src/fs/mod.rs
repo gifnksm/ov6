@@ -27,7 +27,7 @@ use crate::{
     sync::SpinLock,
 };
 
-pub mod bio;
+pub mod block_io;
 pub mod log;
 pub mod stat;
 pub mod virtio;
@@ -94,6 +94,8 @@ impl DeviceNo {
 pub struct BlockNo(NonZeroU32);
 
 impl BlockNo {
+    pub const INVALID: Self = Self(NonZeroU32::new(u32::MAX).unwrap());
+
     pub const fn new(n: u32) -> Option<Self> {
         let Some(n) = NonZeroU32::new(n) else {
             return None;
@@ -200,11 +202,10 @@ static mut SUPER_BLOCK: SuperBlock = unsafe { mem::zeroed() };
 
 /// Reads the super block.
 unsafe fn read_superblock(dev: DeviceNo, sb: *mut SuperBlock) {
-    let bp = bio::read(dev, BlockNo::new(1).unwrap());
+    let bp = block_io::read(dev, BlockNo::new(1).unwrap());
     unsafe {
-        sb.copy_from(bp.data.as_ptr().cast(), 1);
+        sb.copy_from(bp.data().as_ptr().cast(), 1);
     }
-    bp.release();
 }
 
 pub fn init(dev: DeviceNo) {
@@ -218,10 +219,9 @@ pub fn init(dev: DeviceNo) {
 
 /// Zeros a block.
 fn block_zero(dev: DeviceNo, block_no: BlockNo) {
-    let bp = bio::read(dev, block_no);
-    bp.data.fill(0);
-    log::write(bp);
-    bp.release();
+    let mut bp = block_io::read(dev, block_no);
+    bp.data_mut().fill(0);
+    log::write(&mut bp);
 }
 
 /// Allocates a zeroed disk block.
@@ -231,14 +231,14 @@ fn block_alloc(dev: DeviceNo) -> Option<BlockNo> {
     let sb = unsafe { (&raw const SUPER_BLOCK).as_ref() }.unwrap();
     let sb_size = sb.size as usize;
     for bn0 in (0..sb_size).step_by(BITS_PER_BLOCK) {
-        let Some(bn) = bio::with_buf(dev, bit_block(bn0, sb), |bp| {
+        let Some(bn) = block_io::with_buf(dev, bit_block(bn0, sb), |bp| {
             let (bni, m) = (0..BITS_PER_BLOCK)
                 .take_while(|bni| bn0 + *bni < sb_size)
                 .map(|bni| (bni, 1 << (bni % 8)))
                 .find(|(bni, m)| {
-                    bp.data[bni / 8] & m == 0 // block is free
+                    bp.data_mut()[bni / 8] & m == 0 // block is free
                 })?;
-            bp.data[bni / 8] |= m; // mark block in use
+            bp.data_mut()[bni / 8] |= m; // mark block in use
             log::write(bp);
             let bn = BlockNo::new((bn0 + bni) as u32).unwrap();
             Some(bn)
@@ -255,13 +255,12 @@ fn block_alloc(dev: DeviceNo) -> Option<BlockNo> {
 /// Frees a disk block.
 fn block_free(dev: DeviceNo, b: BlockNo) {
     let sb = unsafe { (&raw const SUPER_BLOCK).as_ref() }.unwrap();
-    let bp = bio::read(dev, bit_block(b.value() as usize, sb));
+    let mut bp = block_io::read(dev, bit_block(b.value() as usize, sb));
     let bi = b.value() as usize % BITS_PER_BLOCK;
     let m = 1 << (bi % 8);
-    assert_ne!(bp.data[bi / 8] & m, 0, "freeing free block");
-    bp.data[bi / 8] &= !m;
-    log::write(bp);
-    bp.release();
+    assert_ne!(bp.data()[bi / 8] & m, 0, "freeing free block");
+    bp.data_mut()[bi / 8] &= !m;
+    log::write(&mut bp);
 }
 
 // Inodes.
@@ -346,19 +345,18 @@ fn inode_alloc(dev: DeviceNo, ty: i16) -> Result<NonNull<Inode>, ()> {
 
     for inum in 1..(sb.ninodes) {
         let inum = InodeNo::new(inum).unwrap();
-        let bp = bio::read(dev, inode_block(inum, sb));
+        let mut bp = block_io::read(dev, inode_block(inum, sb));
         unsafe {
             let dip = &mut bp.as_dinodes_mut()[inum.value() as usize % INODE_PER_BLOCK];
             if dip.ty == 0 {
                 // a free inode
                 *dip = mem::zeroed();
                 dip.ty = ty;
-                log::write(bp); // mark it allocated on the disk
-                bp.release();
+                log::write(&mut bp); // mark it allocated on the disk
+                drop(bp);
                 return inode_get(dev, inum);
             }
         }
-        bp.release();
     }
     crate::println!("no inodes");
     Err(())
@@ -374,7 +372,7 @@ pub fn inode_update(ip: NonNull<Inode>) {
 
     unsafe {
         let ip = ip.as_ref();
-        let bp = bio::read(ip.dev.unwrap(), inode_block(ip.inum.unwrap(), sb));
+        let mut bp = block_io::read(ip.dev.unwrap(), inode_block(ip.inum.unwrap(), sb));
         let dip = &mut bp.as_dinodes_mut()[ip.inum.unwrap().value() as usize % INODE_PER_BLOCK];
         dip.ty = ip.ty;
         dip.major = ip.major;
@@ -382,8 +380,7 @@ pub fn inode_update(ip: NonNull<Inode>) {
         dip.nlink = ip.nlink;
         dip.size = ip.size;
         dip.addrs = ip.addrs;
-        log::write(bp);
-        bp.release();
+        log::write(&mut bp);
     }
 }
 
@@ -441,7 +438,7 @@ pub fn inode_lock(ip: NonNull<Inode>) {
         (*ip).lock.acquire();
 
         if (*ip).valid == 0 {
-            let bp = bio::read((*ip).dev.unwrap(), inode_block((*ip).inum.unwrap(), sb));
+            let mut bp = block_io::read((*ip).dev.unwrap(), inode_block((*ip).inum.unwrap(), sb));
             let dip =
                 &mut bp.as_dinodes_mut()[(*ip).inum.unwrap().value() as usize % INODE_PER_BLOCK];
             (*ip).ty = dip.ty;
@@ -450,7 +447,7 @@ pub fn inode_lock(ip: NonNull<Inode>) {
             (*ip).nlink = dip.nlink;
             (*ip).size = dip.size;
             (*ip).addrs = dip.addrs;
-            bp.release();
+            drop(bp);
             (*ip).valid = 1;
             assert_ne!((*ip).ty, 0);
         }
@@ -555,7 +552,7 @@ fn inode_block_map(ip: NonNull<Inode>, ibn: usize) -> Option<BlockNo> {
                 }
             };
 
-            return bio::with_buf((*ip).dev.unwrap(), bn, |bp| {
+            return block_io::with_buf((*ip).dev.unwrap(), bn, |bp| {
                 let bnp = &mut bp.as_indirect_blocks_mut()[ibn];
                 match *bnp {
                     Some(bn) => Some(bn),
@@ -587,7 +584,7 @@ pub fn inode_trunc(ip: NonNull<Inode>) {
         }
 
         if let Some(bn) = (*ip).addrs[NDIRECT].take() {
-            bio::with_buf((*ip).dev.unwrap(), bn, |bp| {
+            block_io::with_buf((*ip).dev.unwrap(), bn, |bp| {
                 let bnp = bp.as_indirect_blocks_mut();
                 for bn in bnp.iter_mut() {
                     if let Some(bn) = bn.take() {
@@ -653,13 +650,13 @@ pub fn read_inode(
             let Some(bn) = inode_block_map(NonNull::new(ip).unwrap(), off / BLOCK_SIZE) else {
                 break;
             };
-            let m = bio::with_buf((*ip).dev.unwrap(), bn, |bp| {
+            let m = block_io::with_buf((*ip).dev.unwrap(), bn, |bp| {
                 let m = usize::min(n - tot, BLOCK_SIZE - off % BLOCK_SIZE);
                 proc::either_copy_out_bytes(
                     p,
                     user_dst,
                     dst.addr(),
-                    &bp.data[off % BLOCK_SIZE..][..m],
+                    &bp.data()[off % BLOCK_SIZE..][..m],
                 )?;
                 Ok(m)
             })?;
@@ -720,11 +717,11 @@ pub fn write_inode(
             let Some(bn) = inode_block_map(NonNull::new(ip).unwrap(), off / BLOCK_SIZE) else {
                 break;
             };
-            let m = bio::with_buf((*ip).dev.unwrap(), bn, |bp| {
+            let m = block_io::with_buf((*ip).dev.unwrap(), bn, |bp| {
                 let m = usize::min(n - tot, BLOCK_SIZE - off % BLOCK_SIZE);
                 proc::either_copy_in_bytes(
                     p,
-                    &mut bp.data[off % BLOCK_SIZE..][..m],
+                    &mut bp.data_mut()[off % BLOCK_SIZE..][..m],
                     user_src,
                     src.addr(),
                 )?;
@@ -906,6 +903,7 @@ fn resolve_path_impl(
             ip = next;
         }
     }
+
     if parent {
         inode_put(ip);
         return Err(());

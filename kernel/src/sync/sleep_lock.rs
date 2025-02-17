@@ -1,8 +1,8 @@
 use core::{
     cell::UnsafeCell,
-    ffi::{CStr, c_char},
+    ops::{Deref, DerefMut},
     ptr,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use crate::{
@@ -10,34 +10,30 @@ use crate::{
     sync::RawSpinLock,
 };
 
-#[repr(C)]
-pub struct SleepLock {
+pub struct RawSleepLock {
     /// Is the lock held?
-    locked: AtomicU32,
+    locked: AtomicBool,
     /// Spinlock protecting this sleep lock
     lk: RawSpinLock,
 
-    // For debugging:
-    name: *const c_char,
     pid: UnsafeCell<ProcId>,
 }
 
-impl SleepLock {
-    pub const fn new(name: &'static CStr) -> Self {
+impl RawSleepLock {
+    pub const fn new() -> Self {
         Self {
-            locked: AtomicU32::new(0),
+            locked: AtomicBool::new(false),
             lk: RawSpinLock::new(),
-            name: name.as_ptr(),
             pid: UnsafeCell::new(ProcId::new(0)),
         }
     }
 
     pub fn acquire(&self) {
         self.lk.acquire();
-        while self.locked.load(Ordering::Acquire) != 0 {
+        while self.locked.load(Ordering::Acquire) {
             proc::sleep_raw(ptr::from_ref(self).cast(), &self.lk);
         }
-        self.locked.store(1, Ordering::Relaxed);
+        self.locked.store(true, Ordering::Relaxed);
         unsafe {
             *self.pid.get() = Proc::current().pid();
         }
@@ -46,7 +42,7 @@ impl SleepLock {
 
     pub fn release(&self) {
         self.lk.acquire();
-        self.locked.store(0, Ordering::Release);
+        self.locked.store(false, Ordering::Release);
         unsafe {
             *self.pid.get() = ProcId::new(0);
         }
@@ -56,9 +52,60 @@ impl SleepLock {
 
     pub fn holding(&self) -> bool {
         self.lk.acquire();
-        let holding = self.locked.load(Ordering::Relaxed) != 0
+        let holding = self.locked.load(Ordering::Relaxed)
             && unsafe { *self.pid.get() } == Proc::current().pid();
         self.lk.release();
         holding
+    }
+}
+
+pub struct SleepLock<T> {
+    lock: RawSleepLock,
+    value: UnsafeCell<T>,
+}
+
+unsafe impl<T> Sync for SleepLock<T> where T: Send {}
+
+impl<T> SleepLock<T> {
+    pub const fn new(value: T) -> Self {
+        Self {
+            lock: RawSleepLock::new(),
+            value: UnsafeCell::new(value),
+        }
+    }
+
+    /// Acquires the lock.
+    ///
+    /// Sleeps (spins) until the lock is acquired.
+    pub fn lock(&self) -> SleepLockGuard<T> {
+        self.lock.acquire();
+        SleepLockGuard { lock: self }
+    }
+}
+
+pub struct SleepLockGuard<'a, T> {
+    lock: &'a SleepLock<T>,
+}
+
+unsafe impl<T> Send for SleepLockGuard<'_, T> where T: Send {}
+unsafe impl<T> Sync for SleepLockGuard<'_, T> where T: Sync {}
+
+impl<T> Drop for SleepLockGuard<'_, T> {
+    fn drop(&mut self) {
+        self.lock.lock.release();
+    }
+}
+
+impl<T> Deref for SleepLockGuard<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.lock.value.get() }
+    }
+}
+
+impl<T> DerefMut for SleepLockGuard<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.lock.value.get() }
     }
 }
