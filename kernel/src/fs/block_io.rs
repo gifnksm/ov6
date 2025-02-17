@@ -29,7 +29,7 @@ struct BlockIoCache {
     /// Linked list of all buffers, through prev/next.
     ///
     /// Sorted by how recently the buffer was used.
-    /// head.next is most recent, head.prev is least.
+    /// `buffers.front()` is most recent, `buffesr.back()` is least.
     buffers: SpinLock<LinkedList<BlockOwn>>,
 }
 
@@ -180,8 +180,8 @@ impl<const VALID: bool> Drop for BlockRef<'_, VALID> {
         };
         assert_eq!(buf.refcnt, 0);
 
-        // no one is waiting for it, move to last.
-        buffers.push_back(buf);
+        // no one is waiting for it, move to head of the most-recently-used list.
+        buffers.push_front(buf);
     }
 }
 
