@@ -1,0 +1,7 @@
+[package]
+name = "once_init"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dataview.workspace = true

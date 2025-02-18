@@ -6,11 +6,12 @@
 
 use core::ptr::{self, NonNull};
 
+use once_init::OnceInit;
 use page_alloc::{PageFrameAllocator, RetrievePageFrameAllocator};
 
 use crate::{
     memory::{layout::PHYS_TOP, vm::PAGE_SIZE},
-    sync::{Once, SpinLock, SpinLockGuard},
+    sync::{SpinLock, SpinLockGuard},
 };
 
 use super::vm::PageRound as _;
@@ -32,7 +33,7 @@ const fn top() -> NonNull<u8> {
     NonNull::new(ptr::without_provenance_mut(PHYS_TOP)).unwrap()
 }
 
-static PAGE_FRAME_ALLOCATOR: Once<SpinLock<PageFrameAllocator<PAGE_SIZE>>> = Once::new();
+static PAGE_FRAME_ALLOCATOR: OnceInit<SpinLock<PageFrameAllocator<PAGE_SIZE>>> = OnceInit::new();
 
 pub struct PageFrameAllocatorRetriever;
 impl RetrievePageFrameAllocator<PAGE_SIZE> for PageFrameAllocatorRetriever {

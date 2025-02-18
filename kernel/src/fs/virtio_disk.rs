@@ -1,6 +1,7 @@
 use core::{array, mem, pin::Pin, ptr, sync::atomic::Ordering};
 
 use alloc::boxed::Box;
+use once_init::OnceInit;
 
 use crate::{
     fs::{
@@ -11,7 +12,7 @@ use crate::{
         },
     },
     memory::layout::VIRTIO0,
-    sync::{Once, SpinLock, SpinLockCondVar},
+    sync::{SpinLock, SpinLockCondVar},
 };
 
 // This many virtio descriptors.
@@ -71,7 +72,7 @@ struct TrackInfo {
     completed: &'static SpinLockCondVar,
 }
 
-static DISK: Once<SpinLock<Disk<NUM>>> = Once::new();
+static DISK: OnceInit<SpinLock<Disk<NUM>>> = OnceInit::new();
 
 impl<const N: usize> Disk<N> {
     fn new(

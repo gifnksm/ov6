@@ -14,5 +14,6 @@ bench = false
 [dependencies]
 bitflags.workspace = true
 dataview.workspace = true
+once_init.workspace = true
 page_alloc.workspace = true
 riscv.workspace = true

@@ -1,5 +1,5 @@
 [workspace]
-members = [ "crates/page_alloc", "kernel" ]
+members = [ "crates/once_init", "crates/page_alloc", "kernel" ]
 resolver = "2"
 
 [workspace.package]
@@ -11,6 +11,7 @@ bitflags = "2.8.0"
 dataview = "1.0.1"
 riscv = "0.12.1"
 
+once_init = { path = "crates/once_init" }
 page_alloc = { path = "crates/page_alloc" }
 
 [profile.release]

@@ -41,8 +41,16 @@ version = "0.1.0"
 dependencies = [
  "bitflags",
  "dataview",
+ "once_init",
  "page_alloc",
  "riscv",
+]
+
+[[package]]
+name = "once_init"
+version = "0.1.0"
+dependencies = [
+ "dataview",
 ]
 
 [[package]]

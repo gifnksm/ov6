@@ -19,6 +19,7 @@ use core::{
 };
 
 use dataview::{Pod, PodMethods};
+use once_init::OnceInit;
 
 use crate::{
     file::Inode,
@@ -26,7 +27,7 @@ use crate::{
     memory::vm::VirtAddr,
     param::{NINODE, ROOT_DEV},
     proc::{self, Proc},
-    sync::{Once, SpinLock},
+    sync::SpinLock,
 };
 
 pub mod block_io;
@@ -241,7 +242,7 @@ impl DirEntry {
 
 // there should be one superblock per disk device, but we run with
 // only one device
-static SUPER_BLOCK: Once<SuperBlock> = Once::new();
+static SUPER_BLOCK: OnceInit<SuperBlock> = OnceInit::new();
 
 /// Reads the super block.
 fn init_superblock(dev: DeviceNo) {
