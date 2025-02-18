@@ -1,9 +1,5 @@
-#![feature(c_variadic)]
-#![feature(extern_types)]
-#![feature(extract_if)]
 #![feature(fn_align)]
 #![feature(naked_functions)]
-#![feature(non_null_from_ref)]
 #![no_std]
 #![no_main]
 

@@ -1,0 +1,8 @@
+[package]
+name = "block_io"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dataview.workspace = true
+mutex_api.workspace = true

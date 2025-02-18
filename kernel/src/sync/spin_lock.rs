@@ -5,6 +5,8 @@ use core::{
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
+use mutex_api::Mutex;
+
 use crate::{cpu::Cpu, interrupt, proc};
 
 pub struct RawSpinLock {
@@ -97,6 +99,22 @@ impl<T> SpinLock<T> {
     pub fn lock(&self) -> SpinLockGuard<T> {
         self.lock.acquire();
         SpinLockGuard { lock: self }
+    }
+}
+
+impl<T> Mutex for SpinLock<T> {
+    type Data = T;
+    type Guard<'a>
+        = SpinLockGuard<'a, T>
+    where
+        T: 'a;
+
+    fn new(data: Self::Data) -> Self {
+        Self::new(data)
+    }
+
+    fn lock(&self) -> Self::Guard<'_> {
+        self.lock()
     }
 }
 

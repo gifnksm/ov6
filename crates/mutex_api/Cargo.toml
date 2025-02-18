@@ -1,0 +1,6 @@
+[package]
+name = "mutex_api"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

@@ -9,6 +9,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f68f53c83ab957f72c32642f3868eec03eb974d1fb82e453128456482613d36"
 
 [[package]]
+name = "block_io"
+version = "0.1.0"
+dependencies = [
+ "dataview",
+ "mutex_api",
+]
+
+[[package]]
 name = "critical-section"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -40,11 +48,17 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "bitflags",
+ "block_io",
  "dataview",
+ "mutex_api",
  "once_init",
  "page_alloc",
  "riscv",
 ]
+
+[[package]]
+name = "mutex_api"
+version = "0.1.0"
 
 [[package]]
 name = "once_init"

@@ -13,7 +13,9 @@ bench = false
 
 [dependencies]
 bitflags.workspace = true
+block_io.workspace = true
 dataview.workspace = true
+mutex_api.workspace = true
 once_init.workspace = true
 page_alloc.workspace = true
 riscv.workspace = true

@@ -81,11 +81,12 @@ impl Log {
     /// Copies committed blocks from log to their home location.
     fn install_trans(&mut self, recovering: bool) {
         for tail in 0..self.lh.n {
-            let lbuf = block_io::get(self.dev, BlockNo::new(self.start + tail + 1).unwrap()).read(); // read log block
+            let Ok(lbuf) =
+                block_io::get(self.dev, BlockNo::new(self.start + tail + 1).unwrap()).read(); // read log block
             let mut dbuf = block_io::get(self.dev, self.lh.block[tail as usize].unwrap())
                 .set_data(lbuf.bytes()); // copy from log to dst
             dbuf.bytes_mut().copy_from_slice(lbuf.bytes());
-            dbuf.write(); // write dst to disk
+            let Ok(()) = dbuf.write(); // write dst to disk (infallible)
             if !recovering {
                 unsafe {
                     dbuf.unpin();
@@ -96,7 +97,7 @@ impl Log {
 
     /// Reads the log header from disk into the in-memory log header.
     fn read_head(&mut self) {
-        let buf = block_io::get(self.dev, BlockNo::new(self.start).unwrap()).read();
+        let Ok(buf) = block_io::get(self.dev, BlockNo::new(self.start).unwrap()).read();
         let lh = buf.bytes().as_ptr().cast::<LogHeader>();
         unsafe {
             self.lh.n = (*lh).n;
@@ -117,7 +118,7 @@ impl Log {
             let n = self.lh.n as usize;
             (*hb).block[..n].copy_from_slice(&self.lh.block[..n]);
         }
-        buf.write();
+        let Ok(()) = buf.write(); // infallible
     }
 
     fn recover_from_log(&mut self) {
@@ -182,10 +183,10 @@ impl Log {
 
     fn write_body(&mut self) {
         for tail in 0..self.lh.n {
-            let from = block_io::get(self.dev, self.lh.block[tail as usize].unwrap()).read(); // cache block
+            let Ok(from) = block_io::get(self.dev, self.lh.block[tail as usize].unwrap()).read(); // cache block
             let mut to = block_io::get(self.dev, BlockNo::new(self.start + tail + 1).unwrap())
                 .set_data(from.bytes()); // log block
-            to.write(); // write the log
+            let Ok(()) = to.write(); // write the log
         }
     }
 
@@ -205,9 +206,9 @@ impl Log {
         assert!(self.outstanding > 0);
 
         let i = (0..self.lh.n as usize)
-            .find(|i| self.lh.block[*i] == Some(b.block_no())) // log absorption
+            .find(|i| self.lh.block[*i] == BlockNo::new(b.index() as u32)) // log absorption
             .unwrap_or(self.lh.n as usize);
-        self.lh.block[i] = Some(b.block_no());
+        self.lh.block[i] = BlockNo::new(b.index() as u32);
         if i == self.lh.n as usize {
             // Add new block to log
             b.pin();

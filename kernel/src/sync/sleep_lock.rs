@@ -5,6 +5,8 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+use mutex_api::Mutex;
+
 use crate::{
     proc::{self, Proc, ProcId},
     sync::RawSpinLock,
@@ -80,6 +82,22 @@ impl<T> SleepLock<T> {
     pub fn lock(&self) -> SleepLockGuard<T> {
         self.lock.acquire();
         SleepLockGuard { lock: self }
+    }
+}
+
+impl<T> Mutex for SleepLock<T> {
+    type Data = T;
+    type Guard<'a>
+        = SleepLockGuard<'a, T>
+    where
+        T: 'a;
+
+    fn new(data: Self::Data) -> Self {
+        Self::new(data)
+    }
+
+    fn lock(&self) -> Self::Guard<'_> {
+        self.lock()
     }
 }
 

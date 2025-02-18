@@ -1,5 +1,5 @@
 [workspace]
-members = [ "crates/once_init", "crates/page_alloc", "kernel" ]
+members = [ "crates/block_io", "crates/mutex_api", "crates/once_init", "crates/page_alloc", "kernel" ]
 resolver = "2"
 
 [workspace.package]
@@ -11,6 +11,8 @@ bitflags = "2.8.0"
 dataview = "1.0.1"
 riscv = "0.12.1"
 
+block_io = { path = "crates/block_io" }
+mutex_api = { path = "crates/mutex_api" }
 once_init = { path = "crates/once_init" }
 page_alloc = { path = "crates/page_alloc" }
 

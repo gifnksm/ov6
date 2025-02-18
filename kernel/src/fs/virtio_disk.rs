@@ -252,6 +252,7 @@ impl<const N: usize> Disk<N> {
     fn send_request(&mut self, offset: usize, data: &[u8], write: bool, desc_idx: [usize; 3]) {
         assert!(offset % BLK_SECTOR_SIZE == 0);
         let sector = (offset / BLK_SECTOR_SIZE) as u64;
+        assert_eq!(data.len(), BLOCK_SIZE);
 
         let buf0 = &mut self.ops[desc_idx[0]];
         *buf0 = VirtioBlkReq {
