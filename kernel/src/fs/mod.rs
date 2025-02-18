@@ -13,7 +13,7 @@
 
 use core::{
     cell::UnsafeCell,
-    mem::{self, MaybeUninit},
+    mem::MaybeUninit,
     num::{NonZeroU16, NonZeroU32},
     ptr::{self, NonNull},
 };
@@ -26,7 +26,7 @@ use crate::{
     memory::vm::VirtAddr,
     param::{NINODE, ROOT_DEV},
     proc::{self, Proc},
-    sync::SpinLock,
+    sync::{Once, SpinLock},
 };
 
 pub mod block_io;
@@ -241,23 +241,19 @@ impl DirEntry {
 
 // there should be one superblock per disk device, but we run with
 // only one device
-static mut SUPER_BLOCK: SuperBlock = unsafe { mem::zeroed() };
+static SUPER_BLOCK: Once<SuperBlock> = Once::new();
 
 /// Reads the super block.
-unsafe fn read_superblock(dev: DeviceNo, sb: *mut SuperBlock) {
+fn init_superblock(dev: DeviceNo) {
     let bp = block_io::get(dev, BlockNo::new(1).unwrap()).read();
-    unsafe {
-        sb.copy_from(bp.data::<SuperBlock>(), 1);
-    }
+    SUPER_BLOCK.init_by_ref(bp.data::<SuperBlock>());
 }
 
 pub fn init(dev: DeviceNo) {
-    let sb = &raw mut SUPER_BLOCK;
-    unsafe {
-        read_superblock(dev, sb);
-        assert_eq!((*sb).magic, FS_MAGIC);
-        log::init(dev, &(*sb));
-    }
+    init_superblock(dev);
+    let sb = SUPER_BLOCK.get();
+    assert_eq!(sb.magic, FS_MAGIC);
+    log::init(dev, sb);
 }
 
 /// Zeros a block.
@@ -270,7 +266,7 @@ fn block_zero(dev: DeviceNo, block_no: BlockNo) {
 ///
 /// Returns None if out of disk space.
 fn block_alloc(dev: DeviceNo) -> Option<BlockNo> {
-    let sb = unsafe { (&raw const SUPER_BLOCK).as_ref() }.unwrap();
+    let sb = SUPER_BLOCK.get();
     let sb_size = sb.size as usize;
     for bn0 in (0..sb_size).step_by(BITS_PER_BLOCK) {
         let mut bp = block_io::get(dev, bit_block(bn0, sb)).read();
@@ -295,7 +291,7 @@ fn block_alloc(dev: DeviceNo) -> Option<BlockNo> {
 
 /// Frees a disk block.
 fn block_free(dev: DeviceNo, b: BlockNo) {
-    let sb = unsafe { (&raw const SUPER_BLOCK).as_ref() }.unwrap();
+    let sb = SUPER_BLOCK.get();
     let mut bp = block_io::get(dev, bit_block(b.value() as usize, sb)).read();
     let bi = b.value() as usize % BITS_PER_BLOCK;
     assert!(bp.data::<BitBlock>().bit(bi), "freeing free block");
@@ -381,7 +377,7 @@ static INODE_TABLE: SpinLock<[UnsafeCell<Inode>; NINODE]> =
 /// Returns a n unlocked but allocated and referenced inode,
 /// or None if there is no free inode.
 fn inode_alloc(dev: DeviceNo, ty: i16) -> Result<NonNull<Inode>, ()> {
-    let sb = unsafe { (&raw const SUPER_BLOCK).as_ref() }.unwrap();
+    let sb = SUPER_BLOCK.get();
 
     for inum in 1..(sb.ninodes) {
         let inum = InodeNo::new(inum).unwrap();
@@ -406,7 +402,7 @@ fn inode_alloc(dev: DeviceNo, ty: i16) -> Result<NonNull<Inode>, ()> {
 /// that lives on disk.
 /// Caller must hoold ip.lock.
 pub fn inode_update(ip: NonNull<Inode>) {
-    let sb = unsafe { (&raw const SUPER_BLOCK).as_ref() }.unwrap();
+    let sb = SUPER_BLOCK.get();
 
     unsafe {
         let ip = ip.as_ref();
@@ -468,7 +464,7 @@ pub fn inode_dup(ip: NonNull<Inode>) -> NonNull<Inode> {
 ///
 /// Reads the inode from disk if necessary.
 pub fn inode_lock(ip: NonNull<Inode>) {
-    let sb = unsafe { (&raw const SUPER_BLOCK).as_ref() }.unwrap();
+    let sb = SUPER_BLOCK.get();
 
     unsafe {
         let ip = ip.as_ptr();

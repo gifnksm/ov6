@@ -4,6 +4,8 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+use dataview::Pod;
+
 /// A synchronization primitive which can be written to only once.
 pub struct Once<T> {
     initialized: AtomicBool,
@@ -35,6 +37,26 @@ impl<T> Once<T> {
 
         unsafe {
             (*self.value.get()).write(value);
+        }
+    }
+
+    /// Initializes the cell by reference.
+    ///
+    /// This function is useful when the value is large and we want to avoid copying it.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the cell already initialized.
+    pub fn init_by_ref(&self, value: &T)
+    where
+        T: Pod,
+    {
+        self.initialized
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .expect("Once::init should be called at most once");
+
+        unsafe {
+            (*self.value.get()).as_mut_ptr().copy_from(value, 1);
         }
     }
 
