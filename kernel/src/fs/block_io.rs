@@ -190,7 +190,7 @@ impl<'a, const VALID: bool> BlockRef<'a, VALID> {
     pub fn block_no(&self) -> BlockNo {
         self.block_no
     }
-
+    /// Increments the reference count of the buffer.
     ///
     /// If the reference count is > 0, the buffer is in use and guaranteed to be in the cache.
     pub fn pin(&mut self) {
@@ -282,7 +282,6 @@ impl BlockRef<'_, true> {
         virtio_disk::write(offset, self.data());
     }
 
-    /// Increments the reference count of the buffer.
     fn as_mut_array<T, const N: usize>(&mut self) -> &mut [T; N] {
         const {
             assert!(size_of::<[T; N]>() <= BLOCK_SIZE);
