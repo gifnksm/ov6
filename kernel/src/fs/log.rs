@@ -83,8 +83,8 @@ impl Log {
         for tail in 0..self.lh.n {
             let lbuf = block_io::get(self.dev, BlockNo::new(self.start + tail + 1).unwrap()).read(); // read log block
             let mut dbuf = block_io::get(self.dev, self.lh.block[tail as usize].unwrap())
-                .set_data(lbuf.data()); // copy from log to dst
-            dbuf.data_mut().copy_from_slice(lbuf.data());
+                .set_data(lbuf.bytes()); // copy from log to dst
+            dbuf.bytes_mut().copy_from_slice(lbuf.bytes());
             dbuf.write(); // write dst to disk
             if !recovering {
                 unsafe {
@@ -97,7 +97,7 @@ impl Log {
     /// Reads the log header from disk into the in-memory log header.
     fn read_head(&mut self) {
         let buf = block_io::get(self.dev, BlockNo::new(self.start).unwrap()).read();
-        let lh = buf.data().as_ptr().cast::<LogHeader>();
+        let lh = buf.bytes().as_ptr().cast::<LogHeader>();
         unsafe {
             self.lh.n = (*lh).n;
             let n = self.lh.n as usize;
@@ -111,7 +111,7 @@ impl Log {
     /// current transaction commits.
     fn write_head(&mut self) {
         let mut buf = block_io::get(self.dev, BlockNo::new(self.start).unwrap()).zeroed();
-        let hb = buf.data_mut().as_mut_ptr().cast::<LogHeader>();
+        let hb = buf.bytes_mut().as_mut_ptr().cast::<LogHeader>();
         unsafe {
             (*hb).n = self.lh.n;
             let n = self.lh.n as usize;
@@ -184,7 +184,7 @@ impl Log {
         for tail in 0..self.lh.n {
             let from = block_io::get(self.dev, self.lh.block[tail as usize].unwrap()).read(); // cache block
             let mut to = block_io::get(self.dev, BlockNo::new(self.start + tail + 1).unwrap())
-                .set_data(from.data()); // log block
+                .set_data(from.bytes()); // log block
             to.write(); // write the log
         }
     }

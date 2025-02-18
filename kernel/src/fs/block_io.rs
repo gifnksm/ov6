@@ -1,14 +1,12 @@
 //! Cache for block I/O.
 //!
-use core::{
-    ptr,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use alloc::{boxed::Box, collections::linked_list::LinkedList};
+use dataview::{Pod, PodMethods as _};
 
 use crate::{
-    fs::{BlockNo, DInode, DeviceNo, INODE_PER_BLOCK, NINDIRECT},
+    fs::{BlockNo, DeviceNo},
     param::NBUF,
     sync::{SleepLock, SleepLockGuard, SpinLock},
     virtio_disk,
@@ -260,14 +258,30 @@ impl<'a, const VALID: bool> BlockRef<'a, VALID> {
 }
 
 impl BlockRef<'_, true> {
-    /// Returns a reference to the block data.
-    pub fn data(&self) -> &[u8; BLOCK_SIZE] {
+    /// Returns a reference to the block data bytes.
+    pub fn bytes(&self) -> &[u8; BLOCK_SIZE] {
         self.data.as_ref().unwrap()
     }
 
-    /// Returns a mutable reference to the block data.
-    pub fn data_mut(&mut self) -> &mut [u8; BLOCK_SIZE] {
+    /// Returns a mutable reference to the block data bytes.
+    pub fn bytes_mut(&mut self) -> &mut [u8; BLOCK_SIZE] {
         self.data.as_mut().unwrap()
+    }
+
+    /// Returns a reference to the block data as POD.
+    pub fn data<T>(&self) -> &T
+    where
+        T: Pod,
+    {
+        self.bytes().as_data_view().get(0)
+    }
+
+    /// Returns a mutable reference to the block data as POD.
+    pub fn data_mut<T>(&mut self) -> &mut T
+    where
+        T: Pod,
+    {
+        self.bytes_mut().as_data_view_mut().get_mut(0)
     }
 
     /// Writes the block to disk.
@@ -279,23 +293,7 @@ impl BlockRef<'_, true> {
         assert!(self.valid.load(Ordering::Relaxed));
 
         let offset = self.block_no.to_offset();
-        virtio_disk::write(offset, self.data());
-    }
-
-    fn as_mut_array<T, const N: usize>(&mut self) -> &mut [T; N] {
-        const {
-            assert!(size_of::<[T; N]>() <= BLOCK_SIZE);
-        }
-        let data = ptr::from_mut(self.data_mut()).cast::<[T; N]>();
-        unsafe { &mut *data }
-    }
-
-    pub fn as_dinodes_mut(&mut self) -> &mut [DInode; INODE_PER_BLOCK] {
-        self.as_mut_array()
-    }
-
-    pub fn as_indirect_blocks_mut(&mut self) -> &mut [Option<BlockNo>; NINDIRECT] {
-        self.as_mut_array()
+        virtio_disk::write(offset, self.bytes());
     }
 }
 

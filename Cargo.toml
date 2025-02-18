@@ -8,6 +8,7 @@ edition = "2024"
 
 [workspace.dependencies]
 bitflags = "2.8.0"
+dataview = "1.0.1"
 riscv = "0.12.1"
 
 page_alloc = { path = "crates/page_alloc" }
