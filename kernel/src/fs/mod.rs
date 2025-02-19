@@ -86,8 +86,6 @@ const MAX_FILE: usize = NDIRECT + NINDIRECT;
 pub struct DeviceNo(NonZeroU32);
 
 impl DeviceNo {
-    pub const INVALID: Self = Self(NonZeroU32::new(u32::MAX).unwrap());
-
     pub const fn new(n: u32) -> Option<Self> {
         let Some(n) = NonZeroU32::new(n) else {
             return None;
