@@ -965,49 +965,45 @@ pub fn resolve_path_parent<'a>(
 
 pub fn unlink(p: &Proc, path: &[u8]) -> Result<(), ()> {
     unsafe {
-        log::do_op(|| {
-            let mut name = [0; DIR_SIZE];
-            let (mut dp, name) = resolve_path_parent(p, path, &mut name)?;
+        let mut name = [0; DIR_SIZE];
+        let (mut dp, name) = resolve_path_parent(p, path, &mut name)?;
 
-            inode_lock(dp);
+        inode_lock(dp);
 
-            let res = (|| {
-                // Cannot unlink "." of "..".
-                if name == b".." || name == b"." {
-                    return Err(());
-                }
-
-                let (mut ip, off) = dir_lookup(p, dp, name)?;
-                inode_lock(ip);
-
-                assert!(ip.as_ref().nlink > 0);
-                if ip.as_ref().ty == T_DIR && !dir_is_empty(p, ip) {
-                    inode_unlock_put(ip);
-                    return Err(());
-                }
-
-                let de = DirEntry::zeroed();
-                write_inode_data(p, dp, off, de).unwrap();
-                if ip.as_ref().ty == T_DIR {
-                    dp.as_mut().nlink -= 1;
-                    inode_update(dp);
-                }
-                inode_unlock_put(dp);
-
-                ip.as_mut().nlink -= 1;
-                inode_update(ip);
-                inode_unlock_put(ip);
-
-                Ok(())
-            })();
-
-            if res.is_err() {
-                inode_unlock_put(dp);
+        let res = (|| {
+            // Cannot unlink "." of "..".
+            if name == b".." || name == b"." {
                 return Err(());
             }
 
+            let (mut ip, off) = dir_lookup(p, dp, name)?;
+            inode_lock(ip);
+
+            assert!(ip.as_ref().nlink > 0);
+            if ip.as_ref().ty == T_DIR && !dir_is_empty(p, ip) {
+                inode_unlock_put(ip);
+                return Err(());
+            }
+
+            let de = DirEntry::zeroed();
+            write_inode_data(p, dp, off, de).unwrap();
+            if ip.as_ref().ty == T_DIR {
+                dp.as_mut().nlink -= 1;
+                inode_update(dp);
+            }
+            inode_unlock_put(dp);
+
+            ip.as_mut().nlink -= 1;
+            inode_update(ip);
+            inode_unlock_put(ip);
+
             Ok(())
-        })?;
+        })();
+
+        if res.is_err() {
+            inode_unlock_put(dp);
+            return Err(());
+        }
 
         Ok(())
     }

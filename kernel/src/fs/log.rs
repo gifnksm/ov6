@@ -265,31 +265,30 @@ pub fn init(dev: DeviceNo, sb: &SuperBlock) {
 /// Starts FS transaction.
 ///
 /// Called at the start of each FS system call.
-pub fn begin_op() {
-    LOG.get().begin_op();
-}
-
-/// Ends FS transaction.
-///
-/// Called at the end of each FS system call.
-/// Commits if this was the last outstanding operation.
-pub fn end_op() {
-    LOG.get().end_op();
-}
-
-/// Does FS transaction.
-///
-/// Commits if this was the last outstanding operation.
-pub fn do_op<T, F>(f: F) -> T
-where
-    F: FnOnce() -> T,
-{
-    begin_op();
-    let res = f();
-    end_op();
-    res
+pub fn begin_tx() -> Tx {
+    Tx::begin()
 }
 
 pub fn write(b: &mut BlockGuard<true>) {
     LOG.get().write(b);
+}
+
+pub struct Tx {
+    _log: &'static Log,
+}
+
+impl Drop for Tx {
+    fn drop(&mut self) {
+        LOG.get().end_op();
+    }
+}
+
+impl Tx {
+    fn begin() -> Self {
+        let log = LOG.get();
+        log.begin_op();
+        Self { _log: log }
+    }
+
+    pub fn end(self) {}
 }

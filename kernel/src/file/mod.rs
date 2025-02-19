@@ -219,9 +219,8 @@ pub fn close(f: &File) {
     match ff.ty {
         FileType::Pipe => pipe::close(ff.pipe.unwrap(), ff.writable != 0),
         FileType::Inode | FileType::Device => {
-            log::begin_op();
+            let _tx = log::begin_tx();
             fs::inode_put(ff.ip.unwrap());
-            log::end_op();
         }
         _ => {}
     }
@@ -316,7 +315,7 @@ pub fn write(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> 
                     n1 = max;
                 }
 
-                log::begin_op();
+                let tx = log::begin_tx();
                 let res = fs::inode_with_lock(f.ip.unwrap(), |ip| {
                     let res = fs::write_inode(
                         p,
@@ -331,7 +330,7 @@ pub fn write(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> 
                     }
                     res
                 });
-                log::end_op();
+                tx.end();
 
                 if res != Ok(n1) {
                     // error from write_inode

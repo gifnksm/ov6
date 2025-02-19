@@ -24,40 +24,40 @@ fn flags2perm(flags: u32) -> PtEntryFlags {
 
 pub fn exec(path: &[u8], argv: *const *const u8) -> Result<usize, ()> {
     let p = Proc::current();
-    let (elf, mut pagetable, mut sz) = log::do_op(|| {
-        let ip = fs::resolve_path(p, path)?;
+    let tx = log::begin_tx();
+    let ip = fs::resolve_path(p, path)?;
 
-        fs::inode_with_lock(ip, |ip| {
-            // Check ELF header
-            let mut elf = ElfHeader::zero();
+    let (elf, mut pagetable, mut sz) = fs::inode_with_lock(ip, |ip| {
+        // Check ELF header
+        let mut elf = ElfHeader::zero();
 
-            if fs::read_inode(
-                p,
-                ip,
-                false,
-                VirtAddr::new((&raw mut elf).addr()),
-                0,
-                size_of::<ElfHeader>(),
-            ) != Ok(size_of::<ElfHeader>())
-            {
-                return Err(());
-            }
-            if elf.magic != ELF_MAGIC {
-                return Err(());
-            }
+        if fs::read_inode(
+            p,
+            ip,
+            false,
+            VirtAddr::new((&raw mut elf).addr()),
+            0,
+            size_of::<ElfHeader>(),
+        ) != Ok(size_of::<ElfHeader>())
+        {
+            return Err(());
+        }
+        if elf.magic != ELF_MAGIC {
+            return Err(());
+        }
 
-            let mut pagetable = proc::create_pagetable(p).ok_or(())?;
+        let mut pagetable = proc::create_pagetable(p).ok_or(())?;
 
-            // Load program into memory.
-            let mut sz = 0;
-            if let Err(()) = load_segments(p, ip, unsafe { pagetable.as_mut() }, &mut sz, &elf) {
-                proc::free_pagetable(pagetable, sz);
-                return Err(());
-            }
+        // Load program into memory.
+        let mut sz = 0;
+        if let Err(()) = load_segments(p, ip, unsafe { pagetable.as_mut() }, &mut sz, &elf) {
+            proc::free_pagetable(pagetable, sz);
+            return Err(());
+        }
 
-            Ok((elf, pagetable, sz))
-        })
+        Ok((elf, pagetable, sz))
     })?;
+    tx.end();
 
     if allocate_stack_pages(unsafe { pagetable.as_mut() }, &mut sz).is_err() {
         proc::free_pagetable(pagetable, sz);

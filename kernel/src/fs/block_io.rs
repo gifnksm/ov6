@@ -35,7 +35,7 @@ type LruMutex = SpinLock<LruMap<BlockMutex>>;
 
 static VIRTIO_DISK_CACHE: OnceInit<BlockIoCache<VirtioDiskDevice, LruMutex>> = OnceInit::new();
 
-type BlockRef = block_io::BlockRef<'static, VirtioDiskDevice, LruMutex, BlockMutex>;
+pub type BlockRef = block_io::BlockRef<'static, VirtioDiskDevice, LruMutex, BlockMutex>;
 
 pub type BlockGuard<'block, const VALID: bool> = block_io::BlockGuard<
     'static,
