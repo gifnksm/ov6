@@ -2,7 +2,7 @@
 
 use core::convert::Infallible;
 
-use block_io::{BlockData, BlockDevice, BlockIoCache, BufferList};
+use block_io::{BlockData, BlockDevice, BlockIoCache, LruMap};
 use once_init::OnceInit;
 
 use crate::{
@@ -30,33 +30,30 @@ impl BlockDevice<BLOCK_SIZE> for VirtioDiskDevice {
     }
 }
 
-type BlockDataMutex = SleepLock<BlockData<BLOCK_SIZE>>;
-type BufferListMutex = SpinLock<BufferList<BlockDataMutex>>;
+type BlockMutex = SleepLock<BlockData<BLOCK_SIZE>>;
+type LruMutex = SpinLock<LruMap<BlockMutex>>;
 
-static VIRTIO_DISK_CACHE: OnceInit<BlockIoCache<VirtioDiskDevice, BufferListMutex>> =
-    OnceInit::new();
+static VIRTIO_DISK_CACHE: OnceInit<BlockIoCache<VirtioDiskDevice, LruMutex>> = OnceInit::new();
 
-pub type BlockHandle<'a> =
-    block_io::BlockHandle<'a, VirtioDiskDevice, BufferListMutex, BlockDataMutex>;
+type BlockRef = block_io::BlockRef<'static, VirtioDiskDevice, LruMutex, BlockMutex>;
 
-pub type BlockGuard<'a, 'b, const VALID: bool> = block_io::BlockGuard<
-    'a,
-    'b,
+pub type BlockGuard<'block, const VALID: bool> = block_io::BlockGuard<
+    'static,
+    'block,
     VirtioDiskDevice,
-    BufferListMutex,
-    BlockDataMutex,
+    LruMutex,
+    BlockMutex,
     BLOCK_SIZE,
     VALID,
 >;
 
 /// Initializes the global block I/O cache.
 pub fn init() {
-    VIRTIO_DISK_CACHE.init(BlockIoCache::new(VirtioDiskDevice {}));
-    VIRTIO_DISK_CACHE.get().init(NBUF);
+    VIRTIO_DISK_CACHE.init(BlockIoCache::new(VirtioDiskDevice {}, NBUF));
 }
 
 /// Gets the block buffer with the given device number and block number.
-pub fn get(dev: DeviceNo, block_no: BlockNo) -> BlockHandle<'static> {
+pub fn get(dev: DeviceNo, block_no: BlockNo) -> BlockRef {
     match dev {
         ROOT_DEV => VIRTIO_DISK_CACHE.get().get(block_no.value() as usize),
         _ => panic!("unknown device: dev={}", dev.value()),

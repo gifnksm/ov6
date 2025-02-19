@@ -5,4 +5,9 @@ edition.workspace = true
 
 [dependencies]
 dataview.workspace = true
+lru.workspace = true
 mutex_api.workspace = true
+
+[dev-dependencies]
+mutex_api = { workspace = true, features = ["std"] }
+

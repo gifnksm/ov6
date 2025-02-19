@@ -86,10 +86,12 @@ impl Log {
             let mut lbh = block_io::get(self.dev, BlockNo::new(self.start + tail + 1).unwrap());
             let Ok(lbg) = lbh.lock().read(); // read log block
             let mut dbh = block_io::get(self.dev, self.lh.block[tail as usize].unwrap());
-            let Ok(()) = dbh.lock().set_data(lbg.bytes()).write(); // copy from log to dst and write dst to disk
+            let mut dbg = dbh.lock().set_data(lbg.bytes());
+            let Ok(()) = dbg.write(); // copy from log to dst and write dst to disk
             if !recovering {
                 unsafe {
-                    dbh.unpin();
+                    assert!(dbg.pin_count() > 2);
+                    dbg.unpin();
                 }
             }
         }
@@ -213,9 +215,7 @@ impl Log {
         self.lh.block[i] = BlockNo::new(b.index() as u32);
         if i == self.lh.n as usize {
             // Add new block to log
-            unsafe {
-                b.pin();
-            }
+            b.pin();
             self.lh.n += 1;
         }
         self.lock.release();

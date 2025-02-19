@@ -1,5 +1,5 @@
 //! A simple mutex API.
-#![no_std]
+#![cfg_attr(any(not(feature = "std"), target_os = "none"), no_std)]
 
 use core::ops::DerefMut;
 
@@ -18,4 +18,21 @@ pub trait Mutex {
 
     /// Locks the mutex.
     fn lock(&self) -> Self::Guard<'_>;
+}
+
+#[cfg(all(feature = "std", not(target_os = "none")))]
+impl<T> Mutex for std::sync::Mutex<T> {
+    type Data = T;
+    type Guard<'a>
+        = std::sync::MutexGuard<'a, T>
+    where
+        T: 'a;
+
+    fn new(data: Self::Data) -> Self {
+        Self::new(data)
+    }
+
+    fn lock(&self) -> Self::Guard<'_> {
+        self.lock().unwrap()
+    }
 }

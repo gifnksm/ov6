@@ -1,182 +1,148 @@
-//! Cache for block I/O.
+//! LRU (Lease Recently Used) cache for block I/O.
 
-#![feature(extract_if)]
 #![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
 
-use alloc::{boxed::Box, collections::linked_list::LinkedList, sync::Arc};
+use alloc::boxed::Box;
 use dataview::{Pod, PodMethods as _};
+use lru::Lru;
 use mutex_api::Mutex;
 
+/// A trait representing a block device with a fixed block size.
+///
+/// # Constants
+///
+/// * `BLOCK_SIZE`: The size of each block in bytes.
 pub trait BlockDevice<const BLOCK_SIZE: usize> {
+    /// The error type that can be returned by the block device operations.
     type Error;
 
-    fn read(&self, index: usize, data: &mut [u8; BLOCK_SIZE]) -> Result<(), Self::Error>;
-    fn write(&self, index: usize, data: &[u8; BLOCK_SIZE]) -> Result<(), Self::Error>;
-}
-
-/// A buffer cache for block I/O.
-pub struct BlockIoCache<Device, BufferListMutex> {
-    device: Device,
-
-    /// Linked list of all buffers, through prev/next.
+    /// Reads a block of data from the device at the specified index into the provided buffer.
     ///
-    /// Sorted by how recently the buffer was used.
-    /// `buffers.front()` is most recent, `buffesr.back()` is least.
-    buffers: BufferListMutex,
+    /// Returns `Ok(())` if the read operation is successful, or an error of type `Self::Error` if it fails.
+    fn read(&self, block_index: usize, data: &mut [u8; BLOCK_SIZE]) -> Result<(), Self::Error>;
+
+    /// Writes a block of data to the device at the specified index from the provided buffer.
+    ///
+    /// Returns `Ok(())` if the write operation is successful, or an error of type `Self::Error` if it fails.
+    fn write(&self, block_index: usize, data: &[u8; BLOCK_SIZE]) -> Result<(), Self::Error>;
 }
 
-pub struct BufferList<BlockDataMutex>(LinkedList<Arc<Block<BlockDataMutex>>>);
-
-/// A block buffer.
-struct Block<BlockDataMutex> {
-    /// Block index.
-    index: usize,
-
-    /// Block data.
-    data: BlockDataMutex,
+/// A LRU (Least Recently Used) cache for block I/O.
+pub struct BlockIoCache<Device, LruMutex> {
+    device: Device,
+    lru: Lru<LruMutex>,
 }
 
-pub struct BlockHandle<'a, Device, BufferListMutex, BlockDataMutex>
+/// A type alias for an LRU (Least Recently Used) map where the keys are block indices.
+///
+/// This type alias simplifies the usage of the [`lru::LruMap`] type with block indices.
+///
+/// # Type Parameters
+///
+/// * `BlockMutex`: The mutex type used to protect access to the block data.
+pub type LruMap<BlockMutex> = lru::LruMap<usize, BlockMutex>;
+
+/// A type alias for an LRU (Least Recently Used) value in the cache.
+///
+/// This type alias simplifies the usage of the [`lru::LruValue`] type with block indices and block data.
+///
+/// # Type Parameters
+///
+/// * `'list`: The lifetime of the LRU list.
+/// * `LruMutex`: The mutex type used to protect access to the LRU list.
+/// * `BlockDataMutex`: The mutex type used to protect access to the block data.
+pub type LruValue<'list, LruMutex, BlockDataMutex> =
+    lru::LruValue<'list, LruMutex, usize, BlockDataMutex>;
+
+/// A reference to a block cache.
+pub struct BlockRef<'list, Device, LruMutex, BlockMutex>
 where
-    BufferListMutex: Mutex<Data = BufferList<BlockDataMutex>>,
+    LruMutex: Mutex<Data = LruMap<BlockMutex>>,
 {
     index: usize,
-    cache: &'a BlockIoCache<Device, BufferListMutex>,
-    block: Arc<Block<BlockDataMutex>>,
+    device: &'list Device,
+    block: LruValue<'list, LruMutex, BlockMutex>,
 }
 
-/// A reference to a block buffer.
+/// A lock guard of a block cache providing exclusive access.
 pub struct BlockGuard<
-    'a,
-    'b,
+    'list,
+    'block,
     Device,
-    BufferListMutex,
-    BlockDataMutex,
+    LruMutex,
+    BlockMutex,
     const BLOCK_SIZE: usize,
     const VALID: bool,
 > where
-    BufferListMutex: Mutex<Data = BufferList<BlockDataMutex>>,
-    BlockDataMutex: Mutex<Data = BlockData<BLOCK_SIZE>> + 'b,
+    LruMutex: Mutex<Data = LruMap<BlockMutex>>,
+    BlockMutex: Mutex<Data = BlockData<BLOCK_SIZE>> + 'block,
 {
-    /// Block index.
     index: usize,
-
-    /// Reference to the block I/O cache
-    cache: &'a BlockIoCache<Device, BufferListMutex>,
-
-    /// Reference to the block itself.
-    block: Arc<Block<BlockDataMutex>>,
-
-    /// Block data.
-    data: BlockDataMutex::Guard<'b>,
+    device: &'list Device,
+    block: LruValue<'list, LruMutex, BlockMutex>,
+    data: BlockMutex::Guard<'block>,
 }
 
-/// A block cache data.
+/// A cached data of a block.
 pub struct BlockData<const BLOCK_SIZE: usize> {
     index: usize,
     valid: bool,
     data: Box<[u8; BLOCK_SIZE]>,
 }
 
-impl<Device, BufferListMutex, BlockDataMutex, const BLOCK_SIZE: usize>
-    BlockIoCache<Device, BufferListMutex>
-where
-    BufferListMutex: Mutex<Data = BufferList<BlockDataMutex>>,
-    BlockDataMutex: Mutex<Data = BlockData<BLOCK_SIZE>>,
-{
-    pub fn new(device: Device) -> Self {
+impl<const BLOCK_SIZE: usize> Default for BlockData<BLOCK_SIZE> {
+    fn default() -> Self {
         Self {
-            device,
-            buffers: BufferListMutex::new(BufferList(LinkedList::new())),
+            index: 0,
+            valid: false,
+            data: Box::new([0; BLOCK_SIZE]),
         }
     }
+}
 
-    /// Initializes the block I/O cache with `num_block` buffers.
+impl<Device, LruMutex, BlockMutex, const BLOCK_SIZE: usize> BlockIoCache<Device, LruMutex>
+where
+    LruMutex: Mutex<Data = LruMap<BlockMutex>>,
+    BlockMutex: Mutex<Data = BlockData<BLOCK_SIZE>> + Default,
+{
+    /// Creates a new [`BlockIoCache`] instance.
     ///
     /// # Panics
     ///
-    /// Panics if:
-    ///
-    /// * `num_block` is 0.
-    /// * The cache is already initialized.
-    pub fn init(&self, num_block: usize) {
-        assert!(num_block > 0);
-        let mut buffers = self.buffers.lock();
-        assert!(buffers.0.is_empty());
-
-        // Create linked list of buffers
-        for _ in 0..num_block {
-            buffers.0.push_back(Arc::new(Block {
-                index: usize::MAX,
-                data: BlockDataMutex::new(BlockData {
-                    index: usize::MAX,
-                    valid: false,
-                    data: Box::new([0; BLOCK_SIZE]),
-                }),
-            }))
+    /// Panics if `num_block` is `0`.
+    pub fn new(device: Device, num_block: usize) -> Self {
+        Self {
+            device,
+            lru: Lru::new(num_block),
         }
     }
 
-    /// Returns a editable reference to the buffer with the given device number and block number.
+    /// Returns a reference to the cached block with the given block index.
     ///
-    /// If the buffer is already in the cache, returns a reference to it.
-    /// Otherwise, recycles the least recently used (LRU) unused buffer and returns a reference to it.
-    /// If all buffers are in use, returns `None`.
-    ///
-    /// # Panic
-    ///
-    /// Panics if:
-    ///
-    /// * the buffer is not initialized
-    pub fn try_get(
-        &self,
-        index: usize,
-    ) -> Option<BlockHandle<'_, Device, BufferListMutex, BlockDataMutex>> {
-        let mut buffers = self.buffers.lock();
-        assert!(!buffers.0.is_empty());
-
-        // Find the buffer with dev & block_no
-        if let Some(buf) = buffers.0.iter().find(|b| b.index == index) {
-            // NOTE: `buf.valid` may be `false` here.
-            return Some(BlockHandle {
-                index,
-                cache: self,
-                block: Arc::clone(buf),
-            });
-        }
-
-        // Not cached.
-        // Recycle the least recentrly used (LRU) unused buffer.
-        if let Some(buf) = buffers.0.iter_mut().rev().find_map(|buf| {
-            let buf_content = Arc::get_mut(buf)?;
-            buf_content.index = index;
-            Some(buf)
-        }) {
-            return Some(BlockHandle {
-                index,
-                cache: self,
-                block: Arc::clone(buf),
-            });
-        }
-
-        None
+    /// If the block is cached, returns a reference to it.
+    /// Otherwise, the value is not cached, recycles the least recently used (LRU) unreferenced cache and returns a reference to it.
+    /// If all caches are referenced, returns `None`.
+    pub fn try_get(&self, index: usize) -> Option<BlockRef<'_, Device, LruMutex, BlockMutex>> {
+        let block = self.lru.get(index)?;
+        Some(BlockRef {
+            index,
+            device: &self.device,
+            block,
+        })
     }
 
-    /// Returns a editable reference to the buffer with the given device number and block number.
+    /// Returns a reference to the cached block with the given block index.
     ///
-    /// If the buffer is already in the cache, returns a reference to it.
-    /// Otherwise, recycles the least recently used (LRU) unused buffer and returns a reference to it.
-    /// If all buffers are in use, panics.
+    /// If the block is cached, returns a reference to it.
+    /// Otherwise, the value is not cached, recycles the least recently used (LRU) unreferenced cache and returns a reference to it.
+    /// If all caches are referenced, panics.
     ///
     /// # Panic
     ///
-    /// Panics if:
-    ///
-    /// * the buffer is not initialized
-    /// * all buffers are in use
-    pub fn get(&self, index: usize) -> BlockHandle<'_, Device, BufferListMutex, BlockDataMutex> {
+    /// Panics if all buffers are referenced.
+    pub fn get(&self, index: usize) -> BlockRef<'_, Device, LruMutex, BlockMutex> {
         match self.try_get(index) {
             Some(buf) => buf,
             None => panic!("block buffer exhausted"),
@@ -184,71 +150,48 @@ where
     }
 }
 
-impl<Device, BufferListMutex, BlockDataMutex> Drop
-    for BlockHandle<'_, Device, BufferListMutex, BlockDataMutex>
-where
-    BufferListMutex: Mutex<Data = BufferList<BlockDataMutex>>,
-{
-    fn drop(&mut self) {
-        let mut buffers = self.cache.buffers.lock();
-        let buf = buffers.0.extract_if(|buf| buf.index == self.index).next();
-        if let Some(buf) = buf {
-            buffers.0.push_front(buf);
-        }
-    }
-}
-
-impl<'a, Device, BufferListMutex, BlockDataMutex, const BLOCK_SIZE: usize>
-    BlockHandle<'a, Device, BufferListMutex, BlockDataMutex>
+impl<'list, Device, LruMutex, BlockMutex, const BLOCK_SIZE: usize>
+    BlockRef<'list, Device, LruMutex, BlockMutex>
 where
     Device: BlockDevice<BLOCK_SIZE>,
-    BufferListMutex: Mutex<Data = BufferList<BlockDataMutex>>,
-    BlockDataMutex: Mutex<Data = BlockData<BLOCK_SIZE>> + 'a,
+    LruMutex: Mutex<Data = LruMap<BlockMutex>>,
+    BlockMutex: Mutex<Data = BlockData<BLOCK_SIZE>> + 'list,
 {
+    /// Returns the index number of the block.
     pub fn index(&self) -> usize {
         self.index
     }
 
-    pub unsafe fn pin(&self) {
-        unsafe {
-            Arc::increment_strong_count(&self.block);
-        }
-    }
-
-    pub unsafe fn unpin(&self) {
-        unsafe {
-            Arc::decrement_strong_count(&self.block);
-        }
-    }
-
+    /// Acquires a block's lock and provides a mutable exclusive access to it.
     pub fn lock<'b>(
         &'b mut self,
-    ) -> BlockGuard<'a, 'b, Device, BufferListMutex, BlockDataMutex, BLOCK_SIZE, false> {
-        let mut data = self.block.data.lock();
+    ) -> BlockGuard<'list, 'b, Device, LruMutex, BlockMutex, BLOCK_SIZE, false> {
+        let block = self.block.value();
+        let mut block = block.lock();
 
-        if data.index != self.index {
+        if block.index != self.index {
             // data recycle occurred
-            data.index = self.index;
-            data.valid = false;
+            block.index = self.index;
+            block.valid = false;
         }
 
         BlockGuard {
             index: self.index,
-            cache: self.cache,
-            block: Arc::clone(&self.block),
-            data,
+            device: self.device,
+            block: self.block.clone(),
+            data: block,
         }
     }
 }
 
-impl<'a, 'b, Device, BufferListMutex, BlockDataMutex, const BLOCK_SIZE: usize, const VALID: bool>
-    BlockGuard<'a, 'b, Device, BufferListMutex, BlockDataMutex, BLOCK_SIZE, VALID>
+impl<'list, 'block, Device, LruMutex, BlockMutex, const BLOCK_SIZE: usize, const VALID: bool>
+    BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, VALID>
 where
     Device: BlockDevice<BLOCK_SIZE>,
-    BufferListMutex: Mutex<Data = BufferList<BlockDataMutex>>,
-    BlockDataMutex: Mutex<Data = BlockData<BLOCK_SIZE>> + 'a,
+    LruMutex: Mutex<Data = LruMap<BlockMutex>>,
+    BlockMutex: Mutex<Data = BlockData<BLOCK_SIZE>> + 'list,
 {
-    /// Returns the block number.
+    /// Returns the index number of the block.
     pub fn index(&self) -> usize {
         self.index
     }
@@ -257,11 +200,11 @@ where
     pub fn read(
         mut self,
     ) -> Result<
-        BlockGuard<'a, 'b, Device, BufferListMutex, BlockDataMutex, BLOCK_SIZE, true>,
+        BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, true>,
         (Self, Device::Error),
     > {
         if !self.data.valid {
-            if let Err(e) = self.cache.device.read(self.index, &mut self.data.data) {
+            if let Err(e) = self.device.read(self.index, &mut self.data.data) {
                 return Err((self, e));
             }
             self.data.valid = true;
@@ -269,8 +212,8 @@ where
 
         Ok(BlockGuard {
             index: self.index,
-            cache: self.cache,
-            block: Arc::clone(&self.block),
+            device: self.device,
+            block: self.block.clone(),
             data: self.data,
         })
     }
@@ -279,13 +222,13 @@ where
     pub fn set_data(
         mut self,
         data: &[u8],
-    ) -> BlockGuard<'a, 'b, Device, BufferListMutex, BlockDataMutex, BLOCK_SIZE, true> {
+    ) -> BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, true> {
         self.data.valid = true;
         self.data.data.copy_from_slice(data);
         BlockGuard {
             index: self.index,
-            cache: self.cache,
-            block: Arc::clone(&self.block),
+            device: self.device,
+            block: self.block.clone(),
             data: self.data,
         }
     }
@@ -293,43 +236,55 @@ where
     /// Fills the whole block data with zero.
     pub fn zeroed(
         mut self,
-    ) -> BlockGuard<'a, 'b, Device, BufferListMutex, BlockDataMutex, BLOCK_SIZE, true> {
+    ) -> BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, true> {
         self.data.valid = true;
         self.data.data.fill(0);
         BlockGuard {
             index: self.index,
-            cache: self.cache,
-            block: Arc::clone(&self.block),
+            device: self.device,
+            block: self.block.clone(),
             data: self.data,
         }
     }
 
-    pub unsafe fn pin(&self) {
-        unsafe {
-            Arc::increment_strong_count(&self.block);
-        }
+    /// Pins the block cache to prevent it from being evicted.
+    ///
+    /// The cache will not be evicted until it is unpinned and no references are held.
+    pub fn pin(&self) {
+        self.block.pin()
     }
 
+    /// Unpins the block cache, allowing it to be evicted.
+    ///
+    /// The value will be evicted if it is not pinned and no references are held.
+    ///
+    /// # Safety
+    ///
+    /// This function should only be called if [`Self::pin()`] was previously called.
+    /// Calling [`Self::unpin()`] more times than [`Self::pin()`] may cause a use-after-free error.
     pub unsafe fn unpin(&self) {
-        unsafe {
-            Arc::decrement_strong_count(&self.block);
-        }
+        unsafe { self.block.unpin() }
+    }
+
+    /// Gets the number of references to this block.
+    pub fn pin_count(&self) -> usize {
+        self.block.pin_count()
     }
 }
 
-impl<Device, BufferListMutex, BlockDataMutex, const BLOCK_SIZE: usize>
-    BlockGuard<'_, '_, Device, BufferListMutex, BlockDataMutex, BLOCK_SIZE, true>
+impl<Device, LruMutex, BlockMutex, const BLOCK_SIZE: usize>
+    BlockGuard<'_, '_, Device, LruMutex, BlockMutex, BLOCK_SIZE, true>
 where
     Device: BlockDevice<BLOCK_SIZE>,
-    BufferListMutex: Mutex<Data = BufferList<BlockDataMutex>>,
-    BlockDataMutex: Mutex<Data = BlockData<BLOCK_SIZE>>,
+    LruMutex: Mutex<Data = LruMap<BlockMutex>>,
+    BlockMutex: Mutex<Data = BlockData<BLOCK_SIZE>>,
 {
-    /// Returns a reference to the block data bytes.
+    /// Returns a reference to the bytes of block cache.
     pub fn bytes(&self) -> &[u8; BLOCK_SIZE] {
         &self.data.data
     }
 
-    /// Returns a mutable reference to the block data bytes.
+    /// Returns a mutable reference to the bytes of block cache.
     pub fn bytes_mut(&mut self) -> &mut [u8; BLOCK_SIZE] {
         &mut self.data.data
     }
@@ -357,7 +312,7 @@ where
     /// Panics if cached data is not valid.
     pub fn write(&mut self) -> Result<(), Device::Error> {
         assert!(self.data.valid);
-        self.cache.device.write(self.index, self.bytes())
+        self.device.write(self.index, self.bytes())
     }
 }
 
@@ -365,51 +320,14 @@ where
 mod tests {
     use super::*;
 
-    use core::{
-        convert::Infallible,
-        ops::{Deref, DerefMut},
-    };
-    use std::sync::Arc;
+    use core::convert::Infallible;
+    use std::sync::{Arc, Mutex};
 
     const BLOCK_SIZE: usize = 512;
 
-    struct StdMutex<T>(std::sync::Mutex<T>);
-    struct StdMutexGuard<'a, T>(std::sync::MutexGuard<'a, T>);
-
-    impl<T> mutex_api::Mutex for StdMutex<T> {
-        type Data = T;
-
-        type Guard<'a>
-            = StdMutexGuard<'a, T>
-        where
-            Self: 'a;
-
-        fn new(data: Self::Data) -> Self {
-            Self(std::sync::Mutex::new(data))
-        }
-
-        fn lock(&self) -> Self::Guard<'_> {
-            StdMutexGuard(self.0.lock().unwrap())
-        }
-    }
-
-    impl<T> Deref for StdMutexGuard<'_, T> {
-        type Target = T;
-
-        fn deref(&self) -> &Self::Target {
-            &self.0
-        }
-    }
-
-    impl<T> DerefMut for StdMutexGuard<'_, T> {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            &mut self.0
-        }
-    }
-
     #[derive(Clone)]
     struct MockDevice {
-        data: Vec<Arc<StdMutex<MockData>>>,
+        data: Vec<Arc<Mutex<MockData>>>,
     }
 
     struct MockData {
@@ -418,8 +336,18 @@ mod tests {
         write: usize,
     }
 
-    type BlockIoCache = super::BlockIoCache<MockDevice, StdMutex<BufferList>>;
-    type BufferList = super::BufferList<StdMutex<BlockData>>;
+    impl Default for MockData {
+        fn default() -> Self {
+            Self {
+                data: [0; BLOCK_SIZE],
+                read: 0,
+                write: 0,
+            }
+        }
+    }
+
+    type BlockIoCache = super::BlockIoCache<MockDevice, Mutex<LruList>>;
+    type LruList = super::LruMap<Mutex<BlockData>>;
     type BlockData = super::BlockData<BLOCK_SIZE>;
 
     impl MockDevice {
@@ -442,56 +370,44 @@ mod tests {
         type Error = Infallible;
 
         fn read(&self, index: usize, data: &mut [u8; 512]) -> Result<(), Self::Error> {
-            let mut mock = self.data[index].lock();
-            mock.0.read += 1;
-            data.copy_from_slice(&mock.0.data);
+            let mut mock = self.data[index].lock().unwrap();
+            mock.read += 1;
+            data.copy_from_slice(&mock.data);
             Ok(())
         }
 
         fn write(&self, index: usize, data: &[u8; 512]) -> Result<(), Self::Error> {
-            let mut mock = self.data[index].lock();
-            mock.0.write += 1;
-            mock.0.data.copy_from_slice(data);
+            let mut mock = self.data[index].lock().unwrap();
+            mock.write += 1;
+            mock.data.copy_from_slice(data);
             Ok(())
         }
-    }
-
-    #[test]
-    fn test_block_io_cache_init() {
-        let device = MockDevice::new(10);
-        let cache = BlockIoCache::new(device);
-        cache.init(5);
-        let buffers = cache.buffers.lock();
-        assert_eq!(buffers.0.0.len(), 5);
     }
 
     #[test]
     #[should_panic]
     fn test_block_io_cache_init_zero() {
         let device = MockDevice::new(10);
-        let cache = BlockIoCache::new(device);
-        cache.init(0);
+        BlockIoCache::new(device, 0);
     }
 
     #[test]
     fn test_block_io_cache_get() {
         let device = MockDevice::new(10);
-        let cache = BlockIoCache::new(device.clone());
-        cache.init(5);
+        let cache = BlockIoCache::new(device.clone(), 5);
 
         let block = cache.get(0);
         assert_eq!(block.index(), 0);
 
         // `cache::get()` does not read the block from the device.
-        assert_eq!(device.data[0].lock().0.read, 0);
-        assert_eq!(device.data[0].lock().0.write, 0);
+        assert_eq!(device.data[0].lock().unwrap().read, 0);
+        assert_eq!(device.data[0].lock().unwrap().write, 0);
     }
 
     #[test]
     fn test_block_io_cache_read_write() {
         let device = MockDevice::new(10);
-        let cache = BlockIoCache::new(device.clone());
-        cache.init(5);
+        let cache = BlockIoCache::new(device.clone(), 5);
 
         {
             let mut block = cache.get(0);
@@ -507,15 +423,14 @@ mod tests {
         }
 
         // data is read from the device only once.
-        assert_eq!(device.data[0].lock().0.read, 1);
-        assert_eq!(device.data[0].lock().0.write, 1);
+        assert_eq!(device.data[0].lock().unwrap().read, 1);
+        assert_eq!(device.data[0].lock().unwrap().write, 1);
     }
 
     #[test]
     fn test_block_io_cache_exhaustion() {
         let device = MockDevice::new(10);
-        let cache = BlockIoCache::new(device);
-        cache.init(1);
+        let cache = BlockIoCache::new(device, 1);
 
         {
             let _block1 = cache.get(0);
@@ -528,8 +443,7 @@ mod tests {
     #[test]
     fn test_block_io_cache_drop_from_old() {
         let device = MockDevice::new(10);
-        let cache = BlockIoCache::new(device.clone());
-        cache.init(5);
+        let cache = BlockIoCache::new(device.clone(), 5);
 
         for i in 0..10 {
             let mut block = cache.get(i);
@@ -539,48 +453,40 @@ mod tests {
 
         // data is read from the device only once.
         for i in 0..10 {
-            assert_eq!(device.data[i].lock().0.read, 1);
-            assert_eq!(device.data[i].lock().0.write, 0);
+            assert_eq!(device.data[i].lock().unwrap().read, 1);
+            assert_eq!(device.data[i].lock().unwrap().write, 0);
         }
 
         // The least recently used buffer is recycled.
         let mut block = cache.get(0);
         let Ok(block) = block.lock().read(); // 0 is not cached, drops 5
-        assert_eq!(device.data[0].lock().0.read, 2);
+        assert_eq!(device.data[0].lock().unwrap().read, 2);
         drop(block);
         // cache: 0 -> 9 -> 8 -> 7 -> 6
 
-        let x = (*cache.buffers.lock())
-            .0
-            .iter()
-            .map(|block| block.index)
-            .collect::<alloc::vec::Vec<_>>();
-        println!("{x:?}");
-
         let mut block = cache.get(8);
         let Ok(block) = block.lock().read(); // 8 is cached
-        assert_eq!(device.data[8].lock().0.read, 1);
+        assert_eq!(device.data[8].lock().unwrap().read, 1);
         drop(block);
         // cache: 8 -> 0 -> 9 -> 7 -> 6
 
         let mut block = cache.get(3);
         let Ok(block) = block.lock().read(); // 3 is not cached, drops 6
-        assert_eq!(device.data[3].lock().0.read, 2);
+        assert_eq!(device.data[3].lock().unwrap().read, 2);
         drop(block);
         // cache: 3 -> 8 -> 0 -> 9 -> 7
 
         for (i, n) in [(3, 2), (8, 1), (0, 2), (9, 1), (7, 1)] {
             let mut block = cache.get(i);
             let Ok(_block) = block.lock().read();
-            assert_eq!(device.data[i].lock().0.read, n);
+            assert_eq!(device.data[i].lock().unwrap().read, n);
         }
     }
 
     #[test]
     fn test_block_io_cache_pin_unpin() {
         let device = MockDevice::new(10);
-        let cache = BlockIoCache::new(device.clone());
-        cache.init(5);
+        let cache = BlockIoCache::new(device.clone(), 5);
 
         for i in 0..10 {
             let mut block = cache.get(i);
@@ -588,9 +494,7 @@ mod tests {
         }
         // cache: 9 -> 8 -> 7 -> 6 -> 5
         let mut block = cache.get(5);
-        unsafe {
-            block.pin();
-        }
+        block.lock().pin();
         let Ok(block) = block.lock().read();
         drop(block);
 
@@ -601,7 +505,12 @@ mod tests {
 
         for i in 0..10 {
             let n = if i == 5 { 1 } else { 2 };
-            assert_eq!(device.data[i].lock().0.read, n);
+            assert_eq!(device.data[i].lock().unwrap().read, n);
+        }
+
+        let mut block = cache.get(5);
+        unsafe {
+            block.lock().unpin();
         }
     }
 }

@@ -21,6 +21,12 @@ pub struct RawSleepLock {
     pid: UnsafeCell<ProcId>,
 }
 
+impl Default for RawSleepLock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RawSleepLock {
     pub const fn new() -> Self {
         Self {
@@ -61,6 +67,7 @@ impl RawSleepLock {
     }
 }
 
+#[derive(Default)]
 pub struct SleepLock<T> {
     lock: RawSleepLock,
     value: UnsafeCell<T>,

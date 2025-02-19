@@ -9,6 +9,7 @@ use mutex_api::Mutex;
 
 use crate::{cpu::Cpu, interrupt, proc};
 
+#[derive(Default)]
 pub struct RawSpinLock {
     locked: AtomicBool,
     cpu: UnsafeCell<Option<&'static Cpu>>,
@@ -78,6 +79,7 @@ impl RawSpinLock {
     }
 }
 
+#[derive(Default)]
 pub struct SpinLock<T> {
     lock: RawSpinLock,
     value: UnsafeCell<T>,

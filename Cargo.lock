@@ -13,6 +13,7 @@ name = "block_io"
 version = "0.1.0"
 dependencies = [
  "dataview",
+ "lru",
  "mutex_api",
 ]
 
@@ -54,6 +55,13 @@ dependencies = [
  "once_init",
  "page_alloc",
  "riscv",
+]
+
+[[package]]
+name = "lru"
+version = "0.1.0"
+dependencies = [
+ "mutex_api",
 ]
 
 [[package]]
