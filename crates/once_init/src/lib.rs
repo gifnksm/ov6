@@ -100,6 +100,7 @@ impl<T> OnceInit<T> {
     /// # Panics
     ///
     /// Panics if the cell already initialized.
+    #[track_caller]
     pub fn init(&self, value: T) {
         if self.try_init(value).is_err() {
             // `Result::expect` requires `T: Debug`, so we can't use it here
@@ -114,6 +115,7 @@ impl<T> OnceInit<T> {
     /// # Panics
     ///
     /// Panics if the cell already initialized.
+    #[track_caller]
     pub fn init_by_ref(&self, value: &T)
     where
         T: Pod,
@@ -128,6 +130,7 @@ impl<T> OnceInit<T> {
     /// # Panics
     ///
     /// This function will panic if the cell is not initialized.
+    #[track_caller]
     pub fn get(&self) -> &T {
         self.try_get()
             .expect("Once should be initialized before get")
@@ -136,6 +139,7 @@ impl<T> OnceInit<T> {
     /// Gets the reference of the contents of the cell.
     ///
     /// Returns `Err(())` if the cell is not initialized.
+    #[track_caller]
     pub fn try_get(&self) -> Result<&T, GetError> {
         if !self.initialized.load(Ordering::Acquire) {
             return Err(GetError::NotInitialized);

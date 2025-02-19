@@ -29,12 +29,14 @@ use core::ptr;
 use crate::{
     fs::{
         BlockNo, DeviceNo, SuperBlock,
-        block_io::{self, BlockRef},
+        block_io::{self},
     },
     param::{LOG_SIZE, MAX_OP_BLOCKS},
     proc,
     sync::RawSpinLock,
 };
+
+use super::block_io::BlockGuard;
 
 /// Contents of the header block, used for both the on-disk header block
 /// and to keep track in memory of logged block# before commit.
@@ -81,15 +83,13 @@ impl Log {
     /// Copies committed blocks from log to their home location.
     fn install_trans(&mut self, recovering: bool) {
         for tail in 0..self.lh.n {
-            let Ok(lbuf) =
-                block_io::get(self.dev, BlockNo::new(self.start + tail + 1).unwrap()).read(); // read log block
-            let mut dbuf = block_io::get(self.dev, self.lh.block[tail as usize].unwrap())
-                .set_data(lbuf.bytes()); // copy from log to dst
-            dbuf.bytes_mut().copy_from_slice(lbuf.bytes());
-            let Ok(()) = dbuf.write(); // write dst to disk (infallible)
+            let mut lbh = block_io::get(self.dev, BlockNo::new(self.start + tail + 1).unwrap());
+            let Ok(lbg) = lbh.lock().read(); // read log block
+            let mut dbh = block_io::get(self.dev, self.lh.block[tail as usize].unwrap());
+            let Ok(()) = dbh.lock().set_data(lbg.bytes()).write(); // copy from log to dst and write dst to disk
             if !recovering {
                 unsafe {
-                    dbuf.unpin();
+                    dbh.unpin();
                 }
             }
         }
@@ -97,8 +97,9 @@ impl Log {
 
     /// Reads the log header from disk into the in-memory log header.
     fn read_head(&mut self) {
-        let Ok(buf) = block_io::get(self.dev, BlockNo::new(self.start).unwrap()).read();
-        let lh = buf.bytes().as_ptr().cast::<LogHeader>();
+        let mut bh = block_io::get(self.dev, BlockNo::new(self.start).unwrap());
+        let Ok(bg) = bh.lock().read();
+        let lh = bg.bytes().as_ptr().cast::<LogHeader>();
         unsafe {
             self.lh.n = (*lh).n;
             let n = self.lh.n as usize;
@@ -111,14 +112,15 @@ impl Log {
     /// This is the true point at which the
     /// current transaction commits.
     fn write_head(&mut self) {
-        let mut buf = block_io::get(self.dev, BlockNo::new(self.start).unwrap()).zeroed();
-        let hb = buf.bytes_mut().as_mut_ptr().cast::<LogHeader>();
+        let mut bh = block_io::get(self.dev, BlockNo::new(self.start).unwrap());
+        let mut bg = bh.lock().zeroed();
+        let lh = bg.bytes_mut().as_mut_ptr().cast::<LogHeader>();
         unsafe {
-            (*hb).n = self.lh.n;
+            (*lh).n = self.lh.n;
             let n = self.lh.n as usize;
-            (*hb).block[..n].copy_from_slice(&self.lh.block[..n]);
+            (*lh).block[..n].copy_from_slice(&self.lh.block[..n]);
         }
-        let Ok(()) = buf.write(); // infallible
+        let Ok(()) = bg.write(); // infallible
     }
 
     fn recover_from_log(&mut self) {
@@ -183,10 +185,10 @@ impl Log {
 
     fn write_body(&mut self) {
         for tail in 0..self.lh.n {
-            let Ok(from) = block_io::get(self.dev, self.lh.block[tail as usize].unwrap()).read(); // cache block
-            let mut to = block_io::get(self.dev, BlockNo::new(self.start + tail + 1).unwrap())
-                .set_data(from.bytes()); // log block
-            let Ok(()) = to.write(); // write the log
+            let mut from_bh = block_io::get(self.dev, self.lh.block[tail as usize].unwrap()); // cache block
+            let Ok(from_bg) = from_bh.lock().read(); // read block
+            let mut to_bh = block_io::get(self.dev, BlockNo::new(self.start + tail + 1).unwrap());
+            let Ok(()) = to_bh.lock().set_data(from_bg.bytes()).write(); // log block
         }
     }
 
@@ -200,7 +202,7 @@ impl Log {
         }
     }
 
-    fn write(&mut self, b: &mut BlockRef<true>) {
+    fn write(&mut self, b: &mut BlockGuard<true>) {
         self.lock.acquire();
         assert!((self.lh.n as usize) < LOG_SIZE && self.lh.n < self.size - 1);
         assert!(self.outstanding > 0);
@@ -211,7 +213,9 @@ impl Log {
         self.lh.block[i] = BlockNo::new(b.index() as u32);
         if i == self.lh.n as usize {
             // Add new block to log
-            b.pin();
+            unsafe {
+                b.pin();
+            }
             self.lh.n += 1;
         }
         self.lock.release();
@@ -253,7 +257,7 @@ where
     res
 }
 
-pub fn write(b: &mut BlockRef<true>) {
+pub fn write(b: &mut BlockGuard<true>) {
     let log = unsafe { (&raw mut LOG).as_mut() }.unwrap();
     log.write(b);
 }

@@ -36,8 +36,18 @@ type BufferListMutex = SpinLock<BufferList<BlockDataMutex>>;
 static VIRTIO_DISK_CACHE: OnceInit<BlockIoCache<VirtioDiskDevice, BufferListMutex>> =
     OnceInit::new();
 
-pub type BlockRef<'a, const VALID: bool> =
-    block_io::BlockRef<'a, VirtioDiskDevice, BufferListMutex, BlockDataMutex, BLOCK_SIZE, VALID>;
+pub type BlockHandle<'a> =
+    block_io::BlockHandle<'a, VirtioDiskDevice, BufferListMutex, BlockDataMutex>;
+
+pub type BlockGuard<'a, 'b, const VALID: bool> = block_io::BlockGuard<
+    'a,
+    'b,
+    VirtioDiskDevice,
+    BufferListMutex,
+    BlockDataMutex,
+    BLOCK_SIZE,
+    VALID,
+>;
 
 /// Initializes the global block I/O cache.
 pub fn init() {
@@ -46,7 +56,7 @@ pub fn init() {
 }
 
 /// Gets the block buffer with the given device number and block number.
-pub fn get(dev: DeviceNo, block_no: BlockNo) -> BlockRef<'static, false> {
+pub fn get(dev: DeviceNo, block_no: BlockNo) -> BlockHandle<'static> {
     match dev {
         ROOT_DEV => VIRTIO_DISK_CACHE.get().get(block_no.value() as usize),
         _ => panic!("unknown device: dev={}", dev.value()),
