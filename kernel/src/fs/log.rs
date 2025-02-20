@@ -30,7 +30,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use alloc::boxed::Box;
+use alloc::vec::Vec;
 use dataview::Pod;
 use once_init::OnceInit;
 
@@ -49,121 +49,120 @@ use super::block_io::{BlockGuard, BlockRef};
 /// and to keep track in memory of logged block# before commit.
 #[repr(C)]
 #[derive(Pod)]
-struct LogHeader {
+struct DiskLogHeader {
     len: u32,
     block_indices: [u32; LOG_SIZE],
 }
 
-impl LogHeader {
-    const fn new() -> Self {
-        Self {
-            len: 0,
-            block_indices: [0; LOG_SIZE],
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.len as usize
-    }
-
-    fn copy_from(&mut self, src: &LogHeader) {
-        self.len = src.len;
-        let len = self.len as usize;
-        self.block_indices[..len].copy_from_slice(&src.block_indices[..len]);
-    }
-
+impl DiskLogHeader {
     fn block_indices(&self) -> &[u32] {
         &self.block_indices[..self.len as usize]
     }
-
-    fn push(&mut self, block_index: u32) {
-        self.block_indices[self.len as usize] = block_index;
-        self.len += 1;
-    }
 }
 
-struct Commit<'h> {
+struct LogHeader {
     dev: DeviceNo,
-    start: usize,
-    head: &'h mut LogHeader,
+    log_start_block: usize,
+    max_len: usize,
+    blocks: Vec<BlockRef>,
 }
 
-impl Commit<'_> {
+impl LogHeader {
+    fn new(max_len: usize, dev: DeviceNo, start: usize) -> Self {
+        Self {
+            dev,
+            log_start_block: start,
+            max_len,
+            blocks: Vec::with_capacity(max_len),
+        }
+    }
+
+    fn max_len(&self) -> usize {
+        self.max_len
+    }
+
+    fn len(&self) -> usize {
+        self.blocks.len()
+    }
+
+    fn push(&mut self, block: &BlockRef) {
+        assert!(self.blocks.len() < self.max_len);
+        if self.blocks.iter().all(|b| b.index() != block.index()) {
+            self.blocks.push(block.clone());
+        }
+    }
+
     fn recover_from_log(&mut self) {
-        self.read_head();
-        self.install_trans(true); // if committed, copy from log to disk.
-        self.head.len = 0;
-        self.write_head(); // clear the log
+        self.read();
+        self.install_transaction();
+        self.write_log_head();
     }
 
     fn commit(&mut self) {
-        if self.head.len > 0 {
-            self.write_body(); // Write modified blocks from cache to log
-            self.write_head(); // Write header to disk -- the real commit
-            self.install_trans(false); // Now install writes to home locations
-            self.head.len = 0;
-            self.write_head(); // Erase the transaction from the log
+        if !self.blocks.is_empty() {
+            self.write_log_body(); // Write modified blocks from cache to log
+            self.write_log_head(); // Write header to disk -- the real commit
+            self.install_transaction(); // Now install writes to home locations
+            assert!(self.blocks.is_empty());
+            self.write_log_head(); // Erase the transaction from the log
         }
     }
 
     /// Reads the log header from disk into the in-memory log header.
-    fn read_head(&mut self) {
-        let mut bh = block_io::get(self.dev, self.start);
+    fn read(&mut self) {
+        assert!(self.blocks.is_empty());
+        let mut bh = block_io::get(self.dev, self.log_start_block);
         let Ok(bg) = bh.lock().read();
-        let lh = bg.data::<LogHeader>();
-        self.head.copy_from(lh);
+        let header = bg.data::<DiskLogHeader>();
+        for &bn in header.block_indices() {
+            let br = block_io::get(self.dev, bn as usize);
+            self.push(&br);
+        }
+    }
+
+    /// Writes in-memory block cache to log body.
+    fn write_log_body(&mut self) {
+        for (i, br) in self.blocks.iter_mut().enumerate() {
+            let Ok(bg) = br.lock().read();
+            let mut log_br = block_io::get(self.dev, self.log_start_block + i + 1);
+            let mut log_bg = log_br.lock().set_data(bg.bytes());
+            let Ok(()) = log_bg.write();
+        }
     }
 
     /// Writes in-memory log header to disk.
     ///
-    /// This is the true point at which the
-    /// current transaction commits.
-    fn write_head(&self) {
-        let mut br = block_io::get(self.dev, self.start);
+    /// This is the true point at which the current transaction commits.
+    fn write_log_head(&self) {
+        let mut br = block_io::get(self.dev, self.log_start_block);
         let mut bg = br.lock().zeroed();
-        bg.data_mut::<LogHeader>().copy_from(self.head);
+        let dst = bg.data_mut::<DiskLogHeader>();
+        dst.len = self.blocks.len() as u32;
+        for (i, br) in self.blocks.iter().enumerate() {
+            dst.block_indices[i] = br.index() as u32;
+        }
         let Ok(()) = bg.write(); // infallible
     }
 
-    fn write_body(&self) {
-        for (tail, bn) in self.head.block_indices().iter().enumerate() {
-            let mut from_br = block_io::get(self.dev, *bn as usize); // cache block
-            let Ok(from_bg) = from_br.lock().read(); // read block
-            let mut to_br = block_io::get(self.dev, self.start + tail + 1);
-            let mut to_bg = to_br.lock().set_data(from_bg.bytes());
-            let Ok(()) = to_bg.write(); // log block
-        }
-    }
-
     /// Copies committed blocks from log to their home location.
-    fn install_trans(&self, recovering: bool) {
-        for (tail, bn) in self.head.block_indices().iter().enumerate() {
-            let mut from_br = block_io::get(self.dev, self.start + tail + 1);
-            let Ok(from_bg) = from_br.lock().read(); // read log block
-            let mut to_br = block_io::get(self.dev, *bn as usize);
-            let mut to_bg = to_br.lock().set_data(from_bg.bytes());
-            let Ok(()) = to_bg.write(); // copy from log to dst and write dst to disk
-            if !recovering {
-                unsafe {
-                    assert!(to_bg.pin_count() > 2);
-                    to_bg.unpin();
-                }
-            }
+    fn install_transaction(&mut self) {
+        for mut br in self.blocks.drain(..) {
+            let Ok(mut bg) = br.lock().read();
+            let Ok(()) = bg.write();
         }
+        assert!(self.blocks.is_empty());
     }
 }
 
 struct Log {
-    start: usize,
-    size: u32,
-    dev: DeviceNo,
+    size: usize,
     data: SpinLock<LogData>,
     cond: SpinLockCondVar,
 }
 
 struct LogData {
     outstanding: usize,
-    header: Option<Box<LogHeader>>, // If None, data is committing.
+    header: Option<LogHeader>, // If None, data is committing.
 }
 
 static LOG: OnceInit<Log> = OnceInit::new();
@@ -171,22 +170,16 @@ static LOG: OnceInit<Log> = OnceInit::new();
 impl Log {
     pub fn new(dev: DeviceNo, sb: &SuperBlock) -> Self {
         let start = sb.logstart as usize;
+        let size = sb.nlog as usize;
 
-        let mut header = Box::new(LogHeader::new());
-        let mut commit = Commit {
-            dev,
-            start,
-            head: &mut header,
-        };
-        commit.recover_from_log();
+        let mut header = LogHeader::new(LOG_SIZE, dev, start);
+        header.recover_from_log();
 
         Self {
-            start,
-            size: sb.nlog,
-            dev,
+            size,
             data: SpinLock::new(LogData {
                 outstanding: 0,
-                header: Some(Box::new(LogHeader::new())),
+                header: Some(header),
             }),
             cond: SpinLockCondVar::new(),
         }
@@ -203,7 +196,7 @@ impl Log {
                 data = self.cond.wait(data);
                 continue;
             };
-            if header.len() + (data.outstanding + 1) * MAX_OP_BLOCKS > LOG_SIZE {
+            if header.len() + (data.outstanding + 1) * MAX_OP_BLOCKS > header.max_len() {
                 // this op might exhaust log space; wait for commit.
                 data = self.cond.wait(data);
                 continue;
@@ -218,13 +211,13 @@ impl Log {
     /// Called at the end of each FS system call.
     /// Commits if this was the last outstanding operation.
     fn end_op(&self) {
-        let mut to_commit = None;
+        let mut header = None;
 
         let mut data = self.data.lock();
         data.outstanding -= 1;
         assert!(data.header.is_some()); // not under committing
         if data.outstanding == 0 {
-            to_commit = data.header.take();
+            header = data.header.take();
         } else {
             // begin_op() may be waiting for log space,
             // and decrementing log.outstanding has decreased
@@ -233,18 +226,13 @@ impl Log {
         }
         drop(data); // unlock here
 
-        if let Some(mut to_commit) = to_commit {
-            let mut commit = Commit {
-                dev: self.dev,
-                start: self.start,
-                head: &mut to_commit,
-            };
+        if let Some(mut header) = header {
             // call commit w/o holding locks, since not allowed
             // to sleep with locks.
-            commit.commit();
+            header.commit();
             let mut data = self.data.lock();
             assert!(data.header.is_none());
-            data.header = Some(to_commit);
+            data.header = Some(header);
             self.cond.notify();
         }
     }
@@ -252,15 +240,10 @@ impl Log {
     fn write(&self, b: &mut BlockGuard<true>) {
         let data = &mut *self.data.lock();
         let header = data.header.as_mut().unwrap();
-        assert!(header.len() < LOG_SIZE && header.len < self.size - 1);
+        assert!(header.len() < header.max_len() && header.len() < self.size - 1);
         assert!(data.outstanding > 0);
 
-        let bn = b.index() as u32;
-        if header.block_indices().iter().all(|bbn| *bbn != bn) {
-            // Add new block to log
-            b.pin();
-            header.push(bn);
-        }
+        header.push(&b.block());
     }
 }
 

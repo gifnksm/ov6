@@ -186,6 +186,22 @@ where
     }
 }
 
+impl<'list, Device, LruMutex, BlockMutex, const BLOCK_SIZE: usize> Clone
+    for BlockRef<'list, Device, LruMutex, BlockMutex>
+where
+    Device: BlockDevice<BLOCK_SIZE>,
+    LruMutex: Mutex<Data = LruMap<BlockMutex>>,
+    BlockMutex: Mutex<Data = BlockData<BLOCK_SIZE>> + 'list,
+{
+    fn clone(&self) -> Self {
+        Self {
+            index: self.index,
+            device: self.device,
+            block: self.block.clone(),
+        }
+    }
+}
+
 impl<'list, 'block, Device, LruMutex, BlockMutex, const BLOCK_SIZE: usize, const VALID: bool>
     BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, VALID>
 where
@@ -196,6 +212,15 @@ where
     /// Returns the index number of the block.
     pub fn index(&self) -> usize {
         self.index
+    }
+
+    /// Returns the reference to the block cache.
+    pub fn block(&self) -> BlockRef<'list, Device, LruMutex, BlockMutex> {
+        BlockRef {
+            index: self.index,
+            device: self.device,
+            block: self.block.clone(),
+        }
     }
 
     /// Reads the block from disk if cached data is not valid.
@@ -271,30 +296,6 @@ where
         } else {
             Err(self)
         }
-    }
-
-    /// Pins the block cache to prevent it from being evicted.
-    ///
-    /// The cache will not be evicted until it is unpinned and no references are held.
-    pub fn pin(&self) {
-        self.block.pin()
-    }
-
-    /// Unpins the block cache, allowing it to be evicted.
-    ///
-    /// The value will be evicted if it is not pinned and no references are held.
-    ///
-    /// # Safety
-    ///
-    /// This function should only be called if [`Self::pin()`] was previously called.
-    /// Calling [`Self::unpin()`] more times than [`Self::pin()`] may cause a use-after-free error.
-    pub unsafe fn unpin(&self) {
-        unsafe { self.block.unpin() }
-    }
-
-    /// Gets the number of references to this block.
-    pub fn pin_count(&self) -> usize {
-        self.block.pin_count()
     }
 }
 
@@ -509,37 +510,6 @@ mod tests {
             let mut block = cache.get(i);
             let Ok(_block) = block.lock().read();
             assert_eq!(device.data[i].lock().unwrap().read, n);
-        }
-    }
-
-    #[test]
-    fn test_block_io_cache_pin_unpin() {
-        let device = MockDevice::new(10);
-        let cache = BlockIoCache::new(device.clone(), 5);
-
-        for i in 0..10 {
-            let mut block = cache.get(i);
-            let Ok(_block) = block.lock().read();
-        }
-        // cache: 9 -> 8 -> 7 -> 6 -> 5
-        let mut block = cache.get(5);
-        block.lock().pin();
-        let Ok(block) = block.lock().read();
-        drop(block);
-
-        for i in 0..10 {
-            let mut block = cache.get(i);
-            let Ok(_block) = block.lock().read();
-        }
-
-        for i in 0..10 {
-            let n = if i == 5 { 1 } else { 2 };
-            assert_eq!(device.data[i].lock().unwrap().read, n);
-        }
-
-        let mut block = cache.get(5);
-        unsafe {
-            block.lock().unpin();
         }
     }
 }

@@ -156,37 +156,6 @@ where
     pub fn value(&self) -> &V {
         &self.value
     }
-
-    /// Pins the cached value to prevent it from being evicted.
-    ///
-    /// The value will not be evicted until it is unpinned and no references are held.
-    pub fn pin(&self) {
-        let _ = Arc::into_raw(Arc::clone(&self.value));
-    }
-
-    /// Unpins the cached value, allowing it to be evicted.
-    ///
-    /// The value will be evicted if it is not pinned and no references are held.
-    ///
-    /// # Safety
-    ///
-    /// This function should only be called if [`Self::pin()`] was previously called.
-    /// Calling [`Self::unpin()`] more times than [`Self::pin()`] may cause a use-after-free error.
-    pub unsafe fn unpin(&self) {
-        // clones arc and get pointer
-        let ptr = Arc::into_raw(Arc::clone(&self.value));
-        unsafe {
-            // drops two times -> decrements pin
-            let _ = Arc::from_raw(ptr);
-            let _ = Arc::from_raw(ptr);
-        };
-    }
-
-    /// Gets the number of references to this data.
-    pub fn pin_count(&self) -> usize {
-        // subtract 1 because LruList always owns the reference
-        Arc::strong_count(&self.value) - 1
-    }
 }
 
 impl<LruMutex, K, V> Clone for LruValue<'_, LruMutex, K, V>
@@ -267,26 +236,5 @@ mod tests {
             lru.0.lock().unwrap().list.front().as_ref().unwrap().0,
             Some(3)
         );
-    }
-
-    #[test]
-    fn test_lru_pin_unpin() {
-        let lru: Lru<Mutex<LruMap<i32, i32>>> = Lru::new(1);
-        let value = lru.get(1).unwrap();
-        assert_eq!(value.pin_count(), 1);
-        value.pin();
-        assert_eq!(value.pin_count(), 2);
-        unsafe { value.unpin() };
-        assert_eq!(value.pin_count(), 1);
-    }
-
-    #[test]
-    fn test_lru_clone() {
-        let lru: Lru<Mutex<LruMap<i32, i32>>> = Lru::new(1);
-        let value = lru.get(1).unwrap();
-        let value_clone = value.clone();
-        assert_eq!(value.pin_count(), 2);
-        drop(value);
-        assert_eq!(value_clone.pin_count(), 1);
     }
 }
