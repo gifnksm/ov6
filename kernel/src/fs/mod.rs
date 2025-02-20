@@ -14,74 +14,35 @@
 use core::{
     cell::UnsafeCell,
     mem::MaybeUninit,
-    num::{NonZeroU16, NonZeroU32},
+    num::NonZeroU32,
     ptr::{self, NonNull},
 };
 
-use dataview::{Pod, PodMethods};
+use dataview::PodMethods;
 use once_init::OnceInit;
 
 use crate::{
-    file::Inode,
     fs::stat::{Stat, T_DEVICE, T_DIR, T_FILE},
     memory::vm::VirtAddr,
     param::{NINODE, ROOT_DEV},
     proc::{self, Proc},
-    sync::SpinLock,
+    sync::{RawSleepLock, SpinLock},
 };
 
-use self::log::Tx;
+use self::{
+    block_io::BLOCK_SIZE,
+    log::Tx,
+    repr::{BITS_PER_BLOCK, MAX_FILE, NUM_DIRECT_REFS, NUM_INDIRECT_REFS, SuperBlock},
+};
+
+pub use repr::{BlockNo, DIR_SIZE, InodeNo};
 
 pub mod block_io;
 pub mod log;
+mod repr;
 pub mod stat;
 pub mod virtio;
 pub mod virtio_disk;
-
-/// Super block of the file system.
-///
-/// Disk layout:
-/// `[ boot block | super block | log | inode blocks | free bit map | data blocks ]`
-///
-/// mkfs computes the super block and builds an initial file system. The
-/// super block describes the disk layout:
-#[derive(Pod)]
-#[repr(C)]
-pub struct SuperBlock {
-    /// Magic number. Must be FSMAGIC
-    magic: u32,
-    /// Size of file system image (blocks)
-    size: u32,
-    /// Number of data blocks
-    nblocks: u32,
-    /// Number of inodes.
-    ninodes: u32,
-    /// Number of log blocks.
-    pub nlog: u32,
-    /// Block number of first log block.
-    pub logstart: u32,
-    /// Block number of first inode block.
-    inodestart: u32,
-    /// Block number of first free map block.
-    bmapstart: u32,
-}
-
-/// Root i-number
-const ROOT_INO: InodeNo = InodeNo::new(1).unwrap();
-/// Block size
-const BLOCK_SIZE: usize = 1024;
-
-const FS_MAGIC: u32 = 0x10203040;
-pub const NDIRECT: usize = 12;
-
-pub const NINDIRECT: usize = BLOCK_SIZE / size_of::<u32>();
-
-#[repr(transparent)]
-struct IndirectBlock([Option<BlockNo>; NINDIRECT]);
-
-unsafe impl Pod for IndirectBlock {}
-
-const MAX_FILE: usize = NDIRECT + NINDIRECT;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
@@ -100,145 +61,45 @@ impl DeviceNo {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(transparent)]
-pub struct BlockNo(NonZeroU32);
+/// In-memory copy of an inode.
+pub struct Inode {
+    /// Device number
+    pub dev: Option<DeviceNo>,
+    /// Inode number
+    pub inum: Option<InodeNo>,
+    /// Reference count
+    pub refcount: i32,
+    /// Protects everything below here.
+    pub lock: RawSleepLock,
+    /// Inode has been read from disk?
+    pub valid: i32,
 
-impl BlockNo {
-    pub const fn new(n: u32) -> Option<Self> {
-        let Some(n) = NonZeroU32::new(n) else {
-            return None;
-        };
-        Some(Self(n))
-    }
-
-    pub const fn value(&self) -> u32 {
-        self.0.get()
-    }
+    // Copy of disk inode
+    pub ty: i16,
+    pub major: i16,
+    pub minor: i16,
+    pub nlink: i16,
+    pub size: u32,
+    pub addrs: [Option<BlockNo>; NUM_DIRECT_REFS + 1],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(transparent)]
-pub struct InodeNo(NonZeroU32);
+unsafe impl Send for Inode {}
 
-impl InodeNo {
-    pub const fn new(n: u32) -> Option<Self> {
-        let Some(n) = NonZeroU32::new(n) else {
-            return None;
-        };
-        Some(Self(n))
-    }
-
-    pub const fn value(&self) -> u32 {
-        self.0.get()
-    }
-}
-
-#[repr(C)]
-pub struct DInode {
-    /// File type
-    ty: i16,
-    /// Major device number (T_DEVICE only)
-    major: i16,
-    /// Minor device number (T_DEVICE only)
-    minor: i16,
-    /// Number of links to inode in file system
-    nlink: i16,
-    /// Size of file (bytes)
-    size: u32,
-    /// Data block addresses
-    addrs: [Option<BlockNo>; NDIRECT + 1],
-}
-
-unsafe impl Pod for DInode {}
-
-/// Inodes per block.
-pub const INODE_PER_BLOCK: usize = BLOCK_SIZE / size_of::<DInode>();
-
-#[derive(Pod)]
-#[repr(transparent)]
-struct DInodeBlock([DInode; INODE_PER_BLOCK]);
-
-impl DInodeBlock {
-    fn inode(&self, inum: InodeNo) -> &DInode {
-        &self.0[inum.value() as usize % INODE_PER_BLOCK]
-    }
-
-    fn inode_mut(&mut self, inum: InodeNo) -> &mut DInode {
-        &mut self.0[inum.value() as usize % INODE_PER_BLOCK]
-    }
-}
-
-/// Block containing inode `inum`
-const fn inode_block(inum: InodeNo, sb: &SuperBlock) -> BlockNo {
-    BlockNo::new(inum.0.get() / (INODE_PER_BLOCK as u32) + sb.inodestart).unwrap()
-}
-
-/// Bitmap bits per block
-const BITS_PER_BLOCK: usize = BLOCK_SIZE * 8;
-
-#[derive(Pod)]
-#[repr(transparent)]
-struct BitBlock([u8; BLOCK_SIZE]);
-
-impl BitBlock {
-    fn bit(&self, n: usize) -> bool {
-        assert!(n < BITS_PER_BLOCK);
-        self.0[n / 8] & (1 << (n % 8)) != 0
-    }
-
-    fn set_bit(&mut self, n: usize) {
-        assert!(n < BITS_PER_BLOCK);
-        self.0[n / 8] |= 1 << (n % 8);
-    }
-
-    fn clear_bit(&mut self, n: usize) {
-        assert!(n < BITS_PER_BLOCK);
-        self.0[n / 8] &= !(1 << (n % 8));
-    }
-}
-
-/// Blocks of free map containing bit for block b
-const fn bit_block(bn: usize, sb: &SuperBlock) -> BlockNo {
-    BlockNo::new((bn as u32) / (BITS_PER_BLOCK as u32) + sb.bmapstart).unwrap()
-}
-
-// Directory is a file containing a sequence of dirent structures.
-pub const DIR_SIZE: usize = 14;
-
-#[repr(C)]
-#[derive(Debug)]
-struct DirEntry {
-    inum: Option<NonZeroU16>,
-    name: [u8; DIR_SIZE],
-}
-
-impl DirEntry {
-    const fn zeroed() -> Self {
+impl Inode {
+    pub const fn zero() -> Self {
         Self {
+            dev: None,
             inum: None,
-            name: [0; DIR_SIZE],
+            refcount: 0,
+            lock: RawSleepLock::new(),
+            valid: 0,
+            ty: 0,
+            major: 0,
+            minor: 0,
+            nlink: 0,
+            size: 0,
+            addrs: [None; NUM_DIRECT_REFS + 1],
         }
-    }
-
-    fn name(&self) -> &[u8] {
-        let len = self
-            .name
-            .iter()
-            .position(|&c| c == 0)
-            .unwrap_or(self.name.len());
-        &self.name[..len]
-    }
-
-    fn is_same_name(&self, name: &[u8]) -> bool {
-        let len = usize::min(name.len(), DIR_SIZE);
-        self.name() == &name[..len]
-    }
-
-    fn set_name(&mut self, name: &[u8]) {
-        let len = usize::min(name.len(), self.name.len());
-        self.name[..len].copy_from_slice(&name[..len]);
-        self.name[len..].fill(0);
     }
 }
 
@@ -258,7 +119,7 @@ pub fn init(dev: DeviceNo) {
     init_superblock(&tx, dev);
 
     let sb = SUPER_BLOCK.get();
-    assert_eq!(sb.magic, FS_MAGIC);
+    assert_eq!(sb.magic, SuperBlock::FS_MAGIC);
     log::init(dev, sb);
 }
 
@@ -274,17 +135,17 @@ fn block_alloc(tx: &Tx<false>, dev: DeviceNo) -> Option<BlockNo> {
     let sb = SUPER_BLOCK.get();
     let sb_size = sb.size as usize;
     for bn0 in (0..sb_size).step_by(BITS_PER_BLOCK) {
-        let mut br = tx.get_block(dev, bit_block(bn0, sb));
+        let mut br = tx.get_block(dev, sb.bmap_block(bn0));
         let Ok(mut bg) = br.lock().read();
         let Some(bni) = (0..BITS_PER_BLOCK)
             .take_while(|bni| bn0 + *bni < sb_size)
             .find(|bni| {
-                !bg.data::<BitBlock>().bit(*bni) // block is free (bit = 0)
+                !bg.data::<repr::BmapBlock>().bit(*bni) // block is free (bit = 0)
             })
         else {
             continue;
         };
-        bg.data_mut::<BitBlock>().set_bit(bni); // mark block in use
+        bg.data_mut::<repr::BmapBlock>().set_bit(bni); // mark block in use
         drop(bg);
 
         let bn = BlockNo::new((bn0 + bni) as u32).unwrap();
@@ -298,11 +159,11 @@ fn block_alloc(tx: &Tx<false>, dev: DeviceNo) -> Option<BlockNo> {
 /// Frees a disk block.
 fn block_free(tx: &Tx<false>, dev: DeviceNo, b: BlockNo) {
     let sb = SUPER_BLOCK.get();
-    let mut br = tx.get_block(dev, bit_block(b.value() as usize, sb));
+    let mut br = tx.get_block(dev, sb.bmap_block(b.as_index()));
     let Ok(mut bg) = br.lock().read();
     let bi = b.value() as usize % BITS_PER_BLOCK;
-    assert!(bg.data::<BitBlock>().bit(bi), "freeing free block");
-    bg.data_mut::<BitBlock>().clear_bit(bi);
+    assert!(bg.data::<repr::BmapBlock>().bit(bi), "freeing free block");
+    bg.data_mut::<repr::BmapBlock>().clear_bit(bi);
 }
 
 // Inodes.
@@ -387,12 +248,12 @@ fn inode_alloc(tx: &Tx<false>, dev: DeviceNo, ty: i16) -> Result<NonNull<Inode>,
 
     for inum in 1..(sb.ninodes) {
         let inum = InodeNo::new(inum).unwrap();
-        let mut br = tx.get_block(dev, inode_block(inum, sb));
+        let mut br = tx.get_block(dev, sb.inode_block(inum));
         let Ok(mut bg) = br.lock().read();
-        let dip = bg.data_mut::<DInodeBlock>().inode_mut(inum);
+        let dip = bg.data_mut::<repr::InodeBlock>().inode_mut(inum);
         if dip.ty == 0 {
             // a free inode
-            *dip = DInode::zeroed();
+            *dip = repr::Inode::zeroed();
             dip.ty = ty;
             drop(bg); // drop and write back to disk.
             drop(br);
@@ -413,9 +274,11 @@ pub fn inode_update(tx: &Tx<false>, ip: NonNull<Inode>) {
 
     unsafe {
         let ip = ip.as_ref();
-        let mut br = tx.get_block(ip.dev.unwrap(), inode_block(ip.inum.unwrap(), sb));
+        let mut br = tx.get_block(ip.dev.unwrap(), sb.inode_block(ip.inum.unwrap()));
         let Ok(mut bg) = br.lock().read();
-        let dip = bg.data_mut::<DInodeBlock>().inode_mut(ip.inum.unwrap());
+        let dip = bg
+            .data_mut::<repr::InodeBlock>()
+            .inode_mut(ip.inum.unwrap());
         dip.ty = ip.ty;
         dip.major = ip.major;
         dip.minor = ip.minor;
@@ -479,9 +342,9 @@ pub fn inode_lock<const READ_ONLY: bool>(tx: &Tx<READ_ONLY>, ip: NonNull<Inode>)
         (*ip).lock.acquire();
 
         if (*ip).valid == 0 {
-            let mut br = tx.get_block((*ip).dev.unwrap(), inode_block((*ip).inum.unwrap(), sb));
+            let mut br = tx.get_block((*ip).dev.unwrap(), sb.inode_block((*ip).inum.unwrap()));
             let Ok(bg) = br.lock().read();
-            let dip = bg.data::<DInodeBlock>().inode((*ip).inum.unwrap());
+            let dip = bg.data::<repr::InodeBlock>().inode((*ip).inum.unwrap());
             (*ip).ty = dip.ty;
             (*ip).major = dip.major;
             (*ip).minor = dip.minor;
@@ -580,7 +443,7 @@ fn inode_block_map<const READ_ONLY: bool>(
 ) -> Option<BlockNo> {
     let ip = ip.as_ptr();
     unsafe {
-        if ibn < NDIRECT {
+        if ibn < NUM_DIRECT_REFS {
             match (*ip).addrs[ibn] {
                 Some(bn) => return Some(bn),
                 None => {
@@ -592,15 +455,15 @@ fn inode_block_map<const READ_ONLY: bool>(
             }
         }
 
-        let ibn = ibn - NDIRECT;
-        if ibn < NINDIRECT {
+        let ibn = ibn - NUM_DIRECT_REFS;
+        if ibn < NUM_INDIRECT_REFS {
             // Load indirect block, allocating if necessary.
-            let (ind_bn, empty) = match (*ip).addrs[NDIRECT] {
+            let (ind_bn, empty) = match (*ip).addrs[NUM_DIRECT_REFS] {
                 Some(ind_bn) => (ind_bn, false),
                 None => {
                     let tx = tx.to_writable()?;
                     let ind_bn = block_alloc(&tx, (*ip).dev.unwrap())?;
-                    (*ip).addrs[NDIRECT] = Some(ind_bn);
+                    (*ip).addrs[NUM_DIRECT_REFS] = Some(ind_bn);
                     (ind_bn, true)
                 }
             };
@@ -608,7 +471,7 @@ fn inode_block_map<const READ_ONLY: bool>(
             if !empty {
                 let mut ind_br = tx.get_block((*ip).dev.unwrap(), ind_bn);
                 let Ok(ind_bg) = ind_br.lock().read();
-                if let Some(bn) = ind_bg.data::<IndirectBlock>().0[ibn] {
+                if let Some(bn) = ind_bg.data::<repr::IndirectBlock>().as_ref()[ibn] {
                     return Some(bn);
                 }
             }
@@ -617,7 +480,7 @@ fn inode_block_map<const READ_ONLY: bool>(
             let bn = block_alloc(&stx, (*ip).dev.unwrap())?;
             let mut ind_br = stx.get_block((*ip).dev.unwrap(), ind_bn);
             let Ok(mut ind_bg) = ind_br.lock().read();
-            ind_bg.data_mut::<IndirectBlock>().0[ibn] = Some(bn);
+            ind_bg.data_mut::<repr::IndirectBlock>().as_mut()[ibn] = Some(bn);
 
             return Some(bn);
         }
@@ -633,16 +496,16 @@ pub fn inode_trunc(tx: &Tx<false>, ip: NonNull<Inode>) {
     let ip = ip.as_ptr();
     unsafe {
         assert!((*ip).lock.holding());
-        for bn in &mut (*ip).addrs[..NDIRECT] {
+        for bn in &mut (*ip).addrs[..NUM_DIRECT_REFS] {
             if let Some(bn) = bn.take() {
                 block_free(tx, (*ip).dev.unwrap(), bn);
             }
         }
 
-        if let Some(bn) = (*ip).addrs[NDIRECT].take() {
+        if let Some(bn) = (*ip).addrs[NUM_DIRECT_REFS].take() {
             let mut br = tx.get_block((*ip).dev.unwrap(), bn);
             let Ok(mut bg) = br.lock().read();
-            let bnp = &mut bg.data_mut::<IndirectBlock>().0;
+            let bnp = &mut bg.data_mut::<repr::IndirectBlock>().as_mut();
             for bn in bnp.iter_mut() {
                 if let Some(bn) = bn.take() {
                     block_free(tx, (*ip).dev.unwrap(), bn);
@@ -842,14 +705,14 @@ pub fn dir_lookup<const READ_ONLY: bool>(
     unsafe {
         assert_eq!((*dp).ty, T_DIR); // must be a directory
 
-        for off in (0..(*dp).size as usize).step_by(size_of::<DirEntry>()) {
-            let de = read_inode_as::<DirEntry, READ_ONLY>(tx, p, NonNull::new(dp).unwrap(), off)
-                .unwrap();
-            let Some(inum) = de.inum else { continue };
+        for off in (0..(*dp).size as usize).step_by(size_of::<repr::DirEntry>()) {
+            let de =
+                read_inode_as::<repr::DirEntry, READ_ONLY>(tx, p, NonNull::new(dp).unwrap(), off)
+                    .unwrap();
+            let Some(inum) = de.inum() else { continue };
             if !de.is_same_name(name) {
                 continue;
             }
-            let inum = InodeNo::new(inum.get() as u32).unwrap();
             let ip = inode_get((*dp).dev.unwrap(), inum)?;
             return Ok((ip, off));
         }
@@ -876,19 +739,20 @@ pub fn dir_link(
         }
 
         // Look for an empty dirent.
-        assert_eq!((*dp).size as usize % size_of::<DirEntry>(), 0);
+        assert_eq!((*dp).size as usize % size_of::<repr::DirEntry>(), 0);
         let (mut de, off) = (0..(*dp).size as usize)
-            .step_by(size_of::<DirEntry>())
+            .step_by(size_of::<repr::DirEntry>())
             .map(|off| {
-                let de = read_inode_as::<DirEntry, false>(tx, p, NonNull::new(dp).unwrap(), off)
-                    .unwrap();
+                let de =
+                    read_inode_as::<repr::DirEntry, false>(tx, p, NonNull::new(dp).unwrap(), off)
+                        .unwrap();
                 (de, off)
             })
-            .find(|(de, _)| de.inum.is_none())
-            .unwrap_or((DirEntry::zeroed(), (*dp).size as usize));
+            .find(|(de, _)| de.inum().is_none())
+            .unwrap_or((repr::DirEntry::zeroed(), (*dp).size as usize));
 
         de.set_name(name);
-        de.inum = Some(NonZeroU16::new(inum.value() as u16).unwrap());
+        de.set_inum(Some(inum));
         write_inode_data(tx, p, NonNull::new(dp).unwrap(), off, de)?;
         Ok(())
     }
@@ -896,13 +760,13 @@ pub fn dir_link(
 
 /// Returns if the directory `dp` is empty except for `"."` and `"..."`.
 fn dir_is_empty(tx: &Tx<false>, p: &Proc, dp: NonNull<Inode>) -> bool {
-    let de_size = size_of::<DirEntry>();
+    let de_size = size_of::<repr::DirEntry>();
     unsafe {
         assert_eq!(dp.as_ref().ty, T_DIR);
         // skip first two entry ("." and "..").
         for off in (2 * de_size..(dp.as_ref().size as usize)).step_by(de_size) {
-            let de = read_inode_as::<DirEntry, false>(tx, p, dp, off).unwrap();
-            if de.inum.is_some() {
+            let de = read_inode_as::<repr::DirEntry, false>(tx, p, dp, off).unwrap();
+            if de.inum().is_some() {
                 return false;
             }
         }
@@ -950,7 +814,7 @@ fn resolve_path_impl<const READ_ONLY: bool>(
     mut name_out: Option<&mut [u8; DIR_SIZE]>,
 ) -> Result<NonNull<Inode>, ()> {
     let mut ip = if path.first() == Some(&b'/') {
-        inode_get(ROOT_DEV, ROOT_INO)?
+        inode_get(ROOT_DEV, InodeNo::ROOT)?
     } else {
         inode_dup(p.cwd().unwrap())
     };
@@ -1034,7 +898,7 @@ pub fn unlink(tx: &Tx<false>, p: &Proc, path: &[u8]) -> Result<(), ()> {
                 return Err(());
             }
 
-            let de = DirEntry::zeroed();
+            let de = repr::DirEntry::zeroed();
             write_inode_data(tx, p, dp, off, de).unwrap();
             if ip.as_ref().ty == T_DIR {
                 dp.as_mut().nlink -= 1;

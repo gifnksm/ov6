@@ -12,8 +12,8 @@ use core::{
 
 use crate::{
     cpu::Cpu,
-    file::{self, File, Inode},
-    fs::{self, log},
+    file::{self, File},
+    fs::{self, Inode, log},
     interrupt::{self, trampoline, trap},
     memory::{
         layout::{TRAMPOLINE, TRAPFRAME, kstack},

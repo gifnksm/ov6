@@ -6,11 +6,11 @@
 //! any reasoning required about whether a commit might
 //! write an uncommitted system call's data to disk.
 //!
-//! A system call should call [`begin_op()`]/[`end_op()`] to mark
-//! its start and end. Usually [`begin_op()`] just increments
+//! A system call should call [`begin_tx()`] to mark
+//! its start and end. Usually [`begin_tx()`] just increments
 //! the count of in-progress FS system calls and returns.
 //! But if it thinks the log is close to running out, it
-//! sleeps until the last outstanding [`end_op()`] commits.
+//! sleeps until the last outstanding transaction commits.
 //!
 //! The log is a physical re-do log containiing disk blocks.
 //!
@@ -31,7 +31,6 @@ use core::{
 };
 
 use alloc::vec::Vec;
-use dataview::Pod;
 use once_init::OnceInit;
 
 use crate::{
@@ -39,46 +38,32 @@ use crate::{
         BlockNo, DeviceNo, SuperBlock,
         block_io::{self},
     },
-    param::{LOG_SIZE, MAX_OP_BLOCKS},
+    param::MAX_OP_BLOCKS,
     sync::{SpinLock, SpinLockCondVar},
 };
 
-use super::block_io::{BlockGuard, BlockRef};
-
-/// Contents of the header block, used for both the on-disk header block
-/// and to keep track in memory of logged block# before commit.
-#[repr(C)]
-#[derive(Pod)]
-struct DiskLogHeader {
-    len: u32,
-    block_indices: [u32; LOG_SIZE],
-}
-
-impl DiskLogHeader {
-    fn block_indices(&self) -> &[u32] {
-        &self.block_indices[..self.len as usize]
-    }
-}
+use super::{
+    block_io::{BlockGuard, BlockRef},
+    repr,
+};
 
 struct LogHeader {
+    sb: &'static SuperBlock,
     dev: DeviceNo,
-    log_start_block: usize,
-    max_len: usize,
     blocks: Vec<BlockRef>,
 }
 
 impl LogHeader {
-    fn new(max_len: usize, dev: DeviceNo, start: usize) -> Self {
+    fn new(dev: DeviceNo, sb: &'static SuperBlock) -> Self {
         Self {
+            sb,
             dev,
-            log_start_block: start,
-            max_len,
-            blocks: Vec::with_capacity(max_len),
+            blocks: Vec::with_capacity(sb.max_log_len()),
         }
     }
 
     fn max_len(&self) -> usize {
-        self.max_len
+        self.sb.max_log_len()
     }
 
     fn len(&self) -> usize {
@@ -86,7 +71,7 @@ impl LogHeader {
     }
 
     fn push(&mut self, block: &BlockRef) {
-        assert!(self.blocks.len() < self.max_len);
+        assert!(self.blocks.len() < self.sb.max_log_len());
         if self.blocks.iter().all(|b| b.index() != block.index()) {
             self.blocks.push(block.clone());
         }
@@ -111,9 +96,9 @@ impl LogHeader {
     /// Reads the log header from disk into the in-memory log header.
     fn read(&mut self) {
         assert!(self.blocks.is_empty());
-        let mut bh = block_io::get(self.dev, self.log_start_block);
+        let mut bh = block_io::get(self.dev, self.sb.log_header_block().as_index());
         let Ok(bg) = bh.lock().read();
-        let header = bg.data::<DiskLogHeader>();
+        let header = bg.data::<repr::LogHeader>();
         for &bn in header.block_indices() {
             let br = block_io::get(self.dev, bn as usize);
             self.push(&br);
@@ -124,7 +109,7 @@ impl LogHeader {
     fn write_log_body(&mut self) {
         for (i, br) in self.blocks.iter_mut().enumerate() {
             let Ok(bg) = br.lock().read();
-            let mut log_br = block_io::get(self.dev, self.log_start_block + i + 1);
+            let mut log_br = block_io::get(self.dev, self.sb.log_body_block(i).as_index());
             let mut log_bg = log_br.lock().set_data(bg.bytes());
             let Ok(()) = log_bg.write();
         }
@@ -134,12 +119,12 @@ impl LogHeader {
     ///
     /// This is the true point at which the current transaction commits.
     fn write_log_head(&self) {
-        let mut br = block_io::get(self.dev, self.log_start_block);
+        let mut br = block_io::get(self.dev, self.sb.log_header_block().as_index());
         let mut bg = br.lock().zeroed();
-        let dst = bg.data_mut::<DiskLogHeader>();
-        dst.len = self.blocks.len() as u32;
+        let dst = bg.data_mut::<repr::LogHeader>();
+        dst.set_len(self.blocks.len());
         for (i, br) in self.blocks.iter().enumerate() {
-            dst.block_indices[i] = br.index() as u32;
+            dst.block_indices_mut()[i] = br.index() as u32;
         }
         let Ok(()) = bg.write(); // infallible
     }
@@ -155,7 +140,6 @@ impl LogHeader {
 }
 
 struct Log {
-    size: usize,
     data: SpinLock<LogData>,
     cond: SpinLockCondVar,
 }
@@ -168,15 +152,11 @@ struct LogData {
 static LOG: OnceInit<Log> = OnceInit::new();
 
 impl Log {
-    pub fn new(dev: DeviceNo, sb: &SuperBlock) -> Self {
-        let start = sb.logstart as usize;
-        let size = sb.nlog as usize;
-
-        let mut header = LogHeader::new(LOG_SIZE, dev, start);
+    pub fn new(dev: DeviceNo, sb: &'static SuperBlock) -> Self {
+        let mut header = LogHeader::new(dev, sb);
         header.recover_from_log();
 
         Self {
-            size,
             data: SpinLock::new(LogData {
                 outstanding: 0,
                 header: Some(header),
@@ -240,14 +220,13 @@ impl Log {
     fn write(&self, b: &mut BlockGuard<true>) {
         let data = &mut *self.data.lock();
         let header = data.header.as_mut().unwrap();
-        assert!(header.len() < header.max_len() && header.len() < self.size - 1);
         assert!(data.outstanding > 0);
 
         header.push(&b.block());
     }
 }
 
-pub fn init(dev: DeviceNo, sb: &SuperBlock) {
+pub fn init(dev: DeviceNo, sb: &'static SuperBlock) {
     LOG.init(Log::new(dev, sb));
 }
 

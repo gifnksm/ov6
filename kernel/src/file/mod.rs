@@ -7,11 +7,11 @@ use core::{
 };
 
 use crate::{
-    fs::{self, BlockNo, DeviceNo, InodeNo, NDIRECT, block_io::BLOCK_SIZE, log},
+    fs::{self, Inode, block_io::BLOCK_SIZE, log},
     memory::vm::{self, VirtAddr},
     param::{MAX_OP_BLOCKS, NDEV, NFILE},
     proc::Proc,
-    sync::{RawSleepLock, RawSpinLock},
+    sync::RawSpinLock,
 };
 
 use self::pipe::Pipe;
@@ -92,49 +92,6 @@ impl File {
         self.writable = writable as u8;
         *self.off.get_mut() = 0;
         self.ip = Some(ip);
-    }
-}
-
-/// In-memory copy of an inode.
-#[repr(C)]
-pub struct Inode {
-    /// Device number
-    pub dev: Option<DeviceNo>,
-    /// Inode number
-    pub inum: Option<InodeNo>,
-    /// Reference count
-    pub refcount: i32,
-    /// Protects everything below here.
-    pub lock: RawSleepLock,
-    /// Inode has been read from disk?
-    pub valid: i32,
-
-    // Copy of disk inode
-    pub ty: i16,
-    pub major: i16,
-    pub minor: i16,
-    pub nlink: i16,
-    pub size: u32,
-    pub addrs: [Option<BlockNo>; NDIRECT + 1],
-}
-
-unsafe impl Send for Inode {}
-
-impl Inode {
-    pub const fn zero() -> Self {
-        Self {
-            dev: None,
-            inum: None,
-            refcount: 0,
-            lock: RawSleepLock::new(),
-            valid: 0,
-            ty: 0,
-            major: 0,
-            minor: 0,
-            nlink: 0,
-            size: 0,
-            addrs: [None; NDIRECT + 1],
-        }
     }
 }
 

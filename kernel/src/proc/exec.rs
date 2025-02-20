@@ -1,9 +1,8 @@
 use core::{ffi::CStr, ptr::NonNull, slice};
 
 use crate::{
-    file::Inode,
     fs::{
-        self,
+        self, Inode,
         log::{self, Tx},
     },
     memory::vm::{self, PAGE_SIZE, PageRound as _, PageTable, PtEntryFlags, VirtAddr},

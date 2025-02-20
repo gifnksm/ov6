@@ -1,0 +1,279 @@
+//! Representation of a file system.
+//!
+//! The data layout of xv6 file system:
+//!
+//! | block no.       | content     | # of blocks        | type                                          |
+//! |-----------------|-------------|--------------------|-----------------------------------------------|
+//! |               0 | Boot Block  | 1                  | (unused)                                      |
+//! |               1 | Super Block | 1                  | [`SuperBlock`]                                |
+//! | `sb.logstart`   | Log         | `1 + sb.nlog`      | [`LogHeader`] & `[u8; BLOCK_SIZE]` (log body) |
+//! | `sb.inodestart` | inode table | `sb.ninodes / IPB` | [`InodeBlock`]                                |
+//! | `sb.bmapstart`  | bitmap      | `sb.size / BPB`    | [`BmapBlock`]                                 |
+//! | N/A             | data blocks | `sb.nblocks`       | [`[u8; BLOCK_SIZE]`] (data)                   |
+
+use core::num::{NonZeroU16, NonZeroU32};
+
+use dataview::Pod;
+
+/// Block size.
+pub const BLOCK_SIZE: usize = 1024;
+
+/// Number of blocks directly referenced by an inode.
+pub const NUM_DIRECT_REFS: usize = 12;
+
+/// Number of blocks indirectly referenced by an inode.
+pub const NUM_INDIRECT_REFS: usize = BLOCK_SIZE / size_of::<u32>();
+
+pub const MAX_FILE: usize = NUM_DIRECT_REFS + NUM_INDIRECT_REFS;
+
+/// File system block number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
+pub struct BlockNo(NonZeroU32);
+
+impl BlockNo {
+    pub const fn new(n: u32) -> Option<Self> {
+        let Some(n) = NonZeroU32::new(n) else {
+            return None;
+        };
+        Some(Self(n))
+    }
+
+    pub const fn value(&self) -> u32 {
+        self.0.get()
+    }
+
+    pub fn as_index(&self) -> usize {
+        usize::try_from(self.0.get()).unwrap()
+    }
+}
+
+/// File system inode number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
+pub struct InodeNo(NonZeroU32);
+
+impl InodeNo {
+    pub const ROOT: Self = Self::new(1).unwrap();
+
+    pub const fn new(n: u32) -> Option<Self> {
+        let Some(n) = NonZeroU32::new(n) else {
+            return None;
+        };
+        Some(Self(n))
+    }
+
+    pub const fn value(&self) -> u32 {
+        self.0.get()
+    }
+
+    pub fn as_index(&self) -> usize {
+        usize::try_from(self.0.get()).unwrap()
+    }
+}
+
+/// Super block of the file system.
+#[derive(Pod)]
+#[repr(C)]
+pub struct SuperBlock {
+    /// Magic number. Must be FSMAGIC
+    pub magic: u32,
+    /// Size of file system image (blocks)
+    pub size: u32,
+    /// Number of data blocks
+    pub nblocks: u32,
+    /// Number of inodes.
+    pub ninodes: u32,
+    /// Number of log blocks.
+    nlog: u32,
+    /// Block number of first log block.
+    logstart: u32,
+    /// Block number of first inode block.
+    inodestart: u32,
+    /// Block number of first free map block.
+    bmapstart: u32,
+}
+
+impl SuperBlock {
+    pub const FS_MAGIC: u32 = 0x10203040;
+
+    /// Returns the block number that contains the specified inode.
+    pub fn inode_block(&self, inode_no: InodeNo) -> BlockNo {
+        let block_index = u32::try_from(inode_no.as_index() / INODE_PER_BLOCK).unwrap();
+        BlockNo::new(self.inodestart + block_index).unwrap()
+    }
+
+    /// Returns the block number that contains the specified bitmap.
+    pub fn bmap_block(&self, bn: usize) -> BlockNo {
+        let block_index = u32::try_from(bn / BITS_PER_BLOCK).unwrap();
+        BlockNo::new(self.bmapstart + block_index).unwrap()
+    }
+
+    pub fn max_log_len(&self) -> usize {
+        usize::try_from(self.nlog).unwrap()
+    }
+
+    pub fn log_header_block(&self) -> BlockNo {
+        BlockNo::new(self.logstart).unwrap()
+    }
+
+    pub fn log_body_block(&self, i: usize) -> BlockNo {
+        BlockNo::new(self.logstart + u32::try_from(i).unwrap()).unwrap()
+    }
+}
+
+const MAX_LOG_COUNT: usize = BLOCK_SIZE / size_of::<u32>() - 1;
+
+/// Contents of the header block, used for both the on-disk header block
+/// and to keep track in memory of logged block# before commit.
+#[derive(Pod)]
+#[repr(C)]
+pub struct LogHeader {
+    len: u32,
+    block_indices: [u32; MAX_LOG_COUNT],
+}
+const _: () = const { assert!(size_of::<LogHeader>() == BLOCK_SIZE) };
+
+impl LogHeader {
+    pub fn len(&self) -> usize {
+        usize::try_from(self.len).unwrap()
+    }
+
+    pub fn set_len(&mut self, len: usize) {
+        self.len = u32::try_from(len).unwrap();
+    }
+
+    pub fn block_indices(&self) -> &[u32] {
+        &self.block_indices[..self.len()]
+    }
+
+    pub fn block_indices_mut(&mut self) -> &mut [u32] {
+        let len = self.len();
+        &mut self.block_indices[..len]
+    }
+}
+
+#[repr(C)]
+pub struct Inode {
+    /// File type
+    pub ty: i16,
+    /// Major device number (T_DEVICE only)
+    pub major: i16,
+    /// Minor device number (T_DEVICE only)
+    pub minor: i16,
+    /// Number of links to inode in file system
+    pub nlink: i16,
+    /// Size of file (bytes)
+    pub size: u32,
+    /// Data block addresses
+    pub addrs: [Option<BlockNo>; NUM_DIRECT_REFS + 1],
+}
+
+unsafe impl Pod for Inode {}
+
+/// Inodes per block.
+pub const INODE_PER_BLOCK: usize = BLOCK_SIZE / size_of::<Inode>();
+
+#[derive(Pod)]
+#[repr(transparent)]
+pub struct InodeBlock([Inode; INODE_PER_BLOCK]);
+const _: () = const { assert!(size_of::<InodeBlock>() == BLOCK_SIZE) };
+
+impl InodeBlock {
+    pub fn inode(&self, inum: InodeNo) -> &Inode {
+        &self.0[inum.value() as usize % INODE_PER_BLOCK]
+    }
+
+    pub fn inode_mut(&mut self, inum: InodeNo) -> &mut Inode {
+        &mut self.0[inum.value() as usize % INODE_PER_BLOCK]
+    }
+}
+
+/// Bitmap bits per block
+pub const BITS_PER_BLOCK: usize = BLOCK_SIZE * 8;
+
+#[derive(Pod)]
+#[repr(transparent)]
+pub struct BmapBlock([u8; BLOCK_SIZE]);
+const _: () = const { assert!(size_of::<BmapBlock>() == BLOCK_SIZE) };
+
+impl BmapBlock {
+    pub fn bit(&self, n: usize) -> bool {
+        assert!(n < BITS_PER_BLOCK);
+        self.0[n / 8] & (1 << (n % 8)) != 0
+    }
+
+    pub fn set_bit(&mut self, n: usize) {
+        assert!(n < BITS_PER_BLOCK);
+        self.0[n / 8] |= 1 << (n % 8);
+    }
+
+    pub fn clear_bit(&mut self, n: usize) {
+        assert!(n < BITS_PER_BLOCK);
+        self.0[n / 8] &= !(1 << (n % 8));
+    }
+}
+
+#[repr(transparent)]
+pub struct IndirectBlock([Option<BlockNo>; NUM_INDIRECT_REFS]);
+
+unsafe impl Pod for IndirectBlock {}
+
+impl IndirectBlock {
+    pub fn as_ref(&self) -> &[Option<BlockNo>; NUM_INDIRECT_REFS] {
+        &self.0
+    }
+
+    pub fn as_mut(&mut self) -> &mut [Option<BlockNo>; NUM_INDIRECT_REFS] {
+        &mut self.0
+    }
+}
+
+// Directory is a file containing a sequence of dirent structures.
+pub const DIR_SIZE: usize = 14;
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct DirEntry {
+    inum: Option<NonZeroU16>,
+    name: [u8; DIR_SIZE],
+}
+
+unsafe impl Pod for DirEntry {}
+
+impl DirEntry {
+    pub const fn zeroed() -> Self {
+        Self {
+            inum: None,
+            name: [0; DIR_SIZE],
+        }
+    }
+
+    pub fn inum(&self) -> Option<InodeNo> {
+        self.inum.map(|num| InodeNo(num.into()))
+    }
+
+    pub fn set_inum(&mut self, inum: Option<InodeNo>) {
+        self.inum = inum.map(|inum| inum.0.try_into().unwrap())
+    }
+
+    pub fn name(&self) -> &[u8] {
+        let len = self
+            .name
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(self.name.len());
+        &self.name[..len]
+    }
+
+    pub fn is_same_name(&self, name: &[u8]) -> bool {
+        let len = usize::min(name.len(), DIR_SIZE);
+        self.name() == &name[..len]
+    }
+
+    pub fn set_name(&mut self, name: &[u8]) {
+        let len = usize::min(name.len(), self.name.len());
+        self.name[..len].copy_from_slice(&name[..len]);
+        self.name[len..].fill(0);
+    }
+}

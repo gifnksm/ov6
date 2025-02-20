@@ -27,9 +27,6 @@ pub const MAX_ARG: usize = 32;
 /// Max # of blocks any FS op writes.
 pub const MAX_OP_BLOCKS: usize = 10;
 
-/// Max data blocks in on-disk log
-pub const LOG_SIZE: usize = MAX_OP_BLOCKS * 3;
-
 /// Size of disk block cache.
 pub const NBUF: usize = MAX_OP_BLOCKS * 3;
 
