@@ -7,7 +7,7 @@ use core::{
 };
 
 use crate::{
-    fs::{self, Inode, block_io::BLOCK_SIZE, log},
+    fs::{self, Inode, block_io::BLOCK_SIZE},
     memory::vm::{self, VirtAddr},
     param::{MAX_OP_BLOCKS, NDEV, NFILE},
     proc::Proc,
@@ -176,7 +176,7 @@ pub fn close(f: &File) {
     match ff.ty {
         FileType::Pipe => pipe::close(ff.pipe.unwrap(), ff.writable != 0),
         FileType::Inode | FileType::Device => {
-            let tx = log::begin_tx();
+            let tx = fs::begin_tx();
             fs::inode_put(&tx, ff.ip.unwrap());
         }
         _ => {}
@@ -189,7 +189,7 @@ pub fn close(f: &File) {
 pub fn stat(p: &Proc, f: &File, addr: VirtAddr) -> Result<(), ()> {
     match f.ty {
         FileType::Inode | FileType::Device => {
-            let tx = log::begin_readonly_tx();
+            let tx = fs::begin_readonly_tx();
             let st = fs::inode_with_lock(&tx, f.ip.unwrap(), fs::stat_inode);
             vm::copy_out(p.pagetable().unwrap(), addr, &st)?;
             Ok(())
@@ -224,7 +224,7 @@ pub fn read(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> {
             Ok(sz as usize)
         }
         FileType::Inode => {
-            let tx = log::begin_readonly_tx();
+            let tx = fs::begin_readonly_tx();
             fs::inode_with_lock(&tx, f.ip.unwrap(), |ip| {
                 let res =
                     fs::read_inode(&tx, p, ip, true, addr, unsafe { *f.off.get() } as usize, n);
@@ -277,7 +277,7 @@ pub fn write(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> 
                     n1 = max;
                 }
 
-                let tx = log::begin_tx();
+                let tx = fs::begin_tx();
                 let res = fs::inode_with_lock(&tx, f.ip.unwrap(), |ip| {
                     let res = fs::write_inode(
                         &tx,

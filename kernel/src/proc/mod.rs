@@ -13,7 +13,7 @@ use core::{
 use crate::{
     cpu::Cpu,
     file::{self, File},
-    fs::{self, Inode, log},
+    fs::{self, Inode},
     interrupt::{self, trampoline, trap},
     memory::{
         layout::{TRAMPOLINE, TRAPFRAME, kstack},
@@ -560,7 +560,7 @@ pub fn user_init() {
 
     unsafe {
         *p.name.get() = *b"initcode\0\0\0\0\0\0\0\0";
-        let tx = log::begin_readonly_tx();
+        let tx = fs::begin_readonly_tx();
         *p.cwd.get() = Some(fs::resolve_path(&tx, p, b"/").unwrap());
         tx.end();
         *p.state.get() = ProcState::Runnable;
@@ -684,7 +684,7 @@ pub fn exit(p: &Proc, status: i32) -> ! {
             assert!(unsafe { *of.get() }.is_none());
         }
 
-        let tx = log::begin_tx();
+        let tx = fs::begin_tx();
         fs::inode_put(&tx, unsafe { *p.cwd.get() }.unwrap());
         tx.end();
 

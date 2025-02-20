@@ -1,10 +1,7 @@
 use core::{ffi::CStr, ptr::NonNull, slice};
 
 use crate::{
-    fs::{
-        self, Inode,
-        log::{self, Tx},
-    },
+    fs::{self, Inode, Tx},
     memory::vm::{self, PAGE_SIZE, PageRound as _, PageTable, PtEntryFlags, VirtAddr},
     param::{MAX_ARG, USER_STACK},
     proc::{
@@ -26,7 +23,7 @@ fn flags2perm(flags: u32) -> PtEntryFlags {
 
 pub fn exec(path: &[u8], argv: *const *const u8) -> Result<usize, ()> {
     let p = Proc::current();
-    let tx = log::begin_tx();
+    let tx = fs::begin_tx();
     let ip = fs::resolve_path(&tx, p, path)?;
 
     let (elf, mut pagetable, mut sz) = fs::inode_with_lock(&tx, ip, |ip| {

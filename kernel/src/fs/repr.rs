@@ -2,14 +2,14 @@
 //!
 //! The data layout of xv6 file system:
 //!
-//! | block no.       | content     | # of blocks        | type                                          |
-//! |-----------------|-------------|--------------------|-----------------------------------------------|
-//! |               0 | Boot Block  | 1                  | (unused)                                      |
-//! |               1 | Super Block | 1                  | [`SuperBlock`]                                |
-//! | `sb.logstart`   | Log         | `1 + sb.nlog`      | [`LogHeader`] & `[u8; BLOCK_SIZE]` (log body) |
-//! | `sb.inodestart` | inode table | `sb.ninodes / IPB` | [`InodeBlock`]                                |
-//! | `sb.bmapstart`  | bitmap      | `sb.size / BPB`    | [`BmapBlock`]                                 |
-//! | N/A             | data blocks | `sb.nblocks`       | [`[u8; BLOCK_SIZE]`] (data)                   |
+//! | block no.                      | # of blocks        | content     | type                                          |
+//! |--------------------------------|--------------------|-------------|-----------------------------------------------|
+//! |  0                             | 1                  | Boot Block  | (unused)                                      |
+//! |  1                             | 1                  | Super Block | [`SuperBlock`]                                |
+//! | `sb.logstart`                  | `1 + sb.nlog`      | Log         | [`LogHeader`] & `[u8; BLOCK_SIZE]` (log body) |
+//! | `sb.inodestart`                | `sb.ninodes / IPB` | inode table | [`InodeBlock`]                                |
+//! | `sb.bmapstart`                 | `sb.size / BPB`    | bitmap      | [`BmapBlock`]                                 |
+//! | `sb.bmapstart + sb.size / BPB` | `sb.nblocks`       | data blocks | [`[u8; BLOCK_SIZE]`] (data)                   |
 
 use core::mem;
 

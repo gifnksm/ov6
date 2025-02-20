@@ -3,7 +3,7 @@ use core::ptr::NonNull;
 use crate::{
     file::{self, File, pipe},
     fs::{
-        self, DIR_SIZE, inode_unlock_put, log,
+        self, DIR_SIZE, inode_unlock_put,
         stat::{T_DEVICE, T_DIR, T_FILE},
     },
     memory::{
@@ -74,7 +74,7 @@ pub fn sys_link(p: &Proc) -> Result<usize, ()> {
     let old = syscall::arg_str(p, 0, &mut old)?;
     let new = syscall::arg_str(p, 1, &mut new)?;
 
-    let tx = log::begin_tx();
+    let tx = fs::begin_tx();
     let mut ip = fs::resolve_path(&tx, p, old)?;
 
     fs::inode_lock(&tx, ip);
@@ -121,7 +121,7 @@ pub fn sys_unlink(p: &Proc) -> Result<usize, ()> {
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(p, 0, &mut path)?;
 
-    let tx = log::begin_tx();
+    let tx = fs::begin_tx();
     fs::unlink(&tx, p, path)?;
     Ok(0)
 }
@@ -131,7 +131,7 @@ pub fn sys_open(p: &Proc) -> Result<usize, ()> {
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(p, 0, &mut path)?;
 
-    let tx = log::begin_tx();
+    let tx = fs::begin_tx();
     unsafe {
         let ip = if (o_mode & O_CREATE) != 0 {
             fs::create(&tx, p, path, T_FILE, 0, 0)?
@@ -184,7 +184,7 @@ pub fn sys_mkdir(p: &Proc) -> Result<usize, ()> {
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(p, 0, &mut path)?;
 
-    let tx = log::begin_tx();
+    let tx = fs::begin_tx();
     let ip = fs::create(&tx, p, path, T_DIR, 0, 0)?;
     fs::inode_unlock_put(&tx, ip);
 
@@ -197,7 +197,7 @@ pub fn sys_mknod(p: &Proc) -> Result<usize, ()> {
     let major = syscall::arg_int(p, 1) as i16;
     let minor = syscall::arg_int(p, 2) as i16;
 
-    let tx = log::begin_tx();
+    let tx = fs::begin_tx();
     let ip = fs::create(&tx, p, path, T_DEVICE, major, minor)?;
     inode_unlock_put(&tx, ip);
 
@@ -209,7 +209,7 @@ pub fn sys_chdir(p: &Proc) -> Result<usize, ()> {
     let path = syscall::arg_str(p, 0, &mut path)?;
 
     unsafe {
-        let tx = log::begin_tx();
+        let tx = fs::begin_tx();
         let ip = fs::resolve_path(&tx, p, path)?;
         fs::inode_lock(&tx, ip);
         if ip.as_ref().ty != T_DIR {
