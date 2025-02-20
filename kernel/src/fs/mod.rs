@@ -30,6 +30,8 @@ use crate::{
     sync::SpinLock,
 };
 
+use self::log::Tx;
+
 pub mod block_io;
 pub mod log;
 pub mod stat;
@@ -158,6 +160,10 @@ pub const INODE_PER_BLOCK: usize = BLOCK_SIZE / size_of::<DInode>();
 struct DInodeBlock([DInode; INODE_PER_BLOCK]);
 
 impl DInodeBlock {
+    fn inode(&self, inum: InodeNo) -> &DInode {
+        &self.0[inum.value() as usize % INODE_PER_BLOCK]
+    }
+
     fn inode_mut(&mut self, inum: InodeNo) -> &mut DInode {
         &mut self.0[inum.value() as usize % INODE_PER_BLOCK]
     }
@@ -241,35 +247,35 @@ impl DirEntry {
 static SUPER_BLOCK: OnceInit<SuperBlock> = OnceInit::new();
 
 /// Reads the super block.
-fn init_superblock(dev: DeviceNo) {
-    let mut bh = block_io::get(dev, BlockNo::new(1).unwrap());
-    let Ok(bg) = bh.lock().read();
+fn init_superblock(tx: &Tx<true>, dev: DeviceNo) {
+    let mut br = tx.get_block(dev, BlockNo::new(1).unwrap());
+    let Ok(bg) = br.lock().read();
     SUPER_BLOCK.init_by_ref(bg.data::<SuperBlock>());
 }
 
 pub fn init(dev: DeviceNo) {
-    init_superblock(dev);
+    let tx = log::begin_readonly_tx();
+    init_superblock(&tx, dev);
+
     let sb = SUPER_BLOCK.get();
     assert_eq!(sb.magic, FS_MAGIC);
     log::init(dev, sb);
 }
 
 /// Zeros a block.
-fn block_zero(dev: DeviceNo, block_no: BlockNo) {
-    let mut bh = block_io::get(dev, block_no);
-    let mut bg = bh.lock().zeroed();
-    log::write(&mut bg);
+fn block_zero(tx: &Tx<false>, dev: DeviceNo, block_no: BlockNo) {
+    tx.get_block(dev, block_no).lock().zeroed();
 }
 
 /// Allocates a zeroed disk block.
 ///
 /// Returns None if out of disk space.
-fn block_alloc(dev: DeviceNo) -> Option<BlockNo> {
+fn block_alloc(tx: &Tx<false>, dev: DeviceNo) -> Option<BlockNo> {
     let sb = SUPER_BLOCK.get();
     let sb_size = sb.size as usize;
     for bn0 in (0..sb_size).step_by(BITS_PER_BLOCK) {
-        let mut bh = block_io::get(dev, bit_block(bn0, sb));
-        let Ok(mut bg) = bh.lock().read();
+        let mut br = tx.get_block(dev, bit_block(bn0, sb));
+        let Ok(mut bg) = br.lock().read();
         let Some(bni) = (0..BITS_PER_BLOCK)
             .take_while(|bni| bn0 + *bni < sb_size)
             .find(|bni| {
@@ -279,9 +285,10 @@ fn block_alloc(dev: DeviceNo) -> Option<BlockNo> {
             continue;
         };
         bg.data_mut::<BitBlock>().set_bit(bni); // mark block in use
-        log::write(&mut bg);
+        drop(bg);
+
         let bn = BlockNo::new((bn0 + bni) as u32).unwrap();
-        block_zero(dev, bn);
+        block_zero(tx, dev, bn);
         return Some(bn);
     }
     crate::println!("out of blocks");
@@ -289,14 +296,13 @@ fn block_alloc(dev: DeviceNo) -> Option<BlockNo> {
 }
 
 /// Frees a disk block.
-fn block_free(dev: DeviceNo, b: BlockNo) {
+fn block_free(tx: &Tx<false>, dev: DeviceNo, b: BlockNo) {
     let sb = SUPER_BLOCK.get();
-    let mut bh = block_io::get(dev, bit_block(b.value() as usize, sb));
-    let Ok(mut bg) = bh.lock().read();
+    let mut br = tx.get_block(dev, bit_block(b.value() as usize, sb));
+    let Ok(mut bg) = br.lock().read();
     let bi = b.value() as usize % BITS_PER_BLOCK;
     assert!(bg.data::<BitBlock>().bit(bi), "freeing free block");
     bg.data_mut::<BitBlock>().clear_bit(bi);
-    log::write(&mut bg);
 }
 
 // Inodes.
@@ -376,21 +382,20 @@ static INODE_TABLE: SpinLock<[UnsafeCell<Inode>; NINODE]> =
 /// Marks it as allocated by giving it type `ty`.
 /// Returns a n unlocked but allocated and referenced inode,
 /// or None if there is no free inode.
-fn inode_alloc(dev: DeviceNo, ty: i16) -> Result<NonNull<Inode>, ()> {
+fn inode_alloc(tx: &Tx<false>, dev: DeviceNo, ty: i16) -> Result<NonNull<Inode>, ()> {
     let sb = SUPER_BLOCK.get();
 
     for inum in 1..(sb.ninodes) {
         let inum = InodeNo::new(inum).unwrap();
-        let mut bh = block_io::get(dev, inode_block(inum, sb));
-        let Ok(mut bg) = bh.lock().read();
+        let mut br = tx.get_block(dev, inode_block(inum, sb));
+        let Ok(mut bg) = br.lock().read();
         let dip = bg.data_mut::<DInodeBlock>().inode_mut(inum);
         if dip.ty == 0 {
             // a free inode
             *dip = DInode::zeroed();
             dip.ty = ty;
-            log::write(&mut bg); // mark it allocated on the disk
-            drop(bg);
-            drop(bh);
+            drop(bg); // drop and write back to disk.
+            drop(br);
             return inode_get(dev, inum);
         }
     }
@@ -403,13 +408,13 @@ fn inode_alloc(dev: DeviceNo, ty: i16) -> Result<NonNull<Inode>, ()> {
 /// Must be called after every change to an ip.xxx field
 /// that lives on disk.
 /// Caller must hoold ip.lock.
-pub fn inode_update(ip: NonNull<Inode>) {
+pub fn inode_update(tx: &Tx<false>, ip: NonNull<Inode>) {
     let sb = SUPER_BLOCK.get();
 
     unsafe {
         let ip = ip.as_ref();
-        let mut bh = block_io::get(ip.dev.unwrap(), inode_block(ip.inum.unwrap(), sb));
-        let Ok(mut bg) = bh.lock().read();
+        let mut br = tx.get_block(ip.dev.unwrap(), inode_block(ip.inum.unwrap(), sb));
+        let Ok(mut bg) = br.lock().read();
         let dip = bg.data_mut::<DInodeBlock>().inode_mut(ip.inum.unwrap());
         dip.ty = ip.ty;
         dip.major = ip.major;
@@ -417,7 +422,6 @@ pub fn inode_update(ip: NonNull<Inode>) {
         dip.nlink = ip.nlink;
         dip.size = ip.size;
         dip.addrs = ip.addrs;
-        log::write(&mut bg);
     }
 }
 
@@ -466,7 +470,7 @@ pub fn inode_dup(ip: NonNull<Inode>) -> NonNull<Inode> {
 /// Locks the given inode.
 ///
 /// Reads the inode from disk if necessary.
-pub fn inode_lock(ip: NonNull<Inode>) {
+pub fn inode_lock<const READ_ONLY: bool>(tx: &Tx<READ_ONLY>, ip: NonNull<Inode>) {
     let sb = SUPER_BLOCK.get();
 
     unsafe {
@@ -475,9 +479,9 @@ pub fn inode_lock(ip: NonNull<Inode>) {
         (*ip).lock.acquire();
 
         if (*ip).valid == 0 {
-            let mut bh = block_io::get((*ip).dev.unwrap(), inode_block((*ip).inum.unwrap(), sb));
-            let Ok(mut bg) = bh.lock().read();
-            let dip = bg.data_mut::<DInodeBlock>().inode_mut((*ip).inum.unwrap());
+            let mut br = tx.get_block((*ip).dev.unwrap(), inode_block((*ip).inum.unwrap(), sb));
+            let Ok(bg) = br.lock().read();
+            let dip = bg.data::<DInodeBlock>().inode((*ip).inum.unwrap());
             (*ip).ty = dip.ty;
             (*ip).major = dip.major;
             (*ip).minor = dip.minor;
@@ -500,11 +504,15 @@ pub fn inode_unlock(ip: NonNull<Inode>) {
     }
 }
 
-pub fn inode_with_lock<F, T>(ip: NonNull<Inode>, f: F) -> T
+pub fn inode_with_lock<F, T, const READ_ONLY: bool>(
+    tx: &Tx<READ_ONLY>,
+    ip: NonNull<Inode>,
+    f: F,
+) -> T
 where
     F: FnOnce(NonNull<Inode>) -> T,
 {
-    inode_lock(ip);
+    inode_lock(tx, ip);
     let res = f(ip);
     inode_unlock(ip);
     res
@@ -518,7 +526,7 @@ where
 /// to it, free the inode (and its content) on disk.
 /// All calls to inode_put() must inside a transaction in
 /// case it has to free the inode.
-pub fn inode_put(ip: NonNull<Inode>) {
+pub fn inode_put<const READ_ONLY: bool>(tx: &Tx<READ_ONLY>, ip: NonNull<Inode>) {
     let mut _lock = INODE_TABLE.lock();
 
     unsafe {
@@ -533,9 +541,11 @@ pub fn inode_put(ip: NonNull<Inode>) {
 
             drop(_lock);
 
-            inode_trunc(NonNull::new(ip).unwrap());
-            (*ip).ty = 0;
-            inode_update(NonNull::new(ip).unwrap());
+            if let Some(tx) = tx.to_writable() {
+                inode_trunc(&tx, NonNull::new(ip).unwrap());
+                (*ip).ty = 0;
+                inode_update(&tx, NonNull::new(ip).unwrap());
+            }
             (*ip).valid = 0;
             (*ip).lock.release();
 
@@ -547,9 +557,9 @@ pub fn inode_put(ip: NonNull<Inode>) {
 }
 
 /// Unlocks, then puts an inode.
-pub fn inode_unlock_put(ip: NonNull<Inode>) {
+pub fn inode_unlock_put<const READ_ONLY: bool>(tx: &Tx<READ_ONLY>, ip: NonNull<Inode>) {
     inode_unlock(ip);
-    inode_put(ip);
+    inode_put(tx, ip);
 }
 
 // Inode content
@@ -563,14 +573,19 @@ pub fn inode_unlock_put(ip: NonNull<Inode>) {
 ///
 /// If there is no such block, `inode_block_map` allocates one.
 /// Returns `None` if out of disk space.
-fn inode_block_map(ip: NonNull<Inode>, ibn: usize) -> Option<BlockNo> {
+fn inode_block_map<const READ_ONLY: bool>(
+    tx: &Tx<READ_ONLY>,
+    ip: NonNull<Inode>,
+    ibn: usize,
+) -> Option<BlockNo> {
     let ip = ip.as_ptr();
     unsafe {
         if ibn < NDIRECT {
             match (*ip).addrs[ibn] {
                 Some(bn) => return Some(bn),
                 None => {
-                    let bn = block_alloc((*ip).dev.unwrap())?;
+                    let tx = tx.to_writable()?;
+                    let bn = block_alloc(&tx, (*ip).dev.unwrap())?;
                     (*ip).addrs[ibn] = Some(bn);
                     return Some(bn);
                 }
@@ -580,25 +595,30 @@ fn inode_block_map(ip: NonNull<Inode>, ibn: usize) -> Option<BlockNo> {
         let ibn = ibn - NDIRECT;
         if ibn < NINDIRECT {
             // Load indirect block, allocating if necessary.
-            let bn = match (*ip).addrs[NDIRECT] {
-                Some(bn) => bn,
+            let (ind_bn, empty) = match (*ip).addrs[NDIRECT] {
+                Some(ind_bn) => (ind_bn, false),
                 None => {
-                    let bn = block_alloc((*ip).dev.unwrap())?;
-                    (*ip).addrs[NDIRECT] = Some(bn);
-                    bn
+                    let tx = tx.to_writable()?;
+                    let ind_bn = block_alloc(&tx, (*ip).dev.unwrap())?;
+                    (*ip).addrs[NDIRECT] = Some(ind_bn);
+                    (ind_bn, true)
                 }
             };
 
-            let mut bh = block_io::get((*ip).dev.unwrap(), bn);
-            let Ok(mut bg) = bh.lock().read();
-            let bnp = &mut bg.data_mut::<IndirectBlock>().0[ibn];
-            if let Some(bn) = *bnp {
-                return Some(bn);
+            if !empty {
+                let mut ind_br = tx.get_block((*ip).dev.unwrap(), ind_bn);
+                let Ok(ind_bg) = ind_br.lock().read();
+                if let Some(bn) = ind_bg.data::<IndirectBlock>().0[ibn] {
+                    return Some(bn);
+                }
             }
 
-            let bn = block_alloc((*ip).dev.unwrap())?;
-            *bnp = Some(bn);
-            log::write(&mut bg);
+            let stx = tx.to_writable()?;
+            let bn = block_alloc(&stx, (*ip).dev.unwrap())?;
+            let mut ind_br = stx.get_block((*ip).dev.unwrap(), ind_bn);
+            let Ok(mut ind_bg) = ind_br.lock().read();
+            ind_bg.data_mut::<IndirectBlock>().0[ibn] = Some(bn);
+
             return Some(bn);
         }
 
@@ -609,31 +629,31 @@ fn inode_block_map(ip: NonNull<Inode>, ibn: usize) -> Option<BlockNo> {
 /// Truncates inode (discard contents).
 ///
 /// Caller must hold `ip.lock`.
-pub fn inode_trunc(ip: NonNull<Inode>) {
+pub fn inode_trunc(tx: &Tx<false>, ip: NonNull<Inode>) {
     let ip = ip.as_ptr();
     unsafe {
         assert!((*ip).lock.holding());
         for bn in &mut (*ip).addrs[..NDIRECT] {
             if let Some(bn) = bn.take() {
-                block_free((*ip).dev.unwrap(), bn);
+                block_free(tx, (*ip).dev.unwrap(), bn);
             }
         }
 
         if let Some(bn) = (*ip).addrs[NDIRECT].take() {
-            let mut bh = block_io::get((*ip).dev.unwrap(), bn);
-            let Ok(mut bg) = bh.lock().read();
+            let mut br = tx.get_block((*ip).dev.unwrap(), bn);
+            let Ok(mut bg) = br.lock().read();
             let bnp = &mut bg.data_mut::<IndirectBlock>().0;
             for bn in bnp.iter_mut() {
                 if let Some(bn) = bn.take() {
-                    block_free((*ip).dev.unwrap(), bn);
+                    block_free(tx, (*ip).dev.unwrap(), bn);
                 }
             }
             drop(bg);
-            block_free((*ip).dev.unwrap(), bn);
+            block_free(tx, (*ip).dev.unwrap(), bn);
         }
 
         (*ip).size = 0;
-        inode_update(NonNull::new(ip).unwrap());
+        inode_update(tx, NonNull::new(ip).unwrap());
     }
 }
 
@@ -660,7 +680,8 @@ pub fn stat_inode(ip: NonNull<Inode>) -> Stat {
 /// Caller must hold `ip.lock`.
 /// If `user_dst == true`, then `dst` is a user virtual address;
 /// otherwise, dst is a kernel address.
-pub fn read_inode(
+pub fn read_inode<const READ_ONLY: bool>(
+    tx: &Tx<READ_ONLY>,
     p: &Proc,
     ip: NonNull<Inode>,
     user_dst: bool,
@@ -684,11 +705,11 @@ pub fn read_inode(
         while tot < n {
             let off = off + tot;
             let dst = dst.byte_add(tot);
-            let Some(bn) = inode_block_map(NonNull::new(ip).unwrap(), off / BLOCK_SIZE) else {
+            let Some(bn) = inode_block_map(tx, NonNull::new(ip).unwrap(), off / BLOCK_SIZE) else {
                 break;
             };
-            let mut bh = block_io::get((*ip).dev.unwrap(), bn);
-            let Ok(bg) = bh.lock().read();
+            let mut br = tx.get_block((*ip).dev.unwrap(), bn);
+            let Ok(bg) = br.lock().read();
             let m = usize::min(n - tot, BLOCK_SIZE - off % BLOCK_SIZE);
             proc::either_copy_out_bytes(
                 p,
@@ -702,9 +723,15 @@ pub fn read_inode(
     }
 }
 
-pub fn read_inode_as<T>(p: &Proc, ip: NonNull<Inode>, off: usize) -> Result<T, ()> {
+pub fn read_inode_as<T, const READ_ONLY: bool>(
+    tx: &Tx<READ_ONLY>,
+    p: &Proc,
+    ip: NonNull<Inode>,
+    off: usize,
+) -> Result<T, ()> {
     let mut dst = MaybeUninit::<T>::uninit();
     let read = read_inode(
+        tx,
         p,
         ip,
         false,
@@ -727,6 +754,7 @@ pub fn read_inode_as<T>(p: &Proc, ip: NonNull<Inode>, off: usize) -> Result<T, (
 /// If the return value is less than the requested `n`,
 /// there was an error of some kind.
 pub fn write_inode(
+    tx: &Tx<false>,
     p: &Proc,
     ip: NonNull<Inode>,
     user_src: bool,
@@ -750,12 +778,12 @@ pub fn write_inode(
         while tot < n {
             let off = off + tot;
             let src = src.byte_add(tot);
-            let Some(bn) = inode_block_map(NonNull::new(ip).unwrap(), off / BLOCK_SIZE) else {
+            let Some(bn) = inode_block_map(tx, NonNull::new(ip).unwrap(), off / BLOCK_SIZE) else {
                 break;
             };
 
-            let mut bh = block_io::get((*ip).dev.unwrap(), bn);
-            let Ok(mut bg) = bh.lock().read();
+            let mut br = tx.get_block((*ip).dev.unwrap(), bn);
+            let Ok(mut bg) = br.lock().read();
             let m = usize::min(n - tot, BLOCK_SIZE - off % BLOCK_SIZE);
             proc::either_copy_in_bytes(
                 p,
@@ -763,7 +791,6 @@ pub fn write_inode(
                 user_src,
                 src.addr(),
             )?;
-            log::write(&mut bg);
 
             tot += m;
         }
@@ -774,14 +801,21 @@ pub fn write_inode(
         // write the i-node back to disk even if the size didn't change
         // because the loop above might have called inode_block_map() and added a new
         // block to `ip.addrs`.`
-        inode_update(NonNull::new(ip).unwrap());
+        inode_update(tx, NonNull::new(ip).unwrap());
 
         Ok(tot)
     }
 }
 
-pub fn write_inode_data<T>(p: &Proc, ip: NonNull<Inode>, off: usize, data: T) -> Result<(), ()> {
+pub fn write_inode_data<T>(
+    tx: &Tx<false>,
+    p: &Proc,
+    ip: NonNull<Inode>,
+    off: usize,
+    data: T,
+) -> Result<(), ()> {
     let written = write_inode(
+        tx,
         p,
         ip,
         false,
@@ -798,7 +832,8 @@ pub fn write_inode_data<T>(p: &Proc, ip: NonNull<Inode>, off: usize, data: T) ->
 // Directories
 
 /// Looks up for a directory entry in a directory inode.
-pub fn dir_lookup(
+pub fn dir_lookup<const READ_ONLY: bool>(
+    tx: &Tx<READ_ONLY>,
     p: &Proc,
     dp: NonNull<Inode>,
     name: &[u8],
@@ -808,7 +843,8 @@ pub fn dir_lookup(
         assert_eq!((*dp).ty, T_DIR); // must be a directory
 
         for off in (0..(*dp).size as usize).step_by(size_of::<DirEntry>()) {
-            let de = read_inode_as::<DirEntry>(p, NonNull::new(dp).unwrap(), off).unwrap();
+            let de = read_inode_as::<DirEntry, READ_ONLY>(tx, p, NonNull::new(dp).unwrap(), off)
+                .unwrap();
             let Some(inum) = de.inum else { continue };
             if !de.is_same_name(name) {
                 continue;
@@ -822,14 +858,20 @@ pub fn dir_lookup(
 }
 
 /// Writes a new directory entry (name, inum) into the directory dp.
-pub fn dir_link(p: &Proc, dp: NonNull<Inode>, name: &[u8], inum: InodeNo) -> Result<(), ()> {
+pub fn dir_link(
+    tx: &Tx<false>,
+    p: &Proc,
+    dp: NonNull<Inode>,
+    name: &[u8],
+    inum: InodeNo,
+) -> Result<(), ()> {
     let dp = dp.as_ptr();
     unsafe {
         assert_eq!((*dp).ty, T_DIR); // must be a directory
 
         // Check that name is not present.
-        if let Ok((ip, _)) = dir_lookup(p, NonNull::new(dp).unwrap(), name) {
-            inode_put(ip);
+        if let Ok((ip, _)) = dir_lookup(tx, p, NonNull::new(dp).unwrap(), name) {
+            inode_put(tx, ip);
             return Err(());
         }
 
@@ -838,7 +880,8 @@ pub fn dir_link(p: &Proc, dp: NonNull<Inode>, name: &[u8], inum: InodeNo) -> Res
         let (mut de, off) = (0..(*dp).size as usize)
             .step_by(size_of::<DirEntry>())
             .map(|off| {
-                let de = read_inode_as::<DirEntry>(p, NonNull::new(dp).unwrap(), off).unwrap();
+                let de = read_inode_as::<DirEntry, false>(tx, p, NonNull::new(dp).unwrap(), off)
+                    .unwrap();
                 (de, off)
             })
             .find(|(de, _)| de.inum.is_none())
@@ -846,19 +889,19 @@ pub fn dir_link(p: &Proc, dp: NonNull<Inode>, name: &[u8], inum: InodeNo) -> Res
 
         de.set_name(name);
         de.inum = Some(NonZeroU16::new(inum.value() as u16).unwrap());
-        write_inode_data(p, NonNull::new(dp).unwrap(), off, de)?;
+        write_inode_data(tx, p, NonNull::new(dp).unwrap(), off, de)?;
         Ok(())
     }
 }
 
 /// Returns if the directory `dp` is empty except for `"."` and `"..."`.
-fn dir_is_empty(p: &Proc, dp: NonNull<Inode>) -> bool {
+fn dir_is_empty(tx: &Tx<false>, p: &Proc, dp: NonNull<Inode>) -> bool {
     let de_size = size_of::<DirEntry>();
     unsafe {
         assert_eq!(dp.as_ref().ty, T_DIR);
         // skip first two entry ("." and "..").
         for off in (2 * de_size..(dp.as_ref().size as usize)).step_by(de_size) {
-            let de = read_inode_as::<DirEntry>(p, dp, off).unwrap();
+            let de = read_inode_as::<DirEntry, false>(tx, p, dp, off).unwrap();
             if de.inum.is_some() {
                 return false;
             }
@@ -899,7 +942,8 @@ fn skip_elem(path: &[u8]) -> Option<(&[u8], &[u8])> {
 /// If `parent` is `true`, returns the inode for the parent and copy the final
 /// path element into `name`, which must have room for `DIR_SIZE` bytes.
 /// Must be called inside a transaction since it calls `inode_put()`.
-fn resolve_path_impl(
+fn resolve_path_impl<const READ_ONLY: bool>(
+    tx: &Tx<READ_ONLY>,
     p: &Proc,
     path: &[u8],
     parent: bool,
@@ -921,9 +965,9 @@ fn resolve_path_impl(
                 name_out[copy_len..].fill(0);
             }
 
-            inode_lock(ip);
+            inode_lock(tx, ip);
             if ip.as_ref().ty != T_DIR {
-                inode_unlock_put(ip);
+                inode_unlock_put(tx, ip);
                 return Err(());
             }
 
@@ -932,43 +976,48 @@ fn resolve_path_impl(
                 inode_unlock(ip);
                 return Ok(ip);
             }
-            let Ok((next, _off)) = dir_lookup(p, ip, name) else {
-                inode_unlock_put(ip);
+            let Ok((next, _off)) = dir_lookup(tx, p, ip, name) else {
+                inode_unlock_put(tx, ip);
                 return Err(());
             };
-            inode_unlock_put(ip);
+            inode_unlock_put(tx, ip);
             ip = next;
         }
     }
 
     if parent {
-        inode_put(ip);
+        inode_put(tx, ip);
         return Err(());
     }
     Ok(ip)
 }
 
-pub fn resolve_path(p: &Proc, path: &[u8]) -> Result<NonNull<Inode>, ()> {
-    resolve_path_impl(p, path, false, None)
+pub fn resolve_path<const READ_ONLY: bool>(
+    tx: &Tx<READ_ONLY>,
+    p: &Proc,
+    path: &[u8],
+) -> Result<NonNull<Inode>, ()> {
+    resolve_path_impl(tx, p, path, false, None)
 }
 
-pub fn resolve_path_parent<'a>(
+pub fn resolve_path_parent<'a, const READ_ONLY: bool>(
+    tx: &Tx<READ_ONLY>,
     p: &Proc,
     path: &[u8],
     name: &'a mut [u8; DIR_SIZE],
 ) -> Result<(NonNull<Inode>, &'a [u8]), ()> {
-    let ip = resolve_path_impl(p, path, true, Some(name))?;
+    let ip = resolve_path_impl(tx, p, path, true, Some(name))?;
     let len = name.iter().position(|b| *b == 0).unwrap_or(name.len());
     let name = &name[..len];
     Ok((ip, name))
 }
 
-pub fn unlink(p: &Proc, path: &[u8]) -> Result<(), ()> {
+pub fn unlink(tx: &Tx<false>, p: &Proc, path: &[u8]) -> Result<(), ()> {
     unsafe {
         let mut name = [0; DIR_SIZE];
-        let (mut dp, name) = resolve_path_parent(p, path, &mut name)?;
+        let (mut dp, name) = resolve_path_parent(tx, p, path, &mut name)?;
 
-        inode_lock(dp);
+        inode_lock(tx, dp);
 
         let res = (|| {
             // Cannot unlink "." of "..".
@@ -976,32 +1025,32 @@ pub fn unlink(p: &Proc, path: &[u8]) -> Result<(), ()> {
                 return Err(());
             }
 
-            let (mut ip, off) = dir_lookup(p, dp, name)?;
-            inode_lock(ip);
+            let (mut ip, off) = dir_lookup(tx, p, dp, name)?;
+            inode_lock(tx, ip);
 
             assert!(ip.as_ref().nlink > 0);
-            if ip.as_ref().ty == T_DIR && !dir_is_empty(p, ip) {
-                inode_unlock_put(ip);
+            if ip.as_ref().ty == T_DIR && !dir_is_empty(tx, p, ip) {
+                inode_unlock_put(tx, ip);
                 return Err(());
             }
 
             let de = DirEntry::zeroed();
-            write_inode_data(p, dp, off, de).unwrap();
+            write_inode_data(tx, p, dp, off, de).unwrap();
             if ip.as_ref().ty == T_DIR {
                 dp.as_mut().nlink -= 1;
-                inode_update(dp);
+                inode_update(tx, dp);
             }
-            inode_unlock_put(dp);
+            inode_unlock_put(tx, dp);
 
             ip.as_mut().nlink -= 1;
-            inode_update(ip);
-            inode_unlock_put(ip);
+            inode_update(tx, ip);
+            inode_unlock_put(tx, ip);
 
             Ok(())
         })();
 
         if res.is_err() {
-            inode_unlock_put(dp);
+            inode_unlock_put(tx, dp);
             return Err(());
         }
 
@@ -1010,6 +1059,7 @@ pub fn unlink(p: &Proc, path: &[u8]) -> Result<(), ()> {
 }
 
 pub fn create(
+    tx: &Tx<false>,
     p: &Proc,
     path: &[u8],
     ty: i16,
@@ -1018,57 +1068,57 @@ pub fn create(
 ) -> Result<NonNull<Inode>, ()> {
     unsafe {
         let mut name = [0; DIR_SIZE];
-        let (mut dp, name) = resolve_path_parent(p, path, &mut name)?;
+        let (mut dp, name) = resolve_path_parent(tx, p, path, &mut name)?;
 
-        inode_lock(dp);
+        inode_lock(tx, dp);
 
-        if let Ok((ip, _off)) = dir_lookup(p, dp, name) {
+        if let Ok((ip, _off)) = dir_lookup(tx, p, dp, name) {
             // Inode already exists
-            inode_unlock_put(dp);
-            inode_lock(ip);
+            inode_unlock_put(tx, dp);
+            inode_lock(tx, ip);
             if ty == T_FILE && (ip.as_ref().ty == T_FILE || ip.as_ref().ty == T_DEVICE) {
                 return Ok(ip);
             }
-            inode_unlock_put(ip);
+            inode_unlock_put(tx, ip);
             return Err(());
         }
 
-        let Ok(mut ip) = inode_alloc(dp.as_ref().dev.unwrap(), ty) else {
-            inode_unlock_put(dp);
+        let Ok(mut ip) = inode_alloc(tx, dp.as_ref().dev.unwrap(), ty) else {
+            inode_unlock_put(tx, dp);
             return Err(());
         };
 
-        inode_lock(ip);
+        inode_lock(tx, ip);
         ip.as_mut().major = major;
         ip.as_mut().minor = minor;
         ip.as_mut().nlink = 1;
-        inode_update(ip);
+        inode_update(tx, ip);
 
         let res = (|| {
             if ty == T_DIR {
                 // Create "." and ".." entries
-                dir_link(p, ip, b".", ip.as_ref().inum.unwrap())?;
-                dir_link(p, ip, b"..", dp.as_ref().inum.unwrap())?;
+                dir_link(tx, p, ip, b".", ip.as_ref().inum.unwrap())?;
+                dir_link(tx, p, ip, b"..", dp.as_ref().inum.unwrap())?;
             }
 
-            dir_link(p, dp, name, ip.as_ref().inum.unwrap())?;
+            dir_link(tx, p, dp, name, ip.as_ref().inum.unwrap())?;
 
             if ty == T_DIR {
                 // now that success is guaranteed:
                 dp.as_mut().nlink += 1; // for ".."
-                inode_update(dp);
+                inode_update(tx, dp);
             }
 
-            inode_unlock_put(dp);
+            inode_unlock_put(tx, dp);
 
             Ok(ip)
         })();
 
         if res.is_err() {
             ip.as_mut().nlink = 0;
-            inode_update(ip);
-            inode_unlock_put(ip);
-            inode_unlock_put(dp);
+            inode_update(tx, ip);
+            inode_unlock_put(tx, ip);
+            inode_unlock_put(tx, dp);
             return Err(());
         }
 

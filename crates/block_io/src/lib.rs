@@ -89,6 +89,7 @@ pub struct BlockGuard<
 pub struct BlockData<const BLOCK_SIZE: usize> {
     index: usize,
     valid: bool,
+    dirty: bool,
     data: Box<[u8; BLOCK_SIZE]>,
 }
 
@@ -97,6 +98,7 @@ impl<const BLOCK_SIZE: usize> Default for BlockData<BLOCK_SIZE> {
         Self {
             index: 0,
             valid: false,
+            dirty: true,
             data: Box::new([0; BLOCK_SIZE]),
         }
     }
@@ -204,10 +206,11 @@ where
         (Self, Device::Error),
     > {
         if !self.data.valid {
+            self.data.valid = true;
+            self.data.dirty = false;
             if let Err(e) = self.device.read(self.index, &mut self.data.data) {
                 return Err((self, e));
             }
-            self.data.valid = true;
         }
 
         Ok(BlockGuard {
@@ -224,6 +227,7 @@ where
         data: &[u8],
     ) -> BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, true> {
         self.data.valid = true;
+        self.data.dirty = true;
         self.data.data.copy_from_slice(data);
         BlockGuard {
             index: self.index,
@@ -238,12 +242,34 @@ where
         mut self,
     ) -> BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, true> {
         self.data.valid = true;
+        self.data.dirty = true;
         self.data.data.fill(0);
         BlockGuard {
             index: self.index,
             device: self.device,
             block: self.block.clone(),
             data: self.data,
+        }
+    }
+
+    /// Returns `true` if the block cache is dirty.
+    pub fn is_dirty(&self) -> bool {
+        self.data.dirty
+    }
+
+    pub fn try_validate(
+        self,
+    ) -> Result<BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, true>, Self>
+    {
+        if self.data.valid {
+            Ok(BlockGuard {
+                index: self.index,
+                device: self.device,
+                block: self.block,
+                data: self.data,
+            })
+        } else {
+            Err(self)
         }
     }
 
@@ -286,6 +312,7 @@ where
 
     /// Returns a mutable reference to the bytes of block cache.
     pub fn bytes_mut(&mut self) -> &mut [u8; BLOCK_SIZE] {
+        self.data.dirty = true;
         &mut self.data.data
     }
 
@@ -312,7 +339,9 @@ where
     /// Panics if cached data is not valid.
     pub fn write(&mut self) -> Result<(), Device::Error> {
         assert!(self.data.valid);
-        self.device.write(self.index, self.bytes())
+        self.device.write(self.index, self.bytes())?;
+        self.data.dirty = false;
+        Ok(())
     }
 }
 

@@ -2,7 +2,10 @@ use core::{ffi::CStr, ptr::NonNull, slice};
 
 use crate::{
     file::Inode,
-    fs::{self, log},
+    fs::{
+        self,
+        log::{self, Tx},
+    },
     memory::vm::{self, PAGE_SIZE, PageRound as _, PageTable, PtEntryFlags, VirtAddr},
     param::{MAX_ARG, USER_STACK},
     proc::{
@@ -25,13 +28,14 @@ fn flags2perm(flags: u32) -> PtEntryFlags {
 pub fn exec(path: &[u8], argv: *const *const u8) -> Result<usize, ()> {
     let p = Proc::current();
     let tx = log::begin_tx();
-    let ip = fs::resolve_path(p, path)?;
+    let ip = fs::resolve_path(&tx, p, path)?;
 
-    let (elf, mut pagetable, mut sz) = fs::inode_with_lock(ip, |ip| {
+    let (elf, mut pagetable, mut sz) = fs::inode_with_lock(&tx, ip, |ip| {
         // Check ELF header
         let mut elf = ElfHeader::zero();
 
         if fs::read_inode(
+            &tx,
             p,
             ip,
             false,
@@ -50,7 +54,7 @@ pub fn exec(path: &[u8], argv: *const *const u8) -> Result<usize, ()> {
 
         // Load program into memory.
         let mut sz = 0;
-        if let Err(()) = load_segments(p, ip, unsafe { pagetable.as_mut() }, &mut sz, &elf) {
+        if let Err(()) = load_segments(&tx, p, ip, unsafe { pagetable.as_mut() }, &mut sz, &elf) {
             proc::free_pagetable(pagetable, sz);
             return Err(());
         }
@@ -97,7 +101,8 @@ pub fn exec(path: &[u8], argv: *const *const u8) -> Result<usize, ()> {
     Ok(argc)
 }
 
-fn load_segments(
+fn load_segments<const READ_ONLY: bool>(
+    tx: &Tx<READ_ONLY>,
     p: &Proc,
     ip: NonNull<Inode>,
     pagetable: &mut PageTable,
@@ -108,6 +113,7 @@ fn load_segments(
         let off = elf.phoff as usize + usize::from(i) * size_of::<ProgramHeader>();
         let mut ph = ProgramHeader::zero();
         fs::read_inode(
+            tx,
             p,
             ip,
             false,
@@ -134,6 +140,7 @@ fn load_segments(
             flags2perm(ph.flags),
         )?;
         load_segment(
+            tx,
             p,
             pagetable,
             VirtAddr::new(ph.vaddr as usize),
@@ -149,7 +156,8 @@ fn load_segments(
 /// Loads a program segment into pagetable at virtual address `va`.
 ///
 /// `va` must be page-aligned.
-fn load_segment(
+fn load_segment<const READ_ONLY: bool>(
+    tx: &Tx<READ_ONLY>,
     p: &Proc,
     pagetable: &PageTable,
     va: VirtAddr,
@@ -170,7 +178,7 @@ fn load_segment(
             PAGE_SIZE
         };
 
-        if fs::read_inode(p, ip, false, VirtAddr::new(pa.addr()), offset + i, n) != Ok(n) {
+        if fs::read_inode(tx, p, ip, false, VirtAddr::new(pa.addr()), offset + i, n) != Ok(n) {
             return Err(());
         }
     }

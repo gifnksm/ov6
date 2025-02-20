@@ -560,7 +560,9 @@ pub fn user_init() {
 
     unsafe {
         *p.name.get() = *b"initcode\0\0\0\0\0\0\0\0";
-        *p.cwd.get() = Some(fs::resolve_path(p, b"/").unwrap());
+        let tx = log::begin_readonly_tx();
+        *p.cwd.get() = Some(fs::resolve_path(&tx, p, b"/").unwrap());
+        tx.end();
         *p.state.get() = ProcState::Runnable;
     }
 
@@ -683,7 +685,7 @@ pub fn exit(p: &Proc, status: i32) -> ! {
         }
 
         let tx = log::begin_tx();
-        fs::inode_put(unsafe { *p.cwd.get() }.unwrap());
+        fs::inode_put(&tx, unsafe { *p.cwd.get() }.unwrap());
         tx.end();
 
         unsafe {
