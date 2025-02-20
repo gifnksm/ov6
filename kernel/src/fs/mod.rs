@@ -14,11 +14,10 @@
 use core::{
     cell::UnsafeCell,
     mem::MaybeUninit,
-    num::NonZeroU32,
     ptr::{self, NonNull},
 };
 
-use dataview::PodMethods;
+use dataview::{Pod, PodMethods};
 use once_init::OnceInit;
 
 use crate::{
@@ -44,20 +43,17 @@ pub mod stat;
 pub mod virtio;
 pub mod virtio_disk;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Pod)]
 #[repr(transparent)]
-pub struct DeviceNo(NonZeroU32);
+pub struct DeviceNo(u32);
 
 impl DeviceNo {
-    pub const fn new(n: u32) -> Option<Self> {
-        let Some(n) = NonZeroU32::new(n) else {
-            return None;
-        };
-        Some(Self(n))
+    pub const fn new(n: u32) -> Self {
+        Self(n)
     }
 
     pub const fn value(&self) -> u32 {
-        self.0.get()
+        self.0
     }
 }
 
@@ -109,7 +105,7 @@ static SUPER_BLOCK: OnceInit<SuperBlock> = OnceInit::new();
 
 /// Reads the super block.
 fn init_superblock(tx: &Tx<true>, dev: DeviceNo) {
-    let mut br = tx.get_block(dev, BlockNo::new(1).unwrap());
+    let mut br = tx.get_block(dev, SuperBlock::SUPER_BLOCK_NO);
     let Ok(bg) = br.lock().read();
     SUPER_BLOCK.init_by_ref(bg.data::<SuperBlock>());
 }
@@ -148,7 +144,7 @@ fn block_alloc(tx: &Tx<false>, dev: DeviceNo) -> Option<BlockNo> {
         bg.data_mut::<repr::BmapBlock>().set_bit(bni); // mark block in use
         drop(bg);
 
-        let bn = BlockNo::new((bn0 + bni) as u32).unwrap();
+        let bn = BlockNo::new((bn0 + bni) as u32);
         block_zero(tx, dev, bn);
         return Some(bn);
     }
@@ -247,7 +243,7 @@ fn inode_alloc(tx: &Tx<false>, dev: DeviceNo, ty: i16) -> Result<NonNull<Inode>,
     let sb = SUPER_BLOCK.get();
 
     for inum in 1..(sb.ninodes) {
-        let inum = InodeNo::new(inum).unwrap();
+        let inum = InodeNo::new(inum);
         let mut br = tx.get_block(dev, sb.inode_block(inum));
         let Ok(mut bg) = br.lock().read();
         let dip = bg.data_mut::<repr::InodeBlock>().inode_mut(inum);
@@ -284,7 +280,7 @@ pub fn inode_update(tx: &Tx<false>, ip: NonNull<Inode>) {
         dip.minor = ip.minor;
         dip.nlink = ip.nlink;
         dip.size = ip.size;
-        dip.addrs = ip.addrs;
+        dip.write_addr(&ip.addrs);
     }
 }
 
@@ -350,7 +346,7 @@ pub fn inode_lock<const READ_ONLY: bool>(tx: &Tx<READ_ONLY>, ip: NonNull<Inode>)
             (*ip).minor = dip.minor;
             (*ip).nlink = dip.nlink;
             (*ip).size = dip.size;
-            (*ip).addrs = dip.addrs;
+            dip.read_addr(&mut (*ip).addrs);
             drop(bg);
             (*ip).valid = 1;
             assert_ne!((*ip).ty, 0);
@@ -471,7 +467,7 @@ fn inode_block_map<const READ_ONLY: bool>(
             if !empty {
                 let mut ind_br = tx.get_block((*ip).dev.unwrap(), ind_bn);
                 let Ok(ind_bg) = ind_br.lock().read();
-                if let Some(bn) = ind_bg.data::<repr::IndirectBlock>().as_ref()[ibn] {
+                if let Some(bn) = ind_bg.data::<repr::IndirectBlock>().get(ibn) {
                     return Some(bn);
                 }
             }
@@ -480,7 +476,7 @@ fn inode_block_map<const READ_ONLY: bool>(
             let bn = block_alloc(&stx, (*ip).dev.unwrap())?;
             let mut ind_br = stx.get_block((*ip).dev.unwrap(), ind_bn);
             let Ok(mut ind_bg) = ind_br.lock().read();
-            ind_bg.data_mut::<repr::IndirectBlock>().as_mut()[ibn] = Some(bn);
+            ind_bg.data_mut::<repr::IndirectBlock>().set(ibn, Some(bn));
 
             return Some(bn);
         }
@@ -505,11 +501,8 @@ pub fn inode_trunc(tx: &Tx<false>, ip: NonNull<Inode>) {
         if let Some(bn) = (*ip).addrs[NUM_DIRECT_REFS].take() {
             let mut br = tx.get_block((*ip).dev.unwrap(), bn);
             let Ok(mut bg) = br.lock().read();
-            let bnp = &mut bg.data_mut::<repr::IndirectBlock>().as_mut();
-            for bn in bnp.iter_mut() {
-                if let Some(bn) = bn.take() {
-                    block_free(tx, (*ip).dev.unwrap(), bn);
-                }
+            for bn in bg.data_mut::<repr::IndirectBlock>().drain().flatten() {
+                block_free(tx, (*ip).dev.unwrap(), bn);
             }
             drop(bg);
             block_free(tx, (*ip).dev.unwrap(), bn);

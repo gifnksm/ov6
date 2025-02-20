@@ -19,7 +19,7 @@ pub const NFILE: usize = 100;
 pub const NINODE: usize = 50;
 
 /// Device number of file system root disk.
-pub const ROOT_DEV: DeviceNo = DeviceNo::new(1).unwrap();
+pub const ROOT_DEV: DeviceNo = DeviceNo::new(1);
 
 /// Max exec arguments
 pub const MAX_ARG: usize = 32;

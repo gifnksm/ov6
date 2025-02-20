@@ -11,7 +11,7 @@
 //! | `sb.bmapstart`  | bitmap      | `sb.size / BPB`    | [`BmapBlock`]                                 |
 //! | N/A             | data blocks | `sb.nblocks`       | [`[u8; BLOCK_SIZE]`] (data)                   |
 
-use core::num::{NonZeroU16, NonZeroU32};
+use core::mem;
 
 use dataview::Pod;
 
@@ -27,48 +27,42 @@ pub const NUM_INDIRECT_REFS: usize = BLOCK_SIZE / size_of::<u32>();
 pub const MAX_FILE: usize = NUM_DIRECT_REFS + NUM_INDIRECT_REFS;
 
 /// File system block number.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Pod)]
 #[repr(transparent)]
-pub struct BlockNo(NonZeroU32);
+pub struct BlockNo(u32);
 
 impl BlockNo {
-    pub const fn new(n: u32) -> Option<Self> {
-        let Some(n) = NonZeroU32::new(n) else {
-            return None;
-        };
-        Some(Self(n))
+    pub const fn new(n: u32) -> Self {
+        Self(n)
     }
 
     pub const fn value(&self) -> u32 {
-        self.0.get()
+        self.0
     }
 
     pub fn as_index(&self) -> usize {
-        usize::try_from(self.0.get()).unwrap()
+        usize::try_from(self.0).unwrap()
     }
 }
 
 /// File system inode number.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Pod)]
 #[repr(transparent)]
-pub struct InodeNo(NonZeroU32);
+pub struct InodeNo(u32);
 
 impl InodeNo {
-    pub const ROOT: Self = Self::new(1).unwrap();
+    pub const ROOT: Self = Self::new(1);
 
-    pub const fn new(n: u32) -> Option<Self> {
-        let Some(n) = NonZeroU32::new(n) else {
-            return None;
-        };
-        Some(Self(n))
+    pub const fn new(n: u32) -> Self {
+        Self(n)
     }
 
     pub const fn value(&self) -> u32 {
-        self.0.get()
+        self.0
     }
 
     pub fn as_index(&self) -> usize {
-        usize::try_from(self.0.get()).unwrap()
+        usize::try_from(self.0).unwrap()
     }
 }
 
@@ -97,16 +91,18 @@ pub struct SuperBlock {
 impl SuperBlock {
     pub const FS_MAGIC: u32 = 0x10203040;
 
+    pub const SUPER_BLOCK_NO: BlockNo = BlockNo::new(1);
+
     /// Returns the block number that contains the specified inode.
     pub fn inode_block(&self, inode_no: InodeNo) -> BlockNo {
         let block_index = u32::try_from(inode_no.as_index() / INODE_PER_BLOCK).unwrap();
-        BlockNo::new(self.inodestart + block_index).unwrap()
+        BlockNo::new(self.inodestart + block_index)
     }
 
     /// Returns the block number that contains the specified bitmap.
     pub fn bmap_block(&self, bn: usize) -> BlockNo {
         let block_index = u32::try_from(bn / BITS_PER_BLOCK).unwrap();
-        BlockNo::new(self.bmapstart + block_index).unwrap()
+        BlockNo::new(self.bmapstart + block_index)
     }
 
     pub fn max_log_len(&self) -> usize {
@@ -114,11 +110,11 @@ impl SuperBlock {
     }
 
     pub fn log_header_block(&self) -> BlockNo {
-        BlockNo::new(self.logstart).unwrap()
+        BlockNo::new(self.logstart)
     }
 
     pub fn log_body_block(&self, i: usize) -> BlockNo {
-        BlockNo::new(self.logstart + u32::try_from(i).unwrap()).unwrap()
+        BlockNo::new(self.logstart + u32::try_from(i).unwrap())
     }
 }
 
@@ -153,6 +149,7 @@ impl LogHeader {
     }
 }
 
+#[derive(Pod)]
 #[repr(C)]
 pub struct Inode {
     /// File type
@@ -166,10 +163,31 @@ pub struct Inode {
     /// Size of file (bytes)
     pub size: u32,
     /// Data block addresses
-    pub addrs: [Option<BlockNo>; NUM_DIRECT_REFS + 1],
+    addrs: [u32; NUM_DIRECT_REFS + 1],
 }
 
-unsafe impl Pod for Inode {}
+impl Inode {
+    pub fn write_addr(&mut self, addrs: &[Option<BlockNo>; NUM_DIRECT_REFS + 1]) {
+        for (dst, src) in self.addrs.iter_mut().zip(addrs) {
+            if let Some(bn) = src {
+                assert_ne!(bn.0, 0);
+                *dst = bn.0;
+            } else {
+                *dst = 0;
+            }
+        }
+    }
+
+    pub fn read_addr(&self, addrs: &mut [Option<BlockNo>; NUM_DIRECT_REFS + 1]) {
+        for (dst, src) in addrs.iter_mut().zip(&self.addrs) {
+            if *src == 0 {
+                *dst = None;
+            } else {
+                *dst = Some(BlockNo(*src));
+            }
+        }
+    }
+}
 
 /// Inodes per block.
 pub const INODE_PER_BLOCK: usize = BLOCK_SIZE / size_of::<Inode>();
@@ -214,18 +232,31 @@ impl BmapBlock {
     }
 }
 
+#[derive(Pod)]
 #[repr(transparent)]
-pub struct IndirectBlock([Option<BlockNo>; NUM_INDIRECT_REFS]);
-
-unsafe impl Pod for IndirectBlock {}
+pub struct IndirectBlock([u32; NUM_INDIRECT_REFS]);
 
 impl IndirectBlock {
-    pub fn as_ref(&self) -> &[Option<BlockNo>; NUM_INDIRECT_REFS] {
-        &self.0
+    pub fn get(&self, i: usize) -> Option<BlockNo> {
+        if self.0[i] == 0 {
+            None
+        } else {
+            Some(BlockNo::new(self.0[i]))
+        }
     }
 
-    pub fn as_mut(&mut self) -> &mut [Option<BlockNo>; NUM_INDIRECT_REFS] {
-        &mut self.0
+    pub fn set(&mut self, i: usize, n: Option<BlockNo>) {
+        self.0[i] = n.map_or(0, |n| {
+            assert_ne!(n.value(), 0);
+            n.value()
+        });
+    }
+
+    pub fn drain(&mut self) -> impl Iterator<Item = Option<BlockNo>> + '_ {
+        self.0.iter_mut().map(|n| {
+            let n = mem::take(n);
+            if n == 0 { None } else { Some(BlockNo::new(n)) }
+        })
     }
 }
 
@@ -233,28 +264,28 @@ impl IndirectBlock {
 pub const DIR_SIZE: usize = 14;
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Pod)]
 pub struct DirEntry {
-    inum: Option<NonZeroU16>,
+    inum: u16,
     name: [u8; DIR_SIZE],
 }
 
-unsafe impl Pod for DirEntry {}
-
 impl DirEntry {
-    pub const fn zeroed() -> Self {
-        Self {
-            inum: None,
-            name: [0; DIR_SIZE],
+    pub fn inum(&self) -> Option<InodeNo> {
+        if self.inum == 0 {
+            None
+        } else {
+            Some(InodeNo::new(self.inum.into()))
         }
     }
 
-    pub fn inum(&self) -> Option<InodeNo> {
-        self.inum.map(|num| InodeNo(num.into()))
-    }
-
     pub fn set_inum(&mut self, inum: Option<InodeNo>) {
-        self.inum = inum.map(|inum| inum.0.try_into().unwrap())
+        if let Some(inum) = inum {
+            assert_ne!(inum.0, 0);
+            self.inum = inum.0.try_into().unwrap();
+        } else {
+            self.inum = 0;
+        }
     }
 
     pub fn name(&self) -> &[u8] {
