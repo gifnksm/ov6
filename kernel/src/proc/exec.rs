@@ -1,7 +1,7 @@
-use core::{ffi::CStr, ptr::NonNull, slice};
+use core::{ffi::CStr, slice};
 
 use crate::{
-    fs::{self, Inode, Tx},
+    fs::{self, LockedTxInode},
     memory::vm::{self, PAGE_SIZE, PageRound as _, PageTable, PtEntryFlags, VirtAddr},
     param::{MAX_ARG, USER_STACK},
     proc::{
@@ -24,39 +24,37 @@ fn flags2perm(flags: u32) -> PtEntryFlags {
 pub fn exec(path: &[u8], argv: *const *const u8) -> Result<usize, ()> {
     let p = Proc::current();
     let tx = fs::begin_tx();
-    let ip = fs::resolve_path(&tx, p, path)?;
+    let mut ip = fs::path::resolve(&tx, p, path)?;
+    let mut lip = ip.lock();
 
-    let (elf, mut pagetable, mut sz) = fs::inode_with_lock(&tx, ip, |ip| {
-        // Check ELF header
-        let mut elf = ElfHeader::zero();
+    // Check ELF header
+    let mut elf = ElfHeader::zero();
 
-        if fs::read_inode(
-            &tx,
-            p,
-            ip,
-            false,
-            VirtAddr::new((&raw mut elf).addr()),
-            0,
-            size_of::<ElfHeader>(),
-        ) != Ok(size_of::<ElfHeader>())
-        {
-            return Err(());
-        }
-        if elf.magic != ELF_MAGIC {
-            return Err(());
-        }
+    if lip.read(
+        p,
+        false,
+        VirtAddr::new((&raw mut elf).addr()),
+        0,
+        size_of::<ElfHeader>(),
+    ) != Ok(size_of::<ElfHeader>())
+    {
+        return Err(());
+    }
+    if elf.magic != ELF_MAGIC {
+        return Err(());
+    }
 
-        let mut pagetable = proc::create_pagetable(p).ok_or(())?;
+    let mut pagetable = proc::create_pagetable(p).ok_or(())?;
 
-        // Load program into memory.
-        let mut sz = 0;
-        if let Err(()) = load_segments(&tx, p, ip, unsafe { pagetable.as_mut() }, &mut sz, &elf) {
-            proc::free_pagetable(pagetable, sz);
-            return Err(());
-        }
+    // Load program into memory.
+    let mut sz = 0;
+    if let Err(()) = load_segments(p, &mut lip, unsafe { pagetable.as_mut() }, &mut sz, &elf) {
+        proc::free_pagetable(pagetable, sz);
+        return Err(());
+    }
 
-        Ok((elf, pagetable, sz))
-    })?;
+    lip.unlock();
+    ip.put();
     tx.end();
 
     if allocate_stack_pages(unsafe { pagetable.as_mut() }, &mut sz).is_err() {
@@ -98,9 +96,8 @@ pub fn exec(path: &[u8], argv: *const *const u8) -> Result<usize, ()> {
 }
 
 fn load_segments<const READ_ONLY: bool>(
-    tx: &Tx<READ_ONLY>,
     p: &Proc,
-    ip: NonNull<Inode>,
+    lip: &mut LockedTxInode<READ_ONLY>,
     pagetable: &mut PageTable,
     sz: &mut usize,
     elf: &ElfHeader,
@@ -108,10 +105,8 @@ fn load_segments<const READ_ONLY: bool>(
     for i in 0..elf.phnum {
         let off = elf.phoff as usize + usize::from(i) * size_of::<ProgramHeader>();
         let mut ph = ProgramHeader::zero();
-        fs::read_inode(
-            tx,
+        lip.read(
             p,
-            ip,
             false,
             VirtAddr::new((&raw mut ph).addr()),
             off,
@@ -136,11 +131,10 @@ fn load_segments<const READ_ONLY: bool>(
             flags2perm(ph.flags),
         )?;
         load_segment(
-            tx,
             p,
             pagetable,
             VirtAddr::new(ph.vaddr as usize),
-            ip,
+            lip,
             ph.off as usize,
             ph.filesz as usize,
         )?;
@@ -153,11 +147,10 @@ fn load_segments<const READ_ONLY: bool>(
 ///
 /// `va` must be page-aligned.
 fn load_segment<const READ_ONLY: bool>(
-    tx: &Tx<READ_ONLY>,
     p: &Proc,
     pagetable: &PageTable,
     va: VirtAddr,
-    ip: NonNull<Inode>,
+    lip: &mut LockedTxInode<READ_ONLY>,
     offset: usize,
     sz: usize,
 ) -> Result<(), ()> {
@@ -174,7 +167,7 @@ fn load_segment<const READ_ONLY: bool>(
             PAGE_SIZE
         };
 
-        if fs::read_inode(tx, p, ip, false, VirtAddr::new(pa.addr()), offset + i, n) != Ok(n) {
+        if lip.read(p, false, VirtAddr::new(pa.addr()), offset + i, n) != Ok(n) {
             return Err(());
         }
     }

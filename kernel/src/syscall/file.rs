@@ -3,7 +3,7 @@ use core::ptr::NonNull;
 use crate::{
     file::{self, File, pipe},
     fs::{
-        self, DIR_SIZE, inode_unlock_put,
+        self, Inode,
         stat::{T_DEVICE, T_DIR, T_FILE},
     },
     memory::{
@@ -12,8 +12,10 @@ use crate::{
     },
     param::{MAX_ARG, MAX_PATH, NDEV},
     proc::{Proc, exec},
-    syscall,
-    syscall::fcntl::{O_CREATE, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY},
+    syscall::{
+        self,
+        fcntl::{O_CREATE, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY},
+    },
 };
 
 /// Fetches the nth word-sized system call argument as a file descriptor
@@ -75,45 +77,7 @@ pub fn sys_link(p: &Proc) -> Result<usize, ()> {
     let new = syscall::arg_str(p, 1, &mut new)?;
 
     let tx = fs::begin_tx();
-    let mut ip = fs::resolve_path(&tx, p, old)?;
-
-    fs::inode_lock(&tx, ip);
-    unsafe {
-        if ip.as_ref().ty == T_DIR {
-            fs::inode_unlock_put(&tx, ip);
-            return Err(());
-        }
-
-        ip.as_mut().nlink += 1;
-        fs::inode_update(&tx, ip);
-        fs::inode_unlock(ip);
-
-        let res = (|| {
-            let mut name = [0; DIR_SIZE];
-            let (dp, name) = fs::resolve_path_parent(&tx, p, new, &mut name)?;
-
-            fs::inode_lock(&tx, dp);
-            if dp.as_ref().dev != ip.as_ref().dev
-                || fs::dir_link(&tx, p, dp, name, ip.as_ref().inum.unwrap()).is_err()
-            {
-                fs::inode_unlock_put(&tx, dp);
-                return Err(());
-            }
-            fs::inode_unlock_put(&tx, dp);
-            fs::inode_put(&tx, ip);
-
-            Ok(())
-        })();
-
-        if res.is_err() {
-            fs::inode_lock(&tx, ip);
-            ip.as_mut().nlink -= 1;
-            fs::inode_update(&tx, ip);
-            fs::inode_unlock_put(&tx, ip);
-            return Err(());
-        }
-    }
-
+    fs::ops::link(&tx, p, old, new)?;
     Ok(0)
 }
 
@@ -122,7 +86,7 @@ pub fn sys_unlink(p: &Proc) -> Result<usize, ()> {
     let path = syscall::arg_str(p, 0, &mut path)?;
 
     let tx = fs::begin_tx();
-    fs::unlink(&tx, p, path)?;
+    fs::ops::unlink(&tx, p, path)?;
     Ok(0)
 }
 
@@ -132,52 +96,45 @@ pub fn sys_open(p: &Proc) -> Result<usize, ()> {
     let path = syscall::arg_str(p, 0, &mut path)?;
 
     let tx = fs::begin_tx();
-    unsafe {
-        let ip = if (o_mode & O_CREATE) != 0 {
-            fs::create(&tx, p, path, T_FILE, 0, 0)?
-        } else {
-            let ip = fs::resolve_path(&tx, p, path)?;
-            fs::inode_lock(&tx, ip);
-            if ip.as_ref().ty == T_DIR && o_mode != O_RDONLY {
-                fs::inode_unlock_put(&tx, ip);
-                return Err(());
-            }
-            ip
-        };
-
-        if ip.as_ref().ty == T_DEVICE
-            && (ip.as_ref().major < 0 || ip.as_ref().major as usize >= NDEV)
-        {
-            fs::inode_unlock_put(&tx, ip);
+    let mut ip = if (o_mode & O_CREATE) != 0 {
+        fs::ops::create(&tx, p, path, T_FILE, 0, 0)?
+    } else {
+        let mut ip = fs::path::resolve(&tx, p, path)?;
+        let lip = ip.lock();
+        if lip.is_dir() && o_mode != O_RDONLY {
             return Err(());
         }
+        lip.unlock();
+        ip
+    };
 
-        let Some(f) = file::alloc() else {
-            fs::inode_unlock_put(&tx, ip);
-            return Err(());
-        };
-        let Ok(fd) = fd_alloc(p, f.into()) else {
-            file::close(f);
-            fs::inode_unlock_put(&tx, ip);
-            return Err(());
-        };
-
-        let readable = (o_mode & O_WRONLY) == 0;
-        let writable = (o_mode & O_WRONLY) != 0 || (o_mode & O_RDWR) != 0;
-        if ip.as_ref().ty == T_DEVICE {
-            f.init_device(ip.as_ref().major, ip, readable, writable);
-        } else {
-            f.init_inode(ip, readable, writable);
-        }
-
-        if (o_mode & O_TRUNC) != 0 && ip.as_ref().ty == T_FILE {
-            fs::inode_trunc(&tx, ip);
-        }
-
-        fs::inode_unlock(ip);
-
-        Ok(fd)
+    let mut lip = ip.lock();
+    if lip.ty() == T_DEVICE && (lip.major() < 0 || lip.major() as usize >= NDEV) {
+        return Err(());
     }
+
+    let Some(f) = file::alloc() else {
+        return Err(());
+    };
+
+    let Ok(fd) = fd_alloc(p, f.into()) else {
+        file::close(f);
+        return Err(());
+    };
+
+    let readable = (o_mode & O_WRONLY) == 0;
+    let writable = (o_mode & O_WRONLY) != 0 || (o_mode & O_RDWR) != 0;
+    if lip.ty() == T_DEVICE {
+        f.init_device(lip.major(), Inode::from_locked(&lip), readable, writable);
+    } else {
+        f.init_inode(Inode::from_locked(&lip), readable, writable);
+    }
+
+    if (o_mode & O_TRUNC) != 0 && lip.ty() == T_FILE {
+        lip.truncate();
+    }
+
+    Ok(fd)
 }
 
 pub fn sys_mkdir(p: &Proc) -> Result<usize, ()> {
@@ -185,8 +142,7 @@ pub fn sys_mkdir(p: &Proc) -> Result<usize, ()> {
     let path = syscall::arg_str(p, 0, &mut path)?;
 
     let tx = fs::begin_tx();
-    let ip = fs::create(&tx, p, path, T_DIR, 0, 0)?;
-    fs::inode_unlock_put(&tx, ip);
+    let _ip = fs::ops::create(&tx, p, path, T_DIR, 0, 0)?;
 
     Ok(0)
 }
@@ -198,8 +154,7 @@ pub fn sys_mknod(p: &Proc) -> Result<usize, ()> {
     let minor = syscall::arg_int(p, 2) as i16;
 
     let tx = fs::begin_tx();
-    let ip = fs::create(&tx, p, path, T_DEVICE, major, minor)?;
-    inode_unlock_put(&tx, ip);
+    let _ip = fs::ops::create(&tx, p, path, T_DEVICE, major, minor)?;
 
     Ok(0)
 }
@@ -208,18 +163,13 @@ pub fn sys_chdir(p: &Proc) -> Result<usize, ()> {
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(p, 0, &mut path)?;
 
-    unsafe {
-        let tx = fs::begin_tx();
-        let ip = fs::resolve_path(&tx, p, path)?;
-        fs::inode_lock(&tx, ip);
-        if ip.as_ref().ty != T_DIR {
-            fs::inode_unlock_put(&tx, ip);
-            return Err(());
-        }
-        fs::inode_unlock(ip);
-        let old = p.update_cwd(ip);
-        fs::inode_put(&tx, old);
+    let tx = fs::begin_tx();
+    let mut ip = fs::path::resolve(&tx, p, path)?;
+    if !ip.lock().is_dir() {
+        return Err(());
     }
+    let _old = p.update_cwd(Inode::from_tx(&ip));
+
     Ok(0)
 }
 

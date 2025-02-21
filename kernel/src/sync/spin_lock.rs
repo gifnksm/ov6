@@ -25,6 +25,28 @@ impl RawSpinLock {
         }
     }
 
+    pub fn try_acquire(&self) -> Result<(), ()> {
+        // disable interrupts to avoid deadlock.
+        interrupt::push_disabled().forget(); // drop re-enables interrupts, so we must forget it here.
+
+        assert!(!self.holding());
+
+        // `Ordering::Acquire` tells the compiler and the processor to not move loads or stores
+        // past this point, to ensure that the critical section's memory
+        // references happen strictly after the lock is acquired.
+        // On RISC-V, this emits a fence instruction.
+        if self.locked.swap(true, Ordering::Acquire) {
+            return Err(());
+        }
+
+        // Record info about lock acquisition for holding() and debugging.
+        unsafe {
+            *self.cpu.get() = Some(Cpu::current());
+        }
+
+        Ok(())
+    }
+
     /// Acquires the lock.
     ///
     /// Loops (spins) until the lock is acquired.
@@ -94,6 +116,14 @@ impl<T> SpinLock<T> {
             value: UnsafeCell::new(value),
         }
     }
+
+    // /// Acquires the lock.
+    // ///
+    // /// Loops (spins) until the lock is acquired.
+    // pub fn try_lock(&self) -> Result<SpinLockGuard<T>, ()> {
+    //     self.lock.try_acquire()?;
+    //     Ok(SpinLockGuard { lock: self })
+    // }
 
     /// Acquires the lock.
     ///

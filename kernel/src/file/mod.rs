@@ -7,7 +7,7 @@ use core::{
 };
 
 use crate::{
-    fs::{self, Inode, block_io::BLOCK_SIZE},
+    fs::{self, FS_BLOCK_SIZE, Inode},
     memory::vm::{self, VirtAddr},
     param::{MAX_OP_BLOCKS, NDEV, NFILE},
     proc::Proc,
@@ -39,7 +39,7 @@ pub struct File {
     // FileType::Pipe
     pub pipe: Option<NonNull<Pipe>>,
     // FileType::Inode & FileType::Device
-    ip: Option<NonNull<Inode>>,
+    ip: Option<Inode>,
     // FileTYpe::Inode
     off: UnsafeCell<u32>,
     // FileType::Device
@@ -76,7 +76,7 @@ impl File {
         self.pipe = Some(pipe);
     }
 
-    pub fn init_device(&mut self, major: i16, ip: NonNull<Inode>, readable: bool, writable: bool) {
+    pub fn init_device(&mut self, major: i16, ip: Inode, readable: bool, writable: bool) {
         assert_eq!(self.ty, FileType::None);
         self.ty = FileType::Device;
         self.readable = readable as u8;
@@ -85,7 +85,7 @@ impl File {
         self.ip = Some(ip);
     }
 
-    pub fn init_inode(&mut self, ip: NonNull<Inode>, readable: bool, writable: bool) {
+    pub fn init_inode(&mut self, ip: Inode, readable: bool, writable: bool) {
         assert_eq!(self.ty, FileType::None);
         self.ty = FileType::Inode;
         self.readable = readable as u8;
@@ -177,7 +177,8 @@ pub fn close(f: &File) {
         FileType::Pipe => pipe::close(ff.pipe.unwrap(), ff.writable != 0),
         FileType::Inode | FileType::Device => {
             let tx = fs::begin_tx();
-            fs::inode_put(&tx, ff.ip.unwrap());
+            let ip = ff.ip.take().unwrap();
+            ip.to_tx(&tx).put();
         }
         _ => {}
     }
@@ -190,7 +191,11 @@ pub fn stat(p: &Proc, f: &File, addr: VirtAddr) -> Result<(), ()> {
     match f.ty {
         FileType::Inode | FileType::Device => {
             let tx = fs::begin_readonly_tx();
-            let st = fs::inode_with_lock(&tx, f.ip.unwrap(), fs::stat_inode);
+            let mut ip = f.ip.as_ref().unwrap().to_tx(&tx);
+            let lip = ip.lock();
+            let st = lip.stat();
+            drop(lip);
+            drop(ip);
             vm::copy_out(p.pagetable().unwrap(), addr, &st)?;
             Ok(())
         }
@@ -225,14 +230,13 @@ pub fn read(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> {
         }
         FileType::Inode => {
             let tx = fs::begin_readonly_tx();
-            fs::inode_with_lock(&tx, f.ip.unwrap(), |ip| {
-                let res =
-                    fs::read_inode(&tx, p, ip, true, addr, unsafe { *f.off.get() } as usize, n);
-                if let Ok(sz) = res {
-                    unsafe { *f.off.get() += sz as u32 };
-                }
-                res
-            })
+            let mut ip = f.ip.as_ref().unwrap().to_tx(&tx);
+            let mut lip = ip.lock();
+            let res = lip.read(p, true, addr, unsafe { *f.off.get() } as usize, n);
+            if let Ok(sz) = res {
+                unsafe { *f.off.get() += sz as u32 };
+            }
+            res
         }
     }
 }
@@ -269,7 +273,7 @@ pub fn write(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> 
             // and 2 blocks of slop for non-aligned writes.
             // this really belongs lower down, since write_inode()
             // might be writing a device like the console.
-            let max = ((MAX_OP_BLOCKS - 1 - 1 - 2) / 2) * BLOCK_SIZE;
+            let max = ((MAX_OP_BLOCKS - 1 - 1 - 2) / 2) * FS_BLOCK_SIZE;
             let mut i = 0;
             while i < n {
                 let mut n1 = n - i;
@@ -278,21 +282,20 @@ pub fn write(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> 
                 }
 
                 let tx = fs::begin_tx();
-                let res = fs::inode_with_lock(&tx, f.ip.unwrap(), |ip| {
-                    let res = fs::write_inode(
-                        &tx,
-                        p,
-                        ip,
-                        true,
-                        addr.byte_add(i),
-                        unsafe { *f.off.get() } as usize,
-                        n1,
-                    );
-                    if let Ok(sz) = res {
-                        unsafe { *f.off.get() += sz as u32 };
-                    }
-                    res
-                });
+                let mut ip = f.ip.as_ref().unwrap().to_tx(&tx);
+                let mut lip = ip.lock();
+                let res = lip.write(
+                    p,
+                    true,
+                    addr.byte_add(i),
+                    unsafe { *f.off.get() } as usize,
+                    n1,
+                );
+                if let Ok(sz) = res {
+                    unsafe { *f.off.get() += sz as u32 };
+                }
+                lip.unlock();
+                ip.put();
                 tx.end();
 
                 if res != Ok(n1) {

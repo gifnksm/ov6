@@ -12,25 +12,24 @@ use crate::{
     virtio_disk,
 };
 
-/// Block size in bytes.
-pub const BLOCK_SIZE: usize = 1024;
+use super::repr::FS_BLOCK_SIZE;
 
 pub struct VirtioDiskDevice {}
-impl BlockDevice<BLOCK_SIZE> for VirtioDiskDevice {
+impl BlockDevice<FS_BLOCK_SIZE> for VirtioDiskDevice {
     type Error = Infallible;
 
-    fn read(&self, index: usize, data: &mut [u8; BLOCK_SIZE]) -> Result<(), Self::Error> {
-        virtio_disk::read(index * BLOCK_SIZE, data);
+    fn read(&self, index: usize, data: &mut [u8; FS_BLOCK_SIZE]) -> Result<(), Self::Error> {
+        virtio_disk::read(index * FS_BLOCK_SIZE, data);
         Ok(())
     }
 
-    fn write(&self, index: usize, data: &[u8; BLOCK_SIZE]) -> Result<(), Self::Error> {
-        virtio_disk::write(index * BLOCK_SIZE, data);
+    fn write(&self, index: usize, data: &[u8; FS_BLOCK_SIZE]) -> Result<(), Self::Error> {
+        virtio_disk::write(index * FS_BLOCK_SIZE, data);
         Ok(())
     }
 }
 
-type BlockMutex = SleepLock<BlockData<BLOCK_SIZE>>;
+type BlockMutex = SleepLock<BlockData<FS_BLOCK_SIZE>>;
 type LruMutex = SpinLock<LruMap<BlockMutex>>;
 
 static VIRTIO_DISK_CACHE: OnceInit<BlockIoCache<VirtioDiskDevice, LruMutex>> = OnceInit::new();
@@ -43,7 +42,7 @@ pub type BlockGuard<'block, const VALID: bool> = block_io::BlockGuard<
     VirtioDiskDevice,
     LruMutex,
     BlockMutex,
-    BLOCK_SIZE,
+    FS_BLOCK_SIZE,
     VALID,
 >;
 

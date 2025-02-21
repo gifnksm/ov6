@@ -36,6 +36,20 @@ impl RawSleepLock {
         }
     }
 
+    pub fn try_acquire(&self) -> Result<(), ()> {
+        self.lk.try_acquire()?;
+        if self.locked.load(Ordering::Acquire) {
+            self.lk.release();
+            return Err(());
+        }
+        self.locked.store(true, Ordering::Relaxed);
+        unsafe {
+            *self.pid.get() = Proc::current().pid();
+        }
+        self.lk.release();
+        Ok(())
+    }
+
     pub fn acquire(&self) {
         self.lk.acquire();
         while self.locked.load(Ordering::Acquire) {
@@ -58,13 +72,13 @@ impl RawSleepLock {
         self.lk.release();
     }
 
-    pub fn holding(&self) -> bool {
-        self.lk.acquire();
-        let holding = self.locked.load(Ordering::Relaxed)
-            && unsafe { *self.pid.get() } == Proc::current().pid();
-        self.lk.release();
-        holding
-    }
+    // pub fn holding(&self) -> bool {
+    //     self.lk.acquire();
+    //     let holding = self.locked.load(Ordering::Relaxed)
+    //         && unsafe { *self.pid.get() } == Proc::current().pid();
+    //     self.lk.release();
+    //     holding
+    // }
 }
 
 #[derive(Default)]
@@ -81,6 +95,11 @@ impl<T> SleepLock<T> {
             lock: RawSleepLock::new(),
             value: UnsafeCell::new(value),
         }
+    }
+
+    pub fn try_lock(&self) -> Result<SleepLockGuard<T>, ()> {
+        self.lock.try_acquire()?;
+        Ok(SleepLockGuard { lock: self })
     }
 
     /// Acquires the lock.

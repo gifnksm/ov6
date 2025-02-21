@@ -13,16 +13,16 @@
 
 use core::mem;
 
-use dataview::Pod;
+use dataview::{Pod, PodMethods};
 
 /// Block size.
-pub const BLOCK_SIZE: usize = 1024;
+pub const FS_BLOCK_SIZE: usize = 1024;
 
 /// Number of blocks directly referenced by an inode.
 pub const NUM_DIRECT_REFS: usize = 12;
 
 /// Number of blocks indirectly referenced by an inode.
-pub const NUM_INDIRECT_REFS: usize = BLOCK_SIZE / size_of::<u32>();
+pub const NUM_INDIRECT_REFS: usize = FS_BLOCK_SIZE / size_of::<u32>();
 
 pub const MAX_FILE: usize = NUM_DIRECT_REFS + NUM_INDIRECT_REFS;
 
@@ -118,7 +118,7 @@ impl SuperBlock {
     }
 }
 
-const MAX_LOG_COUNT: usize = BLOCK_SIZE / size_of::<u32>() - 1;
+const MAX_LOG_COUNT: usize = FS_BLOCK_SIZE / size_of::<u32>() - 1;
 
 /// Contents of the header block, used for both the on-disk header block
 /// and to keep track in memory of logged block# before commit.
@@ -128,7 +128,7 @@ pub struct LogHeader {
     len: u32,
     block_indices: [u32; MAX_LOG_COUNT],
 }
-const _: () = const { assert!(size_of::<LogHeader>() == BLOCK_SIZE) };
+const _: () = const { assert!(size_of::<LogHeader>() == FS_BLOCK_SIZE) };
 
 impl LogHeader {
     pub fn len(&self) -> usize {
@@ -167,7 +167,17 @@ pub struct Inode {
 }
 
 impl Inode {
-    pub fn write_addr(&mut self, addrs: &[Option<BlockNo>; NUM_DIRECT_REFS + 1]) {
+    pub fn is_free(&self) -> bool {
+        self.ty == 0
+    }
+
+    pub fn allocate(&mut self, ty: i16) {
+        assert_eq!(self.ty, 0);
+        *self = Inode::zeroed();
+        self.ty = ty;
+    }
+
+    pub fn write_addrs(&mut self, addrs: &[Option<BlockNo>; NUM_DIRECT_REFS + 1]) {
         for (dst, src) in self.addrs.iter_mut().zip(addrs) {
             if let Some(bn) = src {
                 assert_ne!(bn.0, 0);
@@ -178,7 +188,7 @@ impl Inode {
         }
     }
 
-    pub fn read_addr(&self, addrs: &mut [Option<BlockNo>; NUM_DIRECT_REFS + 1]) {
+    pub fn read_addrs(&self, addrs: &mut [Option<BlockNo>; NUM_DIRECT_REFS + 1]) {
         for (dst, src) in addrs.iter_mut().zip(&self.addrs) {
             if *src == 0 {
                 *dst = None;
@@ -190,12 +200,12 @@ impl Inode {
 }
 
 /// Inodes per block.
-pub const INODE_PER_BLOCK: usize = BLOCK_SIZE / size_of::<Inode>();
+pub const INODE_PER_BLOCK: usize = FS_BLOCK_SIZE / size_of::<Inode>();
 
 #[derive(Pod)]
 #[repr(transparent)]
 pub struct InodeBlock([Inode; INODE_PER_BLOCK]);
-const _: () = const { assert!(size_of::<InodeBlock>() == BLOCK_SIZE) };
+const _: () = const { assert!(size_of::<InodeBlock>() == FS_BLOCK_SIZE) };
 
 impl InodeBlock {
     pub fn inode(&self, inum: InodeNo) -> &Inode {
@@ -208,12 +218,12 @@ impl InodeBlock {
 }
 
 /// Bitmap bits per block
-pub const BITS_PER_BLOCK: usize = BLOCK_SIZE * 8;
+pub const BITS_PER_BLOCK: usize = FS_BLOCK_SIZE * 8;
 
 #[derive(Pod)]
 #[repr(transparent)]
-pub struct BmapBlock([u8; BLOCK_SIZE]);
-const _: () = const { assert!(size_of::<BmapBlock>() == BLOCK_SIZE) };
+pub struct BmapBlock([u8; FS_BLOCK_SIZE]);
+const _: () = const { assert!(size_of::<BmapBlock>() == FS_BLOCK_SIZE) };
 
 impl BmapBlock {
     pub fn bit(&self, n: usize) -> bool {

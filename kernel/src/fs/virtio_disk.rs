@@ -5,7 +5,7 @@ use once_init::OnceInit;
 
 use crate::{
     fs::{
-        block_io::BLOCK_SIZE,
+        repr::FS_BLOCK_SIZE,
         virtio::{
             BLK_SECTOR_SIZE, ConfigStatus, DeviceFeatures, MmioRegister, VirtioBlkReq,
             VirtioBlkReqType, VirtqAvail, VirtqDesc, VirtqDescFlags, VirtqUsed,
@@ -252,7 +252,7 @@ impl<const N: usize> Disk<N> {
     fn send_request(&mut self, offset: usize, data: &[u8], write: bool, desc_idx: [usize; 3]) {
         assert!(offset % BLK_SECTOR_SIZE == 0);
         let sector = (offset / BLK_SECTOR_SIZE) as u64;
-        assert_eq!(data.len(), BLOCK_SIZE);
+        assert_eq!(data.len(), FS_BLOCK_SIZE);
 
         let buf0 = &mut self.ops[desc_idx[0]];
         *buf0 = VirtioBlkReq {
@@ -275,7 +275,7 @@ impl<const N: usize> Disk<N> {
 
         self.desc[desc_idx[1]] = VirtqDesc {
             addr: data.as_ptr().addr() as u64,
-            len: BLOCK_SIZE as u32,
+            len: FS_BLOCK_SIZE as u32,
             flags: if write {
                 VirtqDescFlags::empty() // device reads b.date
             } else {

@@ -197,7 +197,7 @@ pub struct Proc {
     /// Open files
     ofile: [UnsafeCell<Option<NonNull<File>>>; NOFILE],
     /// CUrrent directory
-    cwd: UnsafeCell<Option<NonNull<Inode>>>,
+    cwd: UnsafeCell<Option<Inode>>,
     // Process name (debugging)
     name: UnsafeCell<[c_char; 16]>,
 }
@@ -252,8 +252,8 @@ impl Proc {
         }
     }
 
-    pub fn cwd(&self) -> Option<NonNull<Inode>> {
-        unsafe { *self.cwd.get() }
+    pub fn cwd(&self) -> Option<Inode> {
+        unsafe { &*self.cwd.get() }.clone()
     }
 
     pub fn name_mut(&self) -> NonNull<[u8; 16]> {
@@ -324,7 +324,7 @@ impl Proc {
         }
     }
 
-    pub fn update_cwd(&self, cwd: NonNull<Inode>) -> NonNull<Inode> {
+    pub fn update_cwd(&self, cwd: Inode) -> Inode {
         unsafe { mem::replace(&mut *self.cwd.get(), Some(cwd)) }.unwrap()
     }
 
@@ -561,7 +561,7 @@ pub fn user_init() {
     unsafe {
         *p.name.get() = *b"initcode\0\0\0\0\0\0\0\0";
         let tx = fs::begin_readonly_tx();
-        *p.cwd.get() = Some(fs::resolve_path(&tx, p, b"/").unwrap());
+        *p.cwd.get() = Some(Inode::from_tx(&fs::path::resolve(&tx, p, b"/").unwrap()));
         tx.end();
         *p.state.get() = ProcState::Runnable;
     }
@@ -624,7 +624,7 @@ pub fn fork(p: &Proc) -> Option<ProcId> {
         }
     }
     unsafe {
-        *np.cwd.get() = Some(fs::inode_dup((*p.cwd.get()).unwrap()));
+        *np.cwd.get() = p.cwd().clone();
         *np.name.get() = *p.name.get();
     }
 
@@ -685,7 +685,7 @@ pub fn exit(p: &Proc, status: i32) -> ! {
         }
 
         let tx = fs::begin_tx();
-        fs::inode_put(&tx, unsafe { *p.cwd.get() }.unwrap());
+        let _ = unsafe { &mut *p.cwd.get() }.take().unwrap().to_tx(&tx);
         tx.end();
 
         unsafe {
