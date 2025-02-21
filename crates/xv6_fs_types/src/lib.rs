@@ -1,6 +1,6 @@
-//! Representation of a file system.
+//! Data types for xv6 file system.
 //!
-//! The data layout of xv6 file system:
+//! The data layout:
 //!
 //! | block no.                      | # of blocks        | content     | type                                          |
 //! |--------------------------------|--------------------|-------------|-----------------------------------------------|
@@ -10,6 +10,8 @@
 //! | `sb.inodestart`                | `sb.ninodes / IPB` | inode table | [`InodeBlock`]                                |
 //! | `sb.bmapstart`                 | `sb.size / BPB`    | bitmap      | [`BmapBlock`]                                 |
 //! | `sb.bmapstart + sb.size / BPB` | `sb.nblocks`       | data blocks | [`[u8; BLOCK_SIZE]`] (data)                   |
+
+#![no_std]
 
 use core::mem;
 
@@ -135,6 +137,11 @@ impl LogHeader {
         usize::try_from(self.len).unwrap()
     }
 
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn set_len(&mut self, len: usize) {
         self.len = u32::try_from(len).unwrap();
     }
@@ -167,6 +174,7 @@ pub struct Inode {
 }
 
 impl Inode {
+    #[must_use]
     pub fn is_free(&self) -> bool {
         self.ty == 0
     }
@@ -226,6 +234,7 @@ pub struct BmapBlock([u8; FS_BLOCK_SIZE]);
 const _: () = const { assert!(size_of::<BmapBlock>() == FS_BLOCK_SIZE) };
 
 impl BmapBlock {
+    #[must_use]
     pub fn bit(&self, n: usize) -> bool {
         assert!(n < BITS_PER_BLOCK);
         self.0[n / 8] & (1 << (n % 8)) != 0
@@ -247,6 +256,7 @@ impl BmapBlock {
 pub struct IndirectBlock([u32; NUM_INDIRECT_REFS]);
 
 impl IndirectBlock {
+    #[must_use]
     pub fn get(&self, i: usize) -> Option<BlockNo> {
         if self.0[i] == 0 {
             None
@@ -281,6 +291,7 @@ pub struct DirEntry {
 }
 
 impl DirEntry {
+    #[must_use]
     pub fn inum(&self) -> Option<InodeNo> {
         if self.inum == 0 {
             None
@@ -298,6 +309,7 @@ impl DirEntry {
         }
     }
 
+    #[must_use]
     pub fn name(&self) -> &[u8] {
         let len = self
             .name
@@ -307,6 +319,7 @@ impl DirEntry {
         &self.name[..len]
     }
 
+    #[must_use]
     pub fn is_same_name(&self, name: &[u8]) -> bool {
         let len = usize::min(name.len(), DIR_SIZE);
         self.name() == &name[..len]

@@ -13,12 +13,13 @@
 
 use dataview::Pod;
 use once_init::OnceInit;
-
-use self::repr::SuperBlock;
+use xv6_fs_types::{self as repr, SuperBlock};
 
 pub use {
-    inode::{Inode, LockedTxInode},
-    log::{Tx, begin_readonly_tx, begin_tx},
+    self::{
+        inode::{Inode, LockedTxInode},
+        log::{Tx, begin_readonly_tx, begin_tx},
+    },
     repr::{BlockNo, DIR_SIZE, FS_BLOCK_SIZE, InodeNo},
 };
 
@@ -28,7 +29,6 @@ mod inode;
 mod log;
 pub mod ops;
 pub mod path;
-mod repr;
 pub mod stat;
 mod virtio;
 pub mod virtio_disk;

@@ -1,5 +1,5 @@
 [workspace]
-members = [ "crates/block_io", "crates/lru", "crates/mutex_api", "crates/once_init", "crates/page_alloc", "kernel" ]
+members = [ "crates/block_io", "crates/lru", "crates/mutex_api", "crates/once_init", "crates/page_alloc", "crates/xv6_fs_types", "kernel" ]
 resolver = "2"
 
 [workspace.package]
@@ -16,6 +16,7 @@ lru = { path = "crates/lru" }
 mutex_api = { path = "crates/mutex_api" }
 once_init = { path = "crates/once_init" }
 page_alloc = { path = "crates/page_alloc" }
+xv6_fs_types = { path = "crates/xv6_fs_types" }
 
 [profile.release]
 debug = "full"
