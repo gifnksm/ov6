@@ -13,8 +13,10 @@ main(void)
   int pid, wpid;
 
   if(open("console", O_RDWR) < 0){
-    mknod("console", CONSOLE, 0);
-    open("console", O_RDWR);
+    if (mknod("console", CONSOLE, 0) < 0)
+      exit(1);
+    if (open("console", O_RDWR) < 0)
+      exit(1);
   }
   dup(0);  // stdout
   dup(0);  // stderr
