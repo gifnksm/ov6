@@ -12,7 +12,7 @@ use riscv::{
 
 use crate::{
     console::uart,
-    cpu, interrupt,
+    cpu, fs, interrupt,
     memory::{
         layout::{UART0_IRQ, VIRTIO0_IRQ},
         vm::PAGE_SIZE,
@@ -20,7 +20,7 @@ use crate::{
     println,
     proc::{self, Proc},
     sync::SpinLock,
-    syscall, virtio_disk,
+    syscall,
 };
 
 use super::{kernel_vec, plic, trampoline};
@@ -230,7 +230,7 @@ fn handle_dev_interrupt() -> IntrKind {
         if irq == UART0_IRQ {
             uart::handle_interrupt();
         } else if irq == VIRTIO0_IRQ {
-            virtio_disk::handle_interrupt();
+            fs::virtio_disk::handle_interrupt();
         } else if irq > 0 {
             println!("unexpected interrupt irq={irq}");
         }

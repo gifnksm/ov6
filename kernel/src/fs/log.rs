@@ -152,7 +152,7 @@ struct LogData {
 static LOG: OnceInit<Log> = OnceInit::new();
 
 impl Log {
-    pub fn new(dev: DeviceNo, sb: &'static SuperBlock) -> Self {
+    fn new(dev: DeviceNo, sb: &'static SuperBlock) -> Self {
         let mut header = LogHeader::new(dev, sb);
         header.recover_from_log();
 
@@ -226,7 +226,7 @@ impl Log {
     }
 }
 
-pub fn init(dev: DeviceNo, sb: &'static SuperBlock) {
+pub(super) fn init(dev: DeviceNo, sb: &'static SuperBlock) {
     LOG.init(Log::new(dev, sb));
 }
 
@@ -270,14 +270,14 @@ impl Tx<'_, true> {
 impl<const READ_ONLY: bool> Tx<'_, READ_ONLY> {
     pub fn end(self) {}
 
-    pub fn get_block(&self, dev: DeviceNo, bn: BlockNo) -> TxBlockRef<READ_ONLY> {
+    pub(super) fn get_block(&self, dev: DeviceNo, bn: BlockNo) -> TxBlockRef<READ_ONLY> {
         TxBlockRef {
             log: self.log,
             block: block_io::get(dev, bn.value() as usize),
         }
     }
 
-    pub fn to_writable(&self) -> Option<NestedTx<false>> {
+    pub(super) fn to_writable(&self) -> Option<NestedTx<false>> {
         if READ_ONLY {
             None
         } else {
@@ -290,7 +290,7 @@ impl<const READ_ONLY: bool> Tx<'_, READ_ONLY> {
     }
 }
 
-pub struct NestedTx<'a, const READ_ONLY: bool> {
+pub(super) struct NestedTx<'a, const READ_ONLY: bool> {
     tx: ManuallyDrop<Tx<'a, READ_ONLY>>,
 }
 
@@ -308,7 +308,7 @@ pub struct TxBlockRef<'a, const READ_ONLY: bool> {
 }
 
 impl<const READ_ONLY: bool> TxBlockRef<'_, READ_ONLY> {
-    pub fn lock(&mut self) -> TxBlockGuard<false, READ_ONLY> {
+    pub(super) fn lock(&mut self) -> TxBlockGuard<false, READ_ONLY> {
         TxBlockGuard {
             log: self.log,
             guard: Some(self.block.lock()),
@@ -316,7 +316,7 @@ impl<const READ_ONLY: bool> TxBlockRef<'_, READ_ONLY> {
     }
 }
 
-pub struct TxBlockGuard<'a, const VALID: bool, const READ_ONLY: bool> {
+pub(super) struct TxBlockGuard<'a, const VALID: bool, const READ_ONLY: bool> {
     log: Option<&'a Log>,
     guard: Option<BlockGuard<'a, VALID>>,
 }

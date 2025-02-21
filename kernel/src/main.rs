@@ -9,8 +9,6 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use self::fs::{block_io, virtio_disk};
-
 extern crate alloc;
 
 mod console;
@@ -48,8 +46,7 @@ extern "C" fn main() -> ! {
         interrupt::trap::init_hart(); // install kernel trap vectort
         interrupt::plic::init(); // set up interrupt controller
         interrupt::plic::init_hart(); // ask PLIC for device interrupts
-        block_io::init(); // buffer cache
-        virtio_disk::init(); // emulated hard disk
+        fs::init(); // file system (buffer cache and hard disk)
         proc::user_init(); // first user process
         STARTED.store(true, Ordering::Release);
     } else {

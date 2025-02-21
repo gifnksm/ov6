@@ -307,7 +307,7 @@ impl<const N: usize> Disk<N> {
     }
 }
 
-pub fn init() {
+pub(super) fn init() {
     static REQ_COMPLETED: [SpinLockCondVar; NUM] = [const { SpinLockCondVar::new() }; NUM];
     static DESC_FREED: SpinLockCondVar = SpinLockCondVar::new();
 
@@ -342,11 +342,11 @@ fn read_or_write(offset: usize, data: &[u8], write: bool) {
     disk.free_chain(desc_idx[0]);
 }
 
-pub fn read(offset: usize, data: &mut [u8]) {
+pub(super) fn read(offset: usize, data: &mut [u8]) {
     read_or_write(offset, data, false);
 }
 
-pub fn write(offset: usize, data: &[u8]) {
+pub(super) fn write(offset: usize, data: &[u8]) {
     read_or_write(offset, data, true)
 }
 

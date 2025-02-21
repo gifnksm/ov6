@@ -1,9 +1,9 @@
 //! Inode content
 //!
 //! The content (data) associated with each inode is stored
-//! in blocks on the disk. The first NDIRECT block numbers
-//! are listed in ip->addrs[].  The next NINDIRECT blocks are
-//! listed in block ip->addrs[NDIRECT].
+//! in blocks on the disk. The first `NUN_DIRECT_REFS` block numbers
+//! are listed in `addrs[]`.  The next `NUM_INDIRECT_REFS` blocks are
+//! listed in block `[NUM_DIRECT_REFS]`.
 
 use core::{mem::MaybeUninit, ptr};
 

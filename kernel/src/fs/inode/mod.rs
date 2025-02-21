@@ -20,23 +20,23 @@
 //! rest of the file system code.
 //!
 //! * Allocation: an inode is allocated if its type (on disk)
-//!   is non-zero. [`Inode::alloc()`] allocates, and
-//!   [`Inode::drop()`] (destructor) or [`Inode::put()`] frees if
+//!   is non-zero. [`TxInode::alloc()`] allocates, and
+//!   [`TxInode::drop()`] (destructor) or [`TxInode::put()`] frees if
 //!   the reference and link counts have fallen to zero.
 //!
 //! * Referencing in table: an entry in the inode table
 //!   is free if reference count is zero. Otherwise tracks
 //!   the number of in-memory pointers to the entry (open
-//!   files and current directories). [`Inode::get()`] finds or
+//!   files and current directories). [`TxInode::get()`] finds or
 //!   creates a table entry and increments its ref;
-//!   [`Inode::drop()`] (destructor) or [`Inode::put()`]
+//!   [`TxInode::drop()`] (destructor) or [`TxInode::put()`]
 //!   decrements ref.
 //!
 //! * Valid: the information (type, size, &c) in an inode
 //!   table entry is only correct when `data` is `Some`.
-//!   [`Inode::lock()`] reads the inode from
-//!   the disk and sets [`Inode::data`], while [`Inode::put()`] clears
-//!   [`Inode::data`] if reference count has fallen to zero.
+//!   [`TxInode::lock()`] reads the inode from
+//!   the disk and sets [`TxInode::data`], while [`TxInode::put()`] clears
+//!   [`TxInode::data`] if reference count has fallen to zero.
 //!
 //! * Locked: file system code may only examine and modify
 //!   the information in an inode and its content if it
@@ -54,11 +54,11 @@
 //!   ip.put()
 //!    ```
 //!
-//! [`Inode::lock()`] is separate from [`Inode::get()`] so that system calls can
+//! [`TxInode::lock()`] is separate from [`TxInode::get()`] so that system calls can
 //! get a long-term reference to an inode (as for an open file)
 //! and only lock it for short periods (e.g., in `read()`).
 //! The separation also helps avoid deadlock and races during
-//! pathname lookup. [`Inode::get()`] increments reference count so that the inode
+//! pathname lookup. [`TxInode::get()`] increments reference count so that the inode
 //! stays in the table and pointers to it remain valid.
 //!
 //! Many internal file system functions expect the caller to

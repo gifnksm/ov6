@@ -22,7 +22,7 @@ pub use {
     repr::{BlockNo, DIR_SIZE, FS_BLOCK_SIZE, InodeNo},
 };
 
-pub mod block_io;
+mod block_io;
 mod data_block;
 mod inode;
 mod log;
@@ -30,7 +30,7 @@ pub mod ops;
 pub mod path;
 mod repr;
 pub mod stat;
-pub mod virtio;
+mod virtio;
 pub mod virtio_disk;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Pod)]
@@ -47,6 +47,11 @@ impl DeviceNo {
     }
 }
 
+pub fn init() {
+    block_io::init();
+    virtio_disk::init();
+}
+
 // there should be one superblock per disk device, but we run with
 // only one device
 static SUPER_BLOCK: OnceInit<SuperBlock> = OnceInit::new();
@@ -58,7 +63,7 @@ fn init_superblock(tx: &Tx<true>, dev: DeviceNo) {
     SUPER_BLOCK.init_by_ref(bg.data::<SuperBlock>());
 }
 
-pub fn init(dev: DeviceNo) {
+pub fn init_in_proc(dev: DeviceNo) {
     let tx = log::begin_readonly_tx();
     init_superblock(&tx, dev);
 

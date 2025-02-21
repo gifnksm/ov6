@@ -867,7 +867,7 @@ extern "C" fn forkret() {
         // File system initialization must be run in the context of a
         // regular process (e.g., because it calls sleep), and thus cannot
         // be run from main().
-        fs::init(ROOT_DEV);
+        fs::init_in_proc(ROOT_DEV);
 
         FIRST.store(false, Ordering::Release);
     }
