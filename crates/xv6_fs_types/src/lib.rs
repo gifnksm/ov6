@@ -13,7 +13,7 @@
 
 #![no_std]
 
-use core::mem;
+use core::{fmt, mem};
 
 use dataview::{Pod, PodMethods};
 
@@ -33,6 +33,12 @@ pub const MAX_FILE: usize = NUM_DIRECT_REFS + NUM_INDIRECT_REFS;
 #[repr(transparent)]
 pub struct BlockNo(u32);
 
+impl fmt::Display for BlockNo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl BlockNo {
     pub const fn new(n: u32) -> Self {
         Self(n)
@@ -51,6 +57,12 @@ impl BlockNo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Pod)]
 #[repr(transparent)]
 pub struct InodeNo(u32);
+
+impl fmt::Display for InodeNo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl InodeNo {
     pub const ROOT: Self = Self::new(1);
@@ -81,13 +93,13 @@ pub struct SuperBlock {
     /// Number of inodes.
     pub ninodes: u32,
     /// Number of log blocks.
-    nlog: u32,
+    pub nlog: u32,
     /// Block number of first log block.
-    logstart: u32,
+    pub logstart: u32,
     /// Block number of first inode block.
-    inodestart: u32,
+    pub inodestart: u32,
     /// Block number of first free map block.
-    bmapstart: u32,
+    pub bmapstart: u32,
 }
 
 impl SuperBlock {
@@ -156,6 +168,13 @@ impl LogHeader {
     }
 }
 
+/// Directory
+pub const T_DIR: i16 = 1;
+/// File
+pub const T_FILE: i16 = 2;
+/// Device
+pub const T_DEVICE: i16 = 3;
+
 #[derive(Pod)]
 #[repr(C)]
 pub struct Inode {
@@ -170,7 +189,7 @@ pub struct Inode {
     /// Size of file (bytes)
     pub size: u32,
     /// Data block addresses
-    addrs: [u32; NUM_DIRECT_REFS + 1],
+    pub addrs: [u32; NUM_DIRECT_REFS + 1],
 }
 
 impl Inode {

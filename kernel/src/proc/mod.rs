@@ -13,14 +13,14 @@ use core::{
 use crate::{
     cpu::Cpu,
     file::{self, File},
-    fs::{self, Inode},
+    fs::{self, DeviceNo, Inode},
     interrupt::{self, trampoline, trap},
     memory::{
         layout::{TRAMPOLINE, TRAPFRAME, kstack},
         page,
         vm::{self, PAGE_SIZE, PageTable, PhysAddr, PtEntryFlags, VirtAddr},
     },
-    param::{NOFILE, NPROC, ROOT_DEV},
+    param::{NOFILE, NPROC},
     println,
     sync::{RawSpinLock, SpinLockGuard},
 };
@@ -867,7 +867,7 @@ extern "C" fn forkret() {
         // File system initialization must be run in the context of a
         // regular process (e.g., because it calls sleep), and thus cannot
         // be run from main().
-        fs::init_in_proc(ROOT_DEV);
+        fs::init_in_proc(DeviceNo::ROOT);
 
         FIRST.store(false, Ordering::Release);
     }

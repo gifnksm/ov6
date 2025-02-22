@@ -20,3 +20,4 @@ once_init.workspace = true
 page_alloc.workspace = true
 riscv.workspace = true
 xv6_fs_types.workspace = true
+xv6_kernel_params.workspace = true

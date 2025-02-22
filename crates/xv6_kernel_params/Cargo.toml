@@ -1,0 +1,6 @@
+[package]
+name = "xv6_kernel_params"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

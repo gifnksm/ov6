@@ -3,7 +3,7 @@
 use dataview::PodMethods as _;
 
 use crate::{
-    fs::{DeviceNo, InodeNo, repr, stat::T_DIR},
+    fs::{DeviceNo, InodeNo, repr, repr::T_DIR},
     proc::Proc,
 };
 

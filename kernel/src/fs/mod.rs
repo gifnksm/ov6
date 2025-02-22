@@ -20,7 +20,7 @@ pub use {
         inode::{Inode, LockedTxInode},
         log::{Tx, begin_readonly_tx, begin_tx},
     },
-    repr::{BlockNo, DIR_SIZE, FS_BLOCK_SIZE, InodeNo},
+    repr::{BlockNo, DIR_SIZE, FS_BLOCK_SIZE, InodeNo, T_DEVICE, T_DIR, T_FILE},
 };
 
 mod block_io;
@@ -38,9 +38,12 @@ pub mod virtio_disk;
 pub struct DeviceNo(u32);
 
 impl DeviceNo {
-    pub const fn new(n: u32) -> Self {
-        Self(n)
-    }
+    /// Device number of file system root disk.
+    pub const ROOT: Self = Self(0);
+
+    // pub const fn new(n: u32) -> Self {
+    //     Self(n)
+    // }
 
     pub const fn value(&self) -> u32 {
         self.0

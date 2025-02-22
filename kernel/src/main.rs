@@ -9,6 +9,8 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+use xv6_kernel_params as param;
+
 extern crate alloc;
 
 mod console;
@@ -17,7 +19,6 @@ mod file;
 mod fs;
 mod interrupt;
 mod memory;
-mod param;
 mod proc;
 mod start;
 mod sync;

@@ -1,6 +1,6 @@
-use crate::{param::ROOT_DEV, proc::Proc};
+use crate::proc::Proc;
 
-use super::{DIR_SIZE, InodeNo, Tx, inode::TxInode};
+use super::{DIR_SIZE, DeviceNo, InodeNo, Tx, inode::TxInode};
 
 /// Copies the next path element from path into name.
 ///
@@ -42,7 +42,7 @@ fn resolve_impl<'a, const READ_ONLY: bool>(
     mut name_out: Option<&mut [u8; DIR_SIZE]>,
 ) -> Result<TxInode<'a, READ_ONLY>, ()> {
     let mut ip: TxInode<'_, READ_ONLY> = if path.first() == Some(&b'/') {
-        TxInode::get(tx, ROOT_DEV, InodeNo::ROOT)
+        TxInode::get(tx, DeviceNo::ROOT, InodeNo::ROOT)
     } else {
         p.cwd().unwrap().clone().to_tx(tx)
     };

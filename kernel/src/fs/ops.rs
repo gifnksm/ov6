@@ -6,7 +6,7 @@ use super::{
     DIR_SIZE, Tx,
     inode::TxInode,
     path,
-    stat::{T_DEVICE, T_FILE},
+    repr::{T_DEVICE, T_FILE},
 };
 
 pub fn unlink(tx: &Tx<false>, p: &Proc, path: &[u8]) -> Result<(), ()> {

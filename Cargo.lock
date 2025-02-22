@@ -56,6 +56,7 @@ dependencies = [
  "page_alloc",
  "riscv",
  "xv6_fs_types",
+ "xv6_kernel_params",
 ]
 
 [[package]]
@@ -63,6 +64,15 @@ name = "lru"
 version = "0.1.0"
 dependencies = [
  "mutex_api",
+]
+
+[[package]]
+name = "mkfs"
+version = "0.1.0"
+dependencies = [
+ "dataview",
+ "xv6_fs_types",
+ "xv6_kernel_params",
 ]
 
 [[package]]
@@ -157,3 +167,7 @@ version = "0.1.0"
 dependencies = [
  "dataview",
 ]
+
+[[package]]
+name = "xv6_kernel_params"
+version = "0.1.0"

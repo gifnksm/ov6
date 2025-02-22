@@ -1,4 +1,4 @@
-use crate::fs::DeviceNo;
+#![no_std]
 
 /// Maximum number of processes.
 pub const NPROC: usize = 64;
@@ -18,9 +18,6 @@ pub const NFILE: usize = 100;
 /// Maximum number of active i-nodes
 pub const NINODE: usize = 50;
 
-/// Device number of file system root disk.
-pub const ROOT_DEV: DeviceNo = DeviceNo::new(1);
-
 /// Max exec arguments
 pub const MAX_ARG: usize = 32;
 
@@ -35,3 +32,11 @@ pub const MAX_PATH: usize = 128;
 
 /// User stack pages
 pub const USER_STACK: usize = 1;
+
+/// Size of file system image in blocks
+pub const FS_SIZE: usize = 2000;
+
+/// Maximum number of i-nodes on file system.
+pub const NUM_FS_INODES: usize = 200;
+/// Maximum number of logs on file system.
+pub const FS_LOG_SIZE: usize = MAX_OP_BLOCKS * 3;

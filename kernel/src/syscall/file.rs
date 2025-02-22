@@ -2,10 +2,7 @@ use core::ptr::NonNull;
 
 use crate::{
     file::{self, File, pipe},
-    fs::{
-        self, Inode,
-        stat::{T_DEVICE, T_DIR, T_FILE},
-    },
+    fs::{self, Inode, T_DEVICE, T_DIR, T_FILE},
     memory::{
         page,
         vm::{self, PAGE_SIZE},

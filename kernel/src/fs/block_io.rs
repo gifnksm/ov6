@@ -6,7 +6,7 @@ use block_io::{BlockData, BlockDevice, BlockIoCache, LruMap};
 use once_init::OnceInit;
 
 use crate::{
-    param::{NBUF, ROOT_DEV},
+    param::NBUF,
     sync::{SleepLock, SpinLock},
 };
 
@@ -53,7 +53,7 @@ pub(super) fn init() {
 /// Gets the block buffer with the given device number and block number.
 pub(super) fn get(dev: DeviceNo, block_index: usize) -> BlockRef {
     match dev {
-        ROOT_DEV => VIRTIO_DISK_CACHE.get().get(block_index),
+        DeviceNo::ROOT => VIRTIO_DISK_CACHE.get().get(block_index),
         _ => panic!("unknown device: dev={}", dev.value()),
     }
 }

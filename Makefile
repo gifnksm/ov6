@@ -1,6 +1,7 @@
 K=kernel
 U=user
 R=target/riscv64gc-unknown-none-elf/release
+RN=target/release
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin
@@ -96,9 +97,6 @@ $U/_forktest: $U/forktest.o $(ULIB)
 $R/kernel: FORCE
 	cargo build --release
 
-mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
-	gcc -Werror -Wall -MMD -I. -o mkfs/mkfs mkfs/mkfs.c
-
 # Prevent deletion of intermediate files, e.g. cat.o, after first build, so
 # that disk image changes after first build are persistent until clean.  More
 # details:
@@ -123,8 +121,11 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 
-fs.img: mkfs/mkfs README $(UPROGS)
-	mkfs/mkfs fs.img README $(UPROGS)
+fs.img: $(RN)/mkfs README $(UPROGS)
+	$(RN)/mkfs $@ README $(UPROGS)
+
+$(RN)/mkfs: FORCE
+	cargo build --release --bin mkfs
 
 -include kernel/*.d user/*.d mkfd/*.d
 
@@ -132,8 +133,8 @@ clean:
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
 	*/*.o */*.d */*.asm */*.sym \
 	$U/initcode $U/initcode.out $K/kernel fs.img \
-	mkfs/mkfs .gdbinit \
-        $U/usys.S \
+	.gdbinit \
+	$U/usys.S \
 	$(UPROGS)
 	cargo clean
 
