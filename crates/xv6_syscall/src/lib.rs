@@ -14,6 +14,20 @@ bitflags! {
     }
 }
 
+#[repr(C)]
+pub struct Stat {
+    /// File system's disk device
+    pub dev: i32,
+    /// Inode number
+    pub ino: u32,
+    /// Type of file
+    pub ty: i16,
+    /// Number of links to file
+    pub nlink: i16,
+    /// Size of file in bytes
+    pub size: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr)]
 #[repr(usize)]
 pub enum SyscallType {

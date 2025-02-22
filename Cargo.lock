@@ -215,3 +215,10 @@ dependencies = [
  "bitflags",
  "strum",
 ]
+
+[[package]]
+name = "xv6_user_syscall"
+version = "0.1.0"
+dependencies = [
+ "xv6_syscall",
+]
