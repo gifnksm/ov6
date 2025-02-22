@@ -1,7 +1,13 @@
+.DELETE_ON_ERROR:
+.SECONDARY:
+.SECONDEXPANSION:
+
 K=kernel
 U=user
-R=target/riscv64gc-unknown-none-elf/release
+R=target/xv6/release
 RN=target/release
+
+RUST_TARGET=riscv64gc-unknown-none-elf
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin
@@ -55,10 +61,7 @@ endif
 
 LDFLAGS = -z max-page-size=4096 --gc-sections
 
-all: $K/kernel $K/kernel.asm $K/kernel.sym fs.img $U/initcode
-
-$K/kernel: $R/kernel
-	cp $< $@
+all: $R/kernel $R/kernel.asm $R/kernel.sym fs.img $U/initcode
 
 %.asm: %
 	$(OBJDUMP) -SC $< > $@
@@ -88,14 +91,25 @@ $U/_forktest: $U/forktest.o $(ULIB)
 	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $U/_forktest $U/forktest.o $U/ulib.o $R/libxv6_user_lib.a
 	$(OBJDUMP) -SC $U/_forktest > $U/forktest.asm
 
-$R/kernel: FORCE
+target/$(RUST_TARGET)/release/kernel: FORCE
 	cargo build -p kernel --release
 
-$R/libxv6_user_syscall.a: FORCE
+target/$(RUST_TARGET)/release/libxv6_user_syscall.a: FORCE
 	cargo build -p xv6_user_syscall --release --features panic_handler
 
-$R/libxv6_user_lib.a: FORCE
+target/$(RUST_TARGET)/release/libxv6_user_lib.a: FORCE
 	cargo build -p xv6_user_lib --release
+
+%/:
+	mkdir -p $@
+
+# create separate debuginfo file
+# https://users.rust-lang.org/t/how-to-gdb-with-split-debug-files/102989/3
+target/xv6/%.debug: target/$(RUST_TARGET)/% | $$(dir $$@)
+	$(OBJCOPY) --only-keep-debug $< $@
+
+target/xv6/%: target/$(RUST_TARGET)/% target/xv6/%.debug | $$(dir $$@)
+	$(OBJCOPY) --strip-debug --strip-unneeded --remove-section=".gnu_debuglink" --add-gnu-debuglink="$@.debug" $< $@
 
 # Prevent deletion of intermediate files, e.g. cat.o, after first build, so
 # that disk image changes after first build are persistent until clean.  More
@@ -132,7 +146,7 @@ $(RN)/mkfs: FORCE
 clean:
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
 	*/*.o */*.d */*.asm */*.sym \
-	$U/initcode $U/initcode.out $K/kernel fs.img \
+	$U/initcode $U/initcode.out fs.img \
 	.gdbinit \
 	$(UPROGS)
 	cargo clean
@@ -167,18 +181,18 @@ ifndef CPUS
 CPUS := 3
 endif
 
-QEMUOPTS = -machine virt -bios none -kernel $K/kernel -m 128M -smp $(CPUS) -nographic
+QEMUOPTS = -machine virt -bios none -kernel $R/kernel -m 128M -smp $(CPUS) -nographic
 QEMUOPTS += -global virtio-mmio.force-legacy=false
 QEMUOPTS += -drive file=fs.img,if=none,format=raw,id=x0
 QEMUOPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
 
-qemu: $K/kernel fs.img
+qemu: $R/kernel fs.img
 	$(QEMU) $(QEMUOPTS)
 
 .gdbinit: .gdbinit.tmpl-riscv
 	sed "s/:1234/:$(GDBPORT)/" < $^ > $@
 
-qemu-gdb: $K/kernel .gdbinit fs.img
+qemu-gdb: $R/kernel .gdbinit fs.img
 	@echo "*** Now run 'gdb' in another window." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
