@@ -5,6 +5,7 @@ use strum::FromRepr;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(transparent)]
     pub struct OpenFlags: usize {
         const READ_ONLY = 0x000;
         const WRITE_ONLY = 0x001;

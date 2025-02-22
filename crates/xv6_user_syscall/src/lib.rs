@@ -3,7 +3,9 @@
 
 use core::arch::naked_asm;
 
-use xv6_syscall::{Stat, SyscallType};
+use xv6_syscall::SyscallType;
+
+pub use xv6_syscall::{OpenFlags, Stat};
 
 macro_rules! syscall {
     ($ty:expr => $(#[$attr:meta])* fn $name:ident($($params:tt)*) -> $ret:ty) => {
@@ -83,7 +85,7 @@ syscall!(
     /// # Safety
     ///
     /// `path` must be a valid pointer to a null-terminated string.
-    unsafe fn open(path: *const u8, flags: i32) -> i32
+    unsafe fn open(path: *const u8, flags: OpenFlags) -> i32
 );
 syscall!(
     SyscallType::Mknod =>

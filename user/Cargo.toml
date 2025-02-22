@@ -7,5 +7,15 @@ edition.workspace = true
 
 forced-target = "riscv64gc-unknown-none-elf"
 
+[[bin]]
+name = "hello"
+test = false
+bench = false
+
+[[bin]]
+name = "cat"
+test = false
+bench = false
+
 [dependencies]
 xv6_user_lib.workspace = true

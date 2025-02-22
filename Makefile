@@ -97,8 +97,8 @@ target/$(RUST_TARGET)/release/libxv6_user_syscall.a: FORCE
 target/$(RUST_TARGET)/release/libxv6_user_lib.a: FORCE
 	cargo build -p xv6_user_lib --release
 
-target/$(RUST_TARGET)/release/hello: FORCE
-	cargo build -p user --bin hello --release
+target/$(RUST_TARGET)/release/%: FORCE
+	cargo build -p user --bin $(notdir $@) --release
 
 %/:
 	mkdir -p $@
@@ -119,9 +119,9 @@ target/xv6/%: target/$(RUST_TARGET)/% target/xv6/%.debug | $$(dir $$@)
 
 RUPROGS=\
 	$R/hello\
+	$R/cat\
 
 UPROGS=\
-	$U/_cat\
 	$U/_echo\
 	$U/_forktest\
 	$U/_grep\
