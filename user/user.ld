@@ -3,12 +3,13 @@ ENTRY ("_start")
 
 SECTIONS
 {
- . = 0x0;
+  . = 0x0;
 
   .text : {
     *(.text .text.*)
   }
 
+  . = ALIGN(0x1000);
   .rodata : {
     . = ALIGN(16);
     *(.srodata .srodata.*) /* do not need to distinguish this from .rodata */
@@ -17,9 +18,9 @@ SECTIONS
   }
 
   .eh_frame : {
-       *(.eh_frame)
-       *(.eh_frame.*)
-   }
+    *(.eh_frame)
+    *(.eh_frame.*)
+  }
 
   . = ALIGN(0x1000);
   .data : {

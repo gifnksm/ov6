@@ -40,12 +40,13 @@ fn main() -> io::Result<()> {
     assert_eq!(root_ino, InodeNo::ROOT);
 
     for name in contents {
-        let mut short_name = name.as_str();
+        let path = Path::new(name);
+        let mut short_name = path.file_name().unwrap().to_str().unwrap();
         short_name = short_name.strip_prefix("user/").unwrap_or(short_name);
         short_name = short_name.strip_prefix("_").unwrap_or(short_name);
 
         let mut buf = vec![];
-        File::open(name)?.read_to_end(&mut buf)?;
+        File::open(path)?.read_to_end(&mut buf)?;
         let ino = fs.create_file(&buf)?;
         fs.add_directory_entry(root_ino, ino, short_name)?;
     }

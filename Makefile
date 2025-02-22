@@ -75,13 +75,10 @@ $U/initcode: $U/initcode.S
 	$(OBJCOPY) -S -O binary $U/initcode.out $U/initcode
 	$(OBJDUMP) -SC $U/initcode.o > $U/initcode.asm
 
-tags: $(OBJS) _init
-	etags *.S *.c
-
 ULIB = $U/ulib.o $R/libxv6_user_lib.a $U/printf.o $U/umalloc.o
 
-_%: %.o $(ULIB)
-	$(LD) $(LDFLAGS) -T $U/user.ld -o $@ $^
+_%: %.o $(ULIB) $U/user.ld
+	$(LD) $(LDFLAGS) -T $U/user.ld -o $@ $< $(ULIB)
 	$(OBJDUMP) -SC $@ > $*.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' | c++filt > $*.sym
 
@@ -100,6 +97,9 @@ target/$(RUST_TARGET)/release/libxv6_user_syscall.a: FORCE
 target/$(RUST_TARGET)/release/libxv6_user_lib.a: FORCE
 	cargo build -p xv6_user_lib --release
 
+target/$(RUST_TARGET)/release/hello: FORCE
+	cargo build -p user --bin hello --release
+
 %/:
 	mkdir -p $@
 
@@ -116,6 +116,9 @@ target/xv6/%: target/$(RUST_TARGET)/% target/xv6/%.debug | $$(dir $$@)
 # details:
 # http://www.gnu.org/software/make/manual/html_node/Chained-Rules.html
 .PRECIOUS: %.o
+
+RUPROGS=\
+	$R/hello\
 
 UPROGS=\
 	$U/_cat\
@@ -134,6 +137,9 @@ UPROGS=\
 	$U/_grind\
 	$U/_wc\
 	$U/_zombie\
+	$(RUPROGS)
+
+all: $(UPROGS) $(patsubst %,%.sym,$(RUPROGS)) $(patsubst %,%.asm,$(RUPROGS))
 
 fs.img: $(RN)/mkfs README $(UPROGS)
 	$(RN)/mkfs $@ README $(UPROGS)

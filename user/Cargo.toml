@@ -1,0 +1,11 @@
+cargo-features = ["per-package-target"]
+
+[package]
+name = "user"
+version.workspace = true
+edition.workspace = true
+
+forced-target = "riscv64gc-unknown-none-elf"
+
+[dependencies]
+xv6_user_lib.workspace = true
