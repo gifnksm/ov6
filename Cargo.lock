@@ -217,6 +217,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "xv6_user_lib"
+version = "0.1.0"
+dependencies = [
+ "xv6_user_syscall",
+]
+
+[[package]]
 name = "xv6_user_syscall"
 version = "0.1.0"
 dependencies = [

@@ -53,7 +53,7 @@ ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]nopie'),)
 CFLAGS += -fno-pie -nopie
 endif
 
-LDFLAGS = -z max-page-size=4096
+LDFLAGS = -z max-page-size=4096 --gc-sections
 
 all: $K/kernel $K/kernel.asm $K/kernel.sym fs.img $U/initcode
 
@@ -75,7 +75,7 @@ $U/initcode: $U/initcode.S
 tags: $(OBJS) _init
 	etags *.S *.c
 
-ULIB = $U/ulib.o $R/libxv6_user_syscall.a $U/printf.o $U/umalloc.o
+ULIB = $U/ulib.o $R/libxv6_user_lib.a $U/printf.o $U/umalloc.o
 
 _%: %.o $(ULIB)
 	$(LD) $(LDFLAGS) -T $U/user.ld -o $@ $^
@@ -85,11 +85,17 @@ _%: %.o $(ULIB)
 $U/_forktest: $U/forktest.o $(ULIB)
 	# forktest has less library code linked in - needs to be small
 	# in order to be able to max out the proc table.
-	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $U/_forktest $U/forktest.o $U/ulib.o $R/libxv6_user_syscall.a
+	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $U/_forktest $U/forktest.o $U/ulib.o $R/libxv6_user_lib.a
 	$(OBJDUMP) -SC $U/_forktest > $U/forktest.asm
 
 $R/kernel: FORCE
-	cargo build --release
+	cargo build -p kernel --release
+
+$R/libxv6_user_syscall.a: FORCE
+	cargo build -p xv6_user_syscall --release --features panic_handler
+
+$R/libxv6_user_lib.a: FORCE
+	cargo build -p xv6_user_lib --release
 
 # Prevent deletion of intermediate files, e.g. cat.o, after first build, so
 # that disk image changes after first build are persistent until clean.  More

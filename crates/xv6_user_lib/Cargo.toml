@@ -1,14 +1,16 @@
 cargo-features = ["per-package-target"]
 
 [package]
-name = "xv6_user_syscall"
+name = "xv6_user_lib"
 version.workspace = true
 edition.workspace = true
+
 forced-target = "riscv64gc-unknown-none-elf"
 
 [lib]
+crate-type = ["staticlib", "rlib"]
 test = false
 bench = false
 
 [dependencies]
-xv6_syscall.workspace = true
+xv6_user_syscall.workspace = true

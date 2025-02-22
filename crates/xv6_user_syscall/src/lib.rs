@@ -58,14 +58,14 @@ syscall!(
     /// # Safety
     ///
     /// `buf` must be a valid pointer to an array of `i32`s with a length of `count`.
-    unsafe fn write(fd: i32, buf: *const i32, count: usize) -> i32
+    unsafe fn write(fd: i32, buf: *const u8, count: usize) -> i32
 );
 syscall!(
     SyscallType::Read =>
     /// # Safety
     ///
     /// `buf` must be a valid pointer to an array of `i32`s with a length of `count`.
-    unsafe fn read(fd: i32, buf: *mut i32, count: usize) -> i32
+    unsafe fn read(fd: i32, buf: *mut u8, count: usize) -> i32
 );
 syscall!(SyscallType::Close => fn close(fd: i32) -> i32);
 syscall!(SyscallType::Kill => fn kill(pid: i32) -> i32);
@@ -132,10 +132,3 @@ syscall!(SyscallType::Getpid => fn getpid() -> i32);
 syscall!(SyscallType::Sbrk => fn sbrk(incr: i32) -> *mut char);
 syscall!(SyscallType::Sleep => fn sleep(n: i32) -> i32);
 syscall!(SyscallType::Uptime => fn uptime() -> i32);
-
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
-}
