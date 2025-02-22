@@ -1,5 +1,7 @@
 use core::ptr::NonNull;
 
+use xv6_syscall::OpenFlags;
+
 use crate::{
     file::{self, File, pipe},
     fs::{self, Inode, T_DEVICE, T_DIR, T_FILE},
@@ -9,10 +11,7 @@ use crate::{
     },
     param::{MAX_ARG, MAX_PATH, NDEV},
     proc::{Proc, exec},
-    syscall::{
-        self,
-        fcntl::{O_CREATE, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY},
-    },
+    syscall,
 };
 
 /// Fetches the nth word-sized system call argument as a file descriptor
@@ -88,17 +87,17 @@ pub fn sys_unlink(p: &Proc) -> Result<usize, ()> {
 }
 
 pub fn sys_open(p: &Proc) -> Result<usize, ()> {
-    let o_mode = syscall::arg_int(p, 1);
+    let mode = OpenFlags::from_bits_retain(syscall::arg_int(p, 1));
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(p, 0, &mut path)?;
 
     let tx = fs::begin_tx();
-    let mut ip = if (o_mode & O_CREATE) != 0 {
+    let mut ip = if mode.contains(OpenFlags::CREATE) {
         fs::ops::create(&tx, p, path, T_FILE, 0, 0)?
     } else {
         let mut ip = fs::path::resolve(&tx, p, path)?;
         let lip = ip.lock();
-        if lip.is_dir() && o_mode != O_RDONLY {
+        if lip.is_dir() && mode != OpenFlags::READ_ONLY {
             return Err(());
         }
         lip.unlock();
@@ -119,15 +118,15 @@ pub fn sys_open(p: &Proc) -> Result<usize, ()> {
         return Err(());
     };
 
-    let readable = (o_mode & O_WRONLY) == 0;
-    let writable = (o_mode & O_WRONLY) != 0 || (o_mode & O_RDWR) != 0;
+    let readable = !mode.contains(OpenFlags::WRITE_ONLY);
+    let writable = mode.contains(OpenFlags::WRITE_ONLY) || mode.contains(OpenFlags::READ_WRITE);
     if lip.ty() == T_DEVICE {
         f.init_device(lip.major(), Inode::from_locked(&lip), readable, writable);
     } else {
         f.init_inode(Inode::from_locked(&lip), readable, writable);
     }
 
-    if (o_mode & O_TRUNC) != 0 && lip.ty() == T_FILE {
+    if mode.contains(OpenFlags::TRUNC) && lip.ty() == T_FILE {
         lip.truncate();
     }
 

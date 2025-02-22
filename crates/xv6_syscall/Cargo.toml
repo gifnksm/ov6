@@ -1,0 +1,9 @@
+[package]
+name = "xv6_syscall"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bitflags.workspace = true
+strum.workspace = true
+
