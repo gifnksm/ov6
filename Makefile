@@ -120,13 +120,13 @@ target/xv6/%: target/$(RUST_TARGET)/% target/xv6/%.debug | $$(dir $$@)
 RUPROGS=\
 	$R/cat\
 	$R/echo\
-	$R/hello\
 	$R/forktest\
 	$R/grep\
+	$R/hello\
 	$R/init\
+	$R/kill\
 
 UPROGS=\
-	$U/_kill\
 	$U/_ln\
 	$U/_ls\
 	$U/_mkdir\

@@ -33,6 +33,14 @@ pub fn wait() -> Result<(u32, ExitStatus), Error> {
     Ok((pid.cast_unsigned(), ExitStatus { status }))
 }
 
+pub fn kill(pid: u32) -> Result<(), Error> {
+    let res = syscall::kill(pid.cast_signed());
+    if res < 0 {
+        return Err(Error::Unknown);
+    }
+    Ok(())
+}
+
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExitStatus {
     status: i32,
