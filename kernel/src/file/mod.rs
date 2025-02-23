@@ -6,6 +6,9 @@ use core::{
     sync::atomic::{AtomicI32, Ordering},
 };
 
+use xv6_fs_types::{T_DEVICE, T_DIR, T_FILE};
+use xv6_syscall::{Stat, StatType};
+
 use crate::{
     fs::{self, FS_BLOCK_SIZE, Inode},
     memory::vm::{self, VirtAddr},
@@ -193,7 +196,19 @@ pub fn stat(p: &Proc, f: &File, addr: VirtAddr) -> Result<(), ()> {
             let tx = fs::begin_readonly_tx();
             let mut ip = f.ip.as_ref().unwrap().to_tx(&tx);
             let lip = ip.lock();
-            let st = lip.stat();
+            let ty = match lip.ty() {
+                T_DIR => StatType::Dir,
+                T_FILE => StatType::File,
+                T_DEVICE => StatType::Dir,
+                _ => return Err(()),
+            };
+            let st = Stat {
+                dev: lip.dev().value().cast_signed(),
+                ino: lip.inum().value(),
+                ty: ty as _,
+                nlink: lip.nlink(),
+                size: u64::from(lip.size()),
+            };
             drop(lip);
             drop(ip);
             vm::copy_out(p.pagetable().unwrap(), addr, &st)?;

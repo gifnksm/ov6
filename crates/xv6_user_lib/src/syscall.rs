@@ -1,6 +1,6 @@
 use core::arch::naked_asm;
 
-pub use xv6_syscall::{OpenFlags, Stat, SyscallType};
+pub use xv6_syscall::{OpenFlags, Stat, StatType, SyscallType};
 
 macro_rules! syscall {
     ($ty:expr => $(#[$attr:meta])* fn $name:ident($($params:tt)*) -> $ret:ty) => {

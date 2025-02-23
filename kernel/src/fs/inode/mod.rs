@@ -75,7 +75,6 @@ use crate::{
 use super::{
     BlockNo, DeviceNo, InodeNo, SUPER_BLOCK, Tx,
     repr::{self, NUM_DIRECT_REFS},
-    stat::Stat,
 };
 
 mod content;
@@ -390,6 +389,14 @@ impl<'tx, 'i, const READ_ONLY: bool> LockedTxInode<'tx, 'i, READ_ONLY> {
         self.data().ty
     }
 
+    pub fn nlink(&self) -> i16 {
+        self.data().nlink
+    }
+
+    pub fn size(&self) -> u32 {
+        self.data().size
+    }
+
     pub fn major(&self) -> i16 {
         self.data().major
     }
@@ -404,18 +411,6 @@ impl<'tx, 'i, const READ_ONLY: bool> LockedTxInode<'tx, 'i, READ_ONLY> {
 
     pub(super) fn data_mut(&mut self) -> &mut InodeData {
         self.locked.as_mut().unwrap()
-    }
-
-    /// Copies stat information from inode.
-    pub fn stat(&self) -> Stat {
-        let data = self.data();
-        Stat {
-            dev: self.dev,
-            ino: self.inum,
-            ty: data.ty,
-            nlink: data.nlink,
-            size: u64::from(data.size),
-        }
     }
 
     /// Unlocks the inode.

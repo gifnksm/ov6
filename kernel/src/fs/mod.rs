@@ -29,7 +29,6 @@ mod inode;
 mod log;
 pub mod ops;
 pub mod path;
-pub mod stat;
 mod virtio;
 pub mod virtio_disk;
 

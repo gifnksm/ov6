@@ -29,6 +29,14 @@ pub struct Stat {
     pub size: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromRepr)]
+#[repr(i16)]
+pub enum StatType {
+    Dir = 1,
+    File = 2,
+    Dev = 3,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr)]
 #[repr(usize)]
 pub enum SyscallType {

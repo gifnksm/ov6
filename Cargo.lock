@@ -227,5 +227,8 @@ dependencies = [
 name = "xv6_user_lib"
 version = "0.1.0"
 dependencies = [
+ "dataview",
+ "strum",
+ "xv6_fs_types",
  "xv6_syscall",
 ]

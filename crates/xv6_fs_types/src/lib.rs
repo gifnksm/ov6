@@ -15,7 +15,7 @@
 
 use core::{fmt, mem};
 
-use dataview::{Pod, PodMethods};
+use dataview::{Pod, PodMethods as _};
 
 /// Block size.
 pub const FS_BLOCK_SIZE: usize = 1024;
