@@ -82,12 +82,6 @@ _%: %.o $(ULIB) $U/user.ld
 	$(OBJDUMP) -SC $@ > $*.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' | c++filt > $*.sym
 
-$U/_forktest: $U/forktest.o $(ULIB)
-	# forktest has less library code linked in - needs to be small
-	# in order to be able to max out the proc table.
-	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $U/_forktest $U/forktest.o $U/ulib.o $R/libxv6_user_lib.a
-	$(OBJDUMP) -SC $U/_forktest > $U/forktest.asm
-
 target/$(RUST_TARGET)/release/kernel: FORCE
 	cargo build -p kernel --release
 
@@ -121,9 +115,9 @@ RUPROGS=\
 	$R/cat\
 	$R/echo\
 	$R/hello\
+	$R/forktest\
 
 UPROGS=\
-	$U/_forktest\
 	$U/_grep\
 	$U/_init\
 	$U/_kill\

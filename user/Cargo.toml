@@ -18,6 +18,11 @@ test = false
 bench = false
 
 [[bin]]
+name = "forktest"
+test = false
+bench = false
+
+[[bin]]
 name = "hello"
 test = false
 bench = false
