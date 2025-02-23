@@ -1,16 +1,14 @@
 #![no_std]
-#![no_main]
 
 use xv6_user_lib::{
     env, eprintln,
-    error::Error,
     fs::File,
     io::{self, Read, Write},
     process,
     syscall::OpenFlags,
 };
 
-fn cat<T>(mut input: T) -> Result<(), Error>
+fn cat<T>(mut input: T)
 where
     T: Read,
 {
@@ -33,26 +31,12 @@ where
             process::exit(1);
         }
     }
-
-    Ok(())
 }
 
-#[unsafe(no_mangle)]
 fn main() {
-    match run() {
-        Ok(()) => process::exit(0),
-        Err(err) => {
-            let prog = env::arg0();
-            eprintln!("{prog}: {err}",);
-            process::exit(1);
-        }
-    }
-}
-
-fn run() -> Result<(), Error> {
     let args = env::args_cstr();
     if args.len() == 0 {
-        cat(io::stdin())?;
+        cat(io::stdin());
         process::exit(0);
     }
 
@@ -62,8 +46,6 @@ fn run() -> Result<(), Error> {
             process::exit(1);
         };
 
-        cat(&file)?;
+        cat(&file);
     }
-
-    Ok(())
 }

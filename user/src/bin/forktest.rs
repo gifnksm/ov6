@@ -1,5 +1,4 @@
 #![no_std]
-#![no_main]
 
 use xv6_user_lib::{eprintln, process};
 
@@ -43,7 +42,6 @@ fn forktest() {
     eprintln!("fork test OK (n={n})");
 }
 
-#[unsafe(no_mangle)]
 fn main() {
     forktest();
     process::exit(0);

@@ -1,4 +1,6 @@
+#![feature(lang_items)]
 #![feature(naked_functions)]
+#![allow(internal_features)]
 #![no_std]
 
 pub mod env;
@@ -9,16 +11,13 @@ pub mod os;
 pub mod process;
 pub mod syscall;
 
-unsafe extern "Rust" {
-    fn main();
-}
-
-#[unsafe(export_name = "_start")]
-extern "C" fn start(argc: usize, argv: *const *const u8) {
-    env::set_args(argc, argv);
-    unsafe {
-        main();
+#[lang = "start"]
+fn lang_start<T>(main: fn() -> T, argc: isize, argv: *const *const u8, _: u8) -> isize {
+    if argc < 0 {
+        panic!("argc should be greater than 0");
     }
+    env::set_args(argc.cast_unsigned(), argv);
+    main();
     process::exit(0);
 }
 
