@@ -1,10 +1,7 @@
 #![feature(naked_functions)]
 #![no_std]
 
-unsafe extern "Rust" {
-    fn main(argc: i32, argv: *mut *mut u8);
-}
-
+pub mod env;
 pub mod error;
 pub mod fs;
 pub mod io;
@@ -12,10 +9,15 @@ pub mod os;
 pub mod process;
 pub mod syscall;
 
+unsafe extern "Rust" {
+    fn main();
+}
+
 #[unsafe(export_name = "_start")]
-extern "C" fn start(argc: i32, argv: *mut *mut u8) {
+extern "C" fn start(argc: usize, argv: *const *const u8) {
+    env::set_args(argc, argv);
     unsafe {
-        main(argc, argv);
+        main();
     }
     process::exit(0);
 }

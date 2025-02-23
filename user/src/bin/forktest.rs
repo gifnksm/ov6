@@ -44,7 +44,7 @@ fn forktest() {
 }
 
 #[unsafe(no_mangle)]
-fn main(_argc: i32, _argv: *const *const u8) {
+fn main() {
     forktest();
     process::exit(0);
 }
