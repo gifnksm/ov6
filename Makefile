@@ -118,11 +118,11 @@ target/xv6/%: target/$(RUST_TARGET)/% target/xv6/%.debug | $$(dir $$@)
 .PRECIOUS: %.o
 
 RUPROGS=\
-	$R/hello\
 	$R/cat\
+	$R/echo\
+	$R/hello\
 
 UPROGS=\
-	$U/_echo\
 	$U/_forktest\
 	$U/_grep\
 	$U/_init\

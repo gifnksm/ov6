@@ -8,12 +8,17 @@ edition.workspace = true
 forced-target = "riscv64gc-unknown-none-elf"
 
 [[bin]]
-name = "hello"
+name = "cat"
 test = false
 bench = false
 
 [[bin]]
-name = "cat"
+name = "echo"
+test = false
+bench = false
+
+[[bin]]
+name = "hello"
 test = false
 bench = false
 
