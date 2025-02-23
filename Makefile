@@ -122,10 +122,10 @@ RUPROGS=\
 	$R/echo\
 	$R/hello\
 	$R/forktest\
+	$R/grep\
 	$R/init\
 
 UPROGS=\
-	$U/_grep\
 	$U/_kill\
 	$U/_ln\
 	$U/_ls\
