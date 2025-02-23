@@ -7,7 +7,7 @@ fn main() {
     let args = env::args();
 
     if args.len() == 0 {
-        eprintln!("usage: {prog} pid...");
+        eprintln!("Usage: {prog} pid...");
         process::exit(1);
     }
 

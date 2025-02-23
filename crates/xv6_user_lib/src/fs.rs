@@ -121,6 +121,14 @@ pub fn metadata(path: &CStr) -> Result<Metadata, Error> {
     file.stat()
 }
 
+pub fn create_dir(path: &CStr) -> Result<(), Error> {
+    let res = unsafe { syscall::mkdir(path.as_ptr()) };
+    if res < 0 {
+        return Err(Error::Unknown);
+    }
+    Ok(())
+}
+
 pub fn read_dir(path: &CStr) -> Result<ReadDir, Error> {
     let fd = os::fd_open(path, OpenFlags::READ_ONLY)?;
     let st = os::fd_stat(fd)?;

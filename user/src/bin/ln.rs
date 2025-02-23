@@ -6,7 +6,7 @@ fn main() {
     let prog = env::arg0();
     let mut args = env::args_cstr();
     if args.len() != 2 {
-        eprintln!("{prog} old new");
+        eprintln!("Usage: {prog} old new");
         process::exit(1);
     }
 
