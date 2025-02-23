@@ -1,10 +1,6 @@
 #![feature(naked_functions)]
 #![no_std]
 
-pub const STDIN_FD: i32 = 0;
-pub const STDOUT_FD: i32 = 1;
-pub const STDERR_FD: i32 = 2;
-
 unsafe extern "Rust" {
     fn main(argc: i32, argv: *mut *mut u8);
 }

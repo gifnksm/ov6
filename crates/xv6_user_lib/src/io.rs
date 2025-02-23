@@ -1,6 +1,10 @@
 use core::fmt::{self, Write as _};
 
-use crate::{STDERR_FD, STDIN_FD, STDOUT_FD, error::Error, os};
+use crate::{error::Error, os};
+
+pub const STDIN_FD: i32 = 0;
+pub const STDOUT_FD: i32 = 1;
+pub const STDERR_FD: i32 = 2;
 
 pub trait Read {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error>;
