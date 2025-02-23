@@ -20,6 +20,11 @@ impl File {
         }
         Ok(Self { fd })
     }
+
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        let fd = os::fd_dup(self.fd)?;
+        Ok(File { fd })
+    }
 }
 
 impl Drop for File {
@@ -50,4 +55,11 @@ impl Read for &'_ File {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         os::fd_read(self.fd, buf)
     }
+}
+
+pub fn mknod(path: &CStr, major: i16, minor: i16) -> Result<(), Error> {
+    if unsafe { syscall::mknod(path.as_ptr(), major, minor) } < 0 {
+        return Err(Error::Unknown);
+    }
+    Ok(())
 }

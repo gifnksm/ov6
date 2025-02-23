@@ -1,3 +1,5 @@
+use core::{convert::Infallible, ffi::CStr};
+
 use crate::{error::Error, syscall};
 
 pub fn exit(code: i32) -> ! {
@@ -12,13 +14,23 @@ pub fn fork() -> Result<u32, Error> {
     Ok(pid.cast_unsigned())
 }
 
-pub fn wait() -> Result<ExitStatus, Error> {
+pub fn exec(path: &CStr, argv: &[*const u8]) -> Result<Infallible, Error> {
+    assert!(
+        argv.last().unwrap().is_null(),
+        "last element of argv must be null"
+    );
+    let res = unsafe { syscall::exec(path.as_ptr(), argv.as_ptr()) };
+    assert!(res < 0);
+    Err(Error::Unknown)
+}
+
+pub fn wait() -> Result<(u32, ExitStatus), Error> {
     let mut status = 0;
-    let ret = unsafe { syscall::wait(&mut status) };
-    if ret < 0 {
+    let pid = unsafe { syscall::wait(&mut status) };
+    if pid < 0 {
         return Err(Error::Unknown);
     }
-    Ok(ExitStatus { status })
+    Ok((pid.cast_unsigned(), ExitStatus { status }))
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]

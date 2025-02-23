@@ -26,7 +26,7 @@ fn forktest() {
     }
 
     for _ in 0..n {
-        let Ok(status) = process::wait() else {
+        let Ok((_pid, status)) = process::wait() else {
             panic!("wait stopped early");
         };
 

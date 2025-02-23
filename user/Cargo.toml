@@ -23,6 +23,11 @@ test = false
 bench = false
 
 [[bin]]
+name = "init"
+test = false
+bench = false
+
+[[bin]]
 name = "hello"
 test = false
 bench = false
