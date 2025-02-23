@@ -1,12 +1,12 @@
 use core::ffi::CStr;
 
-use xv6_user_syscall::OpenFlags;
-
 use crate::{
     error::Error,
     io::{Read, Write},
     os, syscall,
 };
+
+pub use syscall::OpenFlags;
 
 pub struct File {
     fd: i32,

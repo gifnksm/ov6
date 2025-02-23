@@ -1,11 +1,11 @@
-use crate::error::Error;
+use crate::{error::Error, syscall};
 
 pub fn exit(code: i32) -> ! {
-    xv6_user_syscall::exit(code);
+    syscall::exit(code);
 }
 
 pub fn fork() -> Result<u32, Error> {
-    let pid = xv6_user_syscall::fork();
+    let pid = syscall::fork();
     if pid < 0 {
         return Err(Error::Unknown);
     }
@@ -14,7 +14,7 @@ pub fn fork() -> Result<u32, Error> {
 
 pub fn wait() -> Result<ExitStatus, Error> {
     let mut status = 0;
-    let ret = unsafe { xv6_user_syscall::wait(&mut status) };
+    let ret = unsafe { syscall::wait(&mut status) };
     if ret < 0 {
         return Err(Error::Unknown);
     }

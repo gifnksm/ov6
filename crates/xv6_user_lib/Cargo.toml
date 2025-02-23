@@ -13,4 +13,4 @@ test = false
 bench = false
 
 [dependencies]
-xv6_user_syscall.workspace = true
+xv6_syscall.workspace = true

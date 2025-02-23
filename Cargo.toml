@@ -1,5 +1,5 @@
 [workspace]
-members = [ "crates/block_io", "crates/lru", "crates/mutex_api", "crates/once_init", "crates/page_alloc", "crates/xv6_fs_types", "crates/xv6_kernel_params", "crates/xv6_syscall", "crates/xv6_user_lib", "crates/xv6_user_syscall", "kernel" , "mkfs", "user"]
+members = [ "crates/block_io", "crates/lru", "crates/mutex_api", "crates/once_init", "crates/page_alloc", "crates/xv6_fs_types", "crates/xv6_kernel_params", "crates/xv6_syscall", "crates/xv6_user_lib", "kernel" , "mkfs", "user"]
 resolver = "2"
 
 [workspace.package]
@@ -21,7 +21,6 @@ xv6_fs_types = { path = "crates/xv6_fs_types" }
 xv6_kernel_params = { path = "crates/xv6_kernel_params" }
 xv6_syscall = { path = "crates/xv6_syscall" }
 xv6_user_lib = { path = "crates/xv6_user_lib" }
-xv6_user_syscall = { path = "crates/xv6_user_syscall" }
 
 [profile.release]
 debug = "full"

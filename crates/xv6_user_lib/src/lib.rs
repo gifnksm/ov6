@@ -1,3 +1,4 @@
+#![feature(naked_functions)]
 #![no_std]
 
 pub const STDIN_FD: i32 = 0;
@@ -8,13 +9,12 @@ unsafe extern "Rust" {
     fn main(argc: i32, argv: *mut *mut u8);
 }
 
-pub use xv6_user_syscall as syscall;
-
 pub mod error;
 pub mod fs;
 pub mod io;
 pub mod os;
 pub mod process;
+pub mod syscall;
 
 #[unsafe(export_name = "_start")]
 extern "C" fn start(argc: i32, argv: *mut *mut u8) {
