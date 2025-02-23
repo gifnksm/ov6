@@ -63,3 +63,10 @@ pub fn mknod(path: &CStr, major: i16, minor: i16) -> Result<(), Error> {
     }
     Ok(())
 }
+
+pub fn link(old: &CStr, new: &CStr) -> Result<(), Error> {
+    if unsafe { syscall::link(old.as_ptr(), new.as_ptr()) } < 0 {
+        return Err(Error::Unknown);
+    }
+    Ok(())
+}

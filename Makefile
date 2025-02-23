@@ -125,9 +125,9 @@ RUPROGS=\
 	$R/hello\
 	$R/init\
 	$R/kill\
+	$R/ln\
 
 UPROGS=\
-	$U/_ln\
 	$U/_ls\
 	$U/_mkdir\
 	$U/_rm\
