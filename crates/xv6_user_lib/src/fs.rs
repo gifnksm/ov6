@@ -121,6 +121,14 @@ pub fn metadata(path: &CStr) -> Result<Metadata, Error> {
     file.stat()
 }
 
+pub fn remove_file(arg: &CStr) -> Result<(), Error> {
+    let res = unsafe { syscall::unlink(arg.as_ptr()) };
+    if res < 0 {
+        return Err(Error::Unknown);
+    }
+    Ok(())
+}
+
 pub fn create_dir(path: &CStr) -> Result<(), Error> {
     let res = unsafe { syscall::mkdir(path.as_ptr()) };
     if res < 0 {

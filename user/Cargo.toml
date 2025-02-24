@@ -57,5 +57,10 @@ name = "mkdir"
 test = false
 bench = false
 
+[[bin]]
+name = "rm"
+test = false
+bench = false
+
 [dependencies]
 xv6_user_lib.workspace = true

@@ -128,9 +128,9 @@ RUPROGS=\
 	$R/ln\
 	$R/ls\
 	$R/mkdir\
+	$R/rm\
 
 UPROGS=\
-	$U/_rm\
 	$U/_sh\
 	$U/_stressfs\
 	$U/_usertests\
