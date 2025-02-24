@@ -181,6 +181,10 @@ impl<T> SpinLockGuard<'_, T> {
     pub unsafe fn spinlock(&self) -> &RawSpinLock {
         &self.lock.lock
     }
+
+    pub fn unlock(self) {
+        // drop
+    }
 }
 
 pub struct SpinLockCondVar {

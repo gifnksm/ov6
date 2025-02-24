@@ -65,12 +65,11 @@
 //! have locked the inodes involved; this lets callers create
 //! multi-step atomic operations.
 
-use alloc::sync::Arc;
+use alloc::sync::{Arc, Weak};
 
 use crate::{
     error::Error,
-    param::NINODE,
-    sync::{SleepLock, SleepLockGuard, SpinLock},
+    sync::{SleepLock, SleepLockGuard},
 };
 
 use super::{
@@ -80,8 +79,10 @@ use super::{
 
 mod content;
 mod directory;
+mod table;
 
 type InodeDataPtr = Arc<SleepLock<Option<InodeData>>>;
+type InodeDataWeakPtr = Weak<SleepLock<Option<InodeData>>>;
 type InodeDataGuard<'a> = SleepLockGuard<'a, Option<InodeData>>;
 
 #[derive(Clone)]
@@ -140,36 +141,6 @@ pub struct LockedTxInode<'tx, 'i, const READ_ONLY: bool> {
     locked: InodeDataGuard<'i>,
 }
 
-struct InodeEntry {
-    dev: DeviceNo,
-    ino: InodeNo,
-    data: InodeDataPtr,
-}
-
-impl InodeEntry {
-    fn new(dev: DeviceNo, ino: InodeNo) -> Self {
-        Self {
-            dev,
-            ino,
-            data: Arc::new(SleepLock::new(None)),
-        }
-    }
-
-    /// Resets the `InodeEntry`.
-    ///
-    /// Caller must ensures that no other reference to this entry exist.
-    fn reset(&mut self, dev: DeviceNo, ino: InodeNo) -> Result<(), Error> {
-        let data = Arc::get_mut(&mut self.data).ok_or(Error::Unknown)?;
-        *data.try_lock()? = None;
-        self.dev = dev;
-        self.ino = ino;
-        Ok(())
-    }
-}
-
-static INODE_TABLE: SpinLock<[Option<InodeEntry>; NINODE]> =
-    SpinLock::new([const { None }; NINODE]);
-
 impl<const READ_ONLY: bool> TxInode<'_, READ_ONLY> {
     pub fn dev(&self) -> DeviceNo {
         self.dev
@@ -219,50 +190,9 @@ impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
     ///
     /// Returns the in-memory inode copy.
     pub fn get(tx: &'tx Tx<READ_ONLY>, dev: DeviceNo, ino: InodeNo) -> Self {
-        let mut table = INODE_TABLE.lock();
-
-        let mut empty = None;
-        let iter = table.iter_mut().find_map(|entry_ref| {
-            // Recycle empty entry
-            let Some(entry) = entry_ref else {
-                empty = Some(entry_ref);
-                return None;
-            };
-
-            // Recycle unreferred entry
-            if Arc::get_mut(&mut entry.data).is_some() {
-                empty = Some(entry_ref);
-                return None;
-            }
-
-            if entry.dev != dev || entry.ino != ino {
-                return None;
-            }
-            let data = Arc::clone(&entry.data);
-            Some(TxInode::new(tx, dev, ino, data))
-        });
-
-        if let Some(found) = iter {
-            return found;
-        }
-
-        let Some(empty) = empty else {
-            panic!("no inodes");
+        let Ok(data) = table::get_or_insert(dev, ino) else {
+            panic!("cannot allocate in-memory inode entry any more");
         };
-
-        let data = match empty {
-            Some(entry) => {
-                entry.reset(dev, ino).unwrap();
-                Arc::clone(&entry.data)
-            }
-            None => {
-                let entry = InodeEntry::new(dev, ino);
-                let data = Arc::clone(&entry.data);
-                *empty = Some(entry);
-                data
-            }
-        };
-
         TxInode::new(tx, dev, ino, data)
     }
 
@@ -315,24 +245,23 @@ impl<'tx> TxInode<'tx, false> {
 
 impl<const READ_ONLY: bool> Drop for TxInode<'_, READ_ONLY> {
     fn drop(&mut self) {
-        let mut _table = INODE_TABLE.lock();
-
-        if Arc::strong_count(&self.data) > 2 {
+        let table = table::lock();
+        if Arc::strong_count(&self.data) > 1 {
             return;
         }
 
-        // strong_count == 2 means no other process can have self locked,
+        // strong_count == 1 means no other process can have self locked,
         // so this acquires won't block (or deadlock).
         let lip = self.try_lock().unwrap();
 
+        // if the file is referenced in file system, do nothing
         if lip.data().nlink > 0 {
             return;
         }
 
-        // inode has no links and no other references: truncate and free
+        table.unlock();
 
-        drop(_table);
-
+        // remove inode on disk
         if let Some(tx) = lip.tx.to_writable() {
             let mut lip = LockedTxInode {
                 tx: &*tx,
