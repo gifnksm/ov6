@@ -3,7 +3,7 @@ use dataview::PodMethods as _;
 use crate::{error::Error, fs::repr, proc::Proc};
 
 use super::{
-    DIR_SIZE, Tx,
+    DIR_SIZE, DeviceNo, Tx,
     inode::TxInode,
     path,
     repr::{T_DEVICE, T_FILE},
@@ -53,7 +53,7 @@ pub fn create<'tx>(
     p: &Proc,
     path: &[u8],
     ty: i16,
-    major: i16,
+    major: DeviceNo,
     minor: i16,
 ) -> Result<TxInode<'tx, false>, Error> {
     let mut name = [0; DIR_SIZE];

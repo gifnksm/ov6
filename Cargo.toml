@@ -1,5 +1,5 @@
 [workspace]
-members = [ "crates/block_io", "crates/lru", "crates/mutex_api", "crates/once_init", "crates/page_alloc", "crates/xv6_fs_types", "crates/xv6_kernel_params", "crates/xv6_syscall", "crates/xv6_user_lib", "kernel" , "mkfs", "user"]
+members = [ "crates/block_io", "crates/lru", "crates/mutex_api", "crates/once_init", "crates/page_alloc", "crates/slab_allocator", "crates/xv6_fs_types", "crates/xv6_kernel_params", "crates/xv6_syscall", "crates/xv6_user_lib", "kernel" , "mkfs", "user"]
 resolver = "2"
 
 [workspace.package]
@@ -16,6 +16,7 @@ lru = { path = "crates/lru" }
 mutex_api = { path = "crates/mutex_api" }
 once_init = { path = "crates/once_init" }
 page_alloc = { path = "crates/page_alloc" }
+slab_allocator = { path = "crates/slab_allocator" }
 strum = { version = "0.27.1", default-features = false, features = ["derive"] }
 thiserror = { version = "2.0.11", default-features = false }
 xv6_fs_types = { path = "crates/xv6_fs_types" }

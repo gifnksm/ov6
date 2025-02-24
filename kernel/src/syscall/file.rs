@@ -1,23 +1,21 @@
-use core::ptr::NonNull;
-
 use xv6_syscall::OpenFlags;
 
 use crate::{
     error::Error,
-    file::{self, File, pipe},
-    fs::{self, Inode, T_DEVICE, T_DIR, T_FILE},
+    file::File,
+    fs::{self, DeviceNo, Inode, T_DEVICE, T_DIR, T_FILE},
     memory::{
         page,
         vm::{self, PAGE_SIZE},
     },
-    param::{MAX_ARG, MAX_PATH, NDEV},
+    param::{MAX_ARG, MAX_PATH},
     proc::{Proc, exec},
     syscall,
 };
 
 /// Fetches the nth word-sized system call argument as a file descriptor
 /// and returns the descriptor and the corresponding `File`.
-fn arg_fd(p: &Proc, n: usize) -> Result<(usize, NonNull<File>), Error> {
+fn arg_fd(p: &Proc, n: usize) -> Result<(usize, File), Error> {
     let fd = syscall::arg_int(p, n);
     let file = p.ofile(fd).ok_or(Error::Unknown)?;
     Ok((fd, file))
@@ -26,14 +24,13 @@ fn arg_fd(p: &Proc, n: usize) -> Result<(usize, NonNull<File>), Error> {
 /// Allocates a file descriptor for the given `File`.
 ///
 /// Takes over file reference from caller on success.
-fn fd_alloc(p: &Proc, file: NonNull<File>) -> Result<usize, Error> {
-    p.add_ofile(file).ok_or(Error::Unknown)
+fn fd_alloc(p: &Proc, file: &File) -> Result<usize, Error> {
+    p.add_ofile(file.clone()).ok_or(Error::Unknown)
 }
 
 pub fn sys_dup(p: &Proc) -> Result<usize, Error> {
     let (_fd, f) = arg_fd(p, 0)?;
-    let fd = fd_alloc(p, f)?;
-    file::dup(unsafe { f.as_ref() });
+    let fd = fd_alloc(p, &f)?;
     Ok(fd)
 }
 
@@ -41,27 +38,26 @@ pub fn sys_read(p: &Proc) -> Result<usize, Error> {
     let va = syscall::arg_addr(p, 1);
     let n = syscall::arg_int(p, 2);
     let (_fd, f) = arg_fd(p, 0)?;
-    file::read(p, unsafe { f.as_ref() }, va, n)
+    f.read(p, va, n)
 }
 
 pub fn sys_write(p: &Proc) -> Result<usize, Error> {
     let va = syscall::arg_addr(p, 1);
     let n = syscall::arg_int(p, 2);
     let (_fd, f) = arg_fd(p, 0)?;
-    file::write(p, unsafe { f.as_ref() }, va, n)
+    f.write(p, va, n)
 }
 
 pub fn sys_close(p: &Proc) -> Result<usize, Error> {
-    let (fd, f) = arg_fd(p, 0)?;
+    let (fd, _f) = arg_fd(p, 0)?;
     p.unset_ofile(fd);
-    file::close(unsafe { f.as_ref() });
     Ok(0)
 }
 
 pub fn sys_fstat(p: &Proc) -> Result<usize, Error> {
     let va = syscall::arg_addr(p, 1);
     let (_fd, f) = arg_fd(p, 0)?;
-    file::stat(p, unsafe { f.as_ref() }, va)?;
+    f.stat(p, va)?;
     Ok(0)
 }
 
@@ -94,7 +90,7 @@ pub fn sys_open(p: &Proc) -> Result<usize, Error> {
 
     let tx = fs::begin_tx();
     let mut ip = if mode.contains(OpenFlags::CREATE) {
-        fs::ops::create(&tx, p, path, T_FILE, 0, 0)?
+        fs::ops::create(&tx, p, path, T_FILE, DeviceNo::ROOT, 0)?
     } else {
         let mut ip = fs::path::resolve(&tx, p, path)?;
         let lip = ip.lock();
@@ -106,30 +102,20 @@ pub fn sys_open(p: &Proc) -> Result<usize, Error> {
     };
 
     let mut lip = ip.lock();
-    if lip.ty() == T_DEVICE && (lip.major() < 0 || lip.major() as usize >= NDEV) {
-        return Err(Error::Unknown);
-    }
-
-    let Some(f) = file::alloc() else {
-        return Err(Error::Unknown);
-    };
-
-    let Ok(fd) = fd_alloc(p, f.into()) else {
-        file::close(f);
-        return Err(Error::Unknown);
-    };
 
     let readable = !mode.contains(OpenFlags::WRITE_ONLY);
     let writable = mode.contains(OpenFlags::WRITE_ONLY) || mode.contains(OpenFlags::READ_WRITE);
-    if lip.ty() == T_DEVICE {
-        f.init_device(lip.major(), Inode::from_locked(&lip), readable, writable);
+    let f = if lip.ty() == T_DEVICE {
+        File::new_device(lip.major(), Inode::from_locked(&lip), readable, writable)?
     } else {
-        f.init_inode(Inode::from_locked(&lip), readable, writable);
-    }
+        File::new_inode(Inode::from_locked(&lip), readable, writable)?
+    };
 
     if mode.contains(OpenFlags::TRUNC) && lip.ty() == T_FILE {
         lip.truncate();
     }
+
+    let fd = fd_alloc(p, &f)?;
 
     Ok(fd)
 }
@@ -139,7 +125,7 @@ pub fn sys_mkdir(p: &Proc) -> Result<usize, Error> {
     let path = syscall::arg_str(p, 0, &mut path)?;
 
     let tx = fs::begin_tx();
-    let _ip = fs::ops::create(&tx, p, path, T_DIR, 0, 0)?;
+    let _ip = fs::ops::create(&tx, p, path, T_DIR, DeviceNo::ROOT, 0)?;
 
     Ok(0)
 }
@@ -147,11 +133,11 @@ pub fn sys_mkdir(p: &Proc) -> Result<usize, Error> {
 pub fn sys_mknod(p: &Proc) -> Result<usize, Error> {
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(p, 0, &mut path)?;
-    let major = syscall::arg_int(p, 1) as i16;
+    let major = syscall::arg_int(p, 1) as u32;
     let minor = syscall::arg_int(p, 2) as i16;
 
     let tx = fs::begin_tx();
-    let _ip = fs::ops::create(&tx, p, path, T_DEVICE, major, minor)?;
+    let _ip = fs::ops::create(&tx, p, path, T_DEVICE, DeviceNo::new(major), minor)?;
 
     Ok(0)
 }
@@ -218,17 +204,13 @@ pub fn sys_exec(p: &Proc) -> Result<usize, Error> {
 pub fn sys_pipe(p: &Proc) -> Result<usize, Error> {
     let fd_array = syscall::arg_addr(p, 0);
 
-    let (rf, wf) = pipe::alloc()?;
+    let (rf, wf) = File::new_pipe()?;
 
-    let Ok(rfd) = fd_alloc(p, rf.into()) else {
-        file::close(rf);
-        file::close(wf);
+    let Ok(rfd) = fd_alloc(p, &rf) else {
         return Err(Error::Unknown);
     };
-    let Ok(wfd) = fd_alloc(p, wf.into()) else {
+    let Ok(wfd) = fd_alloc(p, &wf) else {
         p.unset_ofile(rfd);
-        file::close(rf);
-        file::close(wf);
         return Err(Error::Unknown);
     };
 
@@ -236,8 +218,6 @@ pub fn sys_pipe(p: &Proc) -> Result<usize, Error> {
     if vm::copy_out(p.pagetable().unwrap(), fd_array, &fds).is_err() {
         p.unset_ofile(rfd);
         p.unset_ofile(wfd);
-        file::close(rf);
-        file::close(wf);
         return Err(Error::Unknown);
     }
 

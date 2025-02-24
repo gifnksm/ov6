@@ -1,3 +1,4 @@
+#![feature(allocator_api)]
 #![feature(fn_align)]
 #![feature(naked_functions)]
 #![no_std]
@@ -49,6 +50,7 @@ extern "C" fn main() -> ! {
         interrupt::plic::init(); // set up interrupt controller
         interrupt::plic::init_hart(); // ask PLIC for device interrupts
         fs::init(); // file system (buffer cache and hard disk)
+        file::init(); // file table
         proc::user_init(); // first user process
         STARTED.store(true, Ordering::Release);
     } else {

@@ -9,11 +9,11 @@
 //! * `control-d` -- end of file
 //! * `control-p` -- print process list
 
-use core::ffi::c_int;
-
 use crate::{
     error::Error,
-    file::{self, DevSw},
+    file::{self, Device},
+    fs::DeviceNo,
+    memory::vm::VirtAddr,
     proc::{self, Proc},
     sync::SpinLock,
 };
@@ -178,29 +178,24 @@ pub fn handle_interrupt(c: u8) {
     }
 }
 
-extern "C" fn console_write(user_src: c_int, src: u64, n: c_int) -> c_int {
+fn console_write(user_src: bool, src: VirtAddr, n: usize) -> Result<usize, Error> {
     let p = Proc::current();
-    match write(p, user_src != 0, src as usize, n as usize) {
-        Ok(n) => n as c_int,
-        Err(Error::Unknown) => -1,
-    }
+    write(p, user_src, src.addr(), n)
 }
 
-extern "C" fn console_read(user_dst: c_int, dst: u64, n: c_int) -> c_int {
+fn console_read(user_dst: bool, dst: VirtAddr, n: usize) -> Result<usize, Error> {
     let p = Proc::current();
-    match read(p, user_dst != 0, dst as usize, n as usize) {
-        Ok(n) => n as c_int,
-        Err(Error::Unknown) => -1,
-    }
+    read(p, user_dst, dst.addr(), n)
 }
 
 pub fn init() {
     uart::init();
 
-    unsafe {
-        file::DEVSW[file::CONSOLE] = DevSw {
-            read: Some(console_read),
-            write: Some(console_write),
-        };
-    }
+    file::register_device(
+        DeviceNo::CONSOLE,
+        Device {
+            read: console_read,
+            write: console_write,
+        },
+    );
 }

@@ -1,0 +1,6 @@
+[package]
+name = "slab_allocator"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

@@ -13,7 +13,7 @@ use core::{
 use crate::{
     cpu::Cpu,
     error::Error,
-    file::{self, File},
+    file::File,
     fs::{self, DeviceNo, Inode},
     interrupt::{self, trampoline, trap},
     memory::{
@@ -196,7 +196,7 @@ pub struct Proc {
     /// switch() here to run process
     context: UnsafeCell<Context>,
     /// Open files
-    ofile: [UnsafeCell<Option<NonNull<File>>>; NOFILE],
+    ofile: [UnsafeCell<Option<File>>; NOFILE],
     /// CUrrent directory
     cwd: UnsafeCell<Option<Inode>>,
     // Process name (debugging)
@@ -303,13 +303,15 @@ impl Proc {
         unsafe { *self.parent.get() }.map(|mut p| unsafe { p.as_mut() })
     }
 
-    pub fn ofile(&self, fd: usize) -> Option<NonNull<File>> {
-        unsafe { *self.ofile.get(fd)?.get() }
+    pub fn ofile(&self, fd: usize) -> Option<File> {
+        let cell = self.ofile.get(fd)?;
+        let f = unsafe { cell.get().as_ref().unwrap().as_ref() }?;
+        Some(f.clone())
     }
 
-    pub fn add_ofile(&self, file: NonNull<File>) -> Option<usize> {
+    pub fn add_ofile(&self, file: File) -> Option<usize> {
         for (i, of) in self.ofile.iter().enumerate() {
-            if unsafe { *of.get() }.is_none() {
+            if unsafe { of.get().as_ref().unwrap() }.is_none() {
                 unsafe {
                     *of.get() = Some(file);
                 }
@@ -615,9 +617,9 @@ pub fn fork(p: &Proc) -> Option<ProcId> {
 
     // increment refereence counts on open file descriptors.
     for (of, nof) in p.ofile.iter().zip(&np.ofile) {
-        if let Some(of) = unsafe { *of.get() } {
+        if let Some(of) = unsafe { of.get().as_ref().unwrap().as_ref() } {
             unsafe {
-                *nof.get() = Some(file::dup(of.as_ref()).into());
+                *nof.get() = Some(of.dup());
             }
         }
     }
@@ -677,9 +679,9 @@ pub fn exit(p: &Proc, status: i32) -> ! {
         // Close all open files.
         for of in &p.ofile {
             if let Some(of) = unsafe { &mut *of.get() }.take() {
-                file::close(unsafe { of.as_ref() });
+                of.close();
             }
-            assert!(unsafe { *of.get() }.is_none());
+            assert!(unsafe { of.get().as_ref().unwrap() }.is_none());
         }
 
         let tx = fs::begin_tx();

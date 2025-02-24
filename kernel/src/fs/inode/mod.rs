@@ -103,7 +103,7 @@ pub struct TxInode<'tx, const READ_ONLY: bool> {
 
 pub(super) struct InodeData {
     pub(super) ty: i16,
-    pub(super) major: i16,
+    pub(super) major: DeviceNo,
     pub(super) minor: i16,
     pub(super) nlink: i16,
     size: u32,
@@ -116,7 +116,7 @@ impl InodeData {
         r.read_addrs(&mut addrs);
         Self {
             ty: r.ty,
-            major: r.major,
+            major: DeviceNo::new(u32::try_from(r.major).unwrap()),
             minor: r.minor,
             nlink: r.nlink,
             size: r.size,
@@ -126,7 +126,7 @@ impl InodeData {
 
     fn write_repr(&self, r: &mut repr::Inode) {
         r.ty = self.ty;
-        r.major = self.major;
+        r.major = self.major.value().try_into().unwrap();
         r.nlink = self.nlink;
         r.size = self.size;
         r.write_addrs(&self.addrs);
@@ -322,7 +322,7 @@ impl<'tx, 'i, const READ_ONLY: bool> LockedTxInode<'tx, 'i, READ_ONLY> {
         self.data().size
     }
 
-    pub fn major(&self) -> i16 {
+    pub fn major(&self) -> DeviceNo {
         self.data().major
     }
 

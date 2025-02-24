@@ -39,13 +39,18 @@ pub struct DeviceNo(u32);
 impl DeviceNo {
     /// Device number of file system root disk.
     pub const ROOT: Self = Self(0);
+    pub const CONSOLE: Self = Self(1);
 
-    // pub const fn new(n: u32) -> Self {
-    //     Self(n)
-    // }
+    pub const fn new(n: u32) -> Self {
+        Self(n)
+    }
 
     pub const fn value(&self) -> u32 {
         self.0
+    }
+
+    pub fn as_index(&self) -> usize {
+        usize::try_from(self.0).unwrap()
     }
 }
 

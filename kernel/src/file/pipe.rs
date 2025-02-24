@@ -1,25 +1,21 @@
-use core::ptr::NonNull;
+use alloc::sync::Arc;
 
 use crate::{
     error::Error,
-    memory::{
-        page,
-        vm::{self, VirtAddr},
-    },
+    memory::vm::{self, VirtAddr},
     proc::{self, Proc},
     sync::SpinLock,
 };
 
-use super::File;
+use super::{File, FileData, FileDataArc, SpecificData};
 
 const PIPE_SIZE: usize = 512;
 
-#[repr(C)]
-pub struct Pipe {
-    data: SpinLock<PipeData>,
+#[derive(Clone)]
+pub(super) struct PipeFile {
+    data: Arc<SpinLock<PipeData>>,
 }
 
-#[repr(C)]
 struct PipeData {
     data: [u8; PIPE_SIZE],
     /// Number of bytes read
@@ -32,43 +28,38 @@ struct PipeData {
     writeopen: bool,
 }
 
-pub fn alloc() -> Result<(&'static File, &'static File), Error> {
-    let Ok(f0) = super::alloc().ok_or(()) else {
-        return Err(Error::Unknown);
-    };
-    let Ok(f1) = super::alloc().ok_or(()) else {
-        super::close(f0);
-        return Err(Error::Unknown);
-    };
-    let Some(mut pi) = page::alloc_page().map(|p| p.cast::<Pipe>()) else {
-        super::close(f0);
-        super::close(f1);
-        return Err(Error::Unknown);
+pub(super) fn new_file() -> Result<(File, File), Error> {
+    let pipe = PipeFile {
+        data: Arc::new(SpinLock::new(PipeData {
+            data: [0; PIPE_SIZE],
+            nread: 0,
+            nwrite: 0,
+            readopen: true,
+            writeopen: true,
+        })),
     };
 
-    unsafe {
-        *pi.as_mut() = Pipe {
-            data: SpinLock::new(PipeData {
-                data: [0; PIPE_SIZE],
-                nread: 0,
-                nwrite: 0,
-                readopen: true,
-                writeopen: true,
-            }),
-        }
+    let f0 = File {
+        data: FileDataArc::new(FileData {
+            readable: true,
+            writable: false,
+            data: SpecificData::Pipe(pipe.clone()),
+        })?,
     };
-
-    f0.init_read_pipe(pi);
-    f1.init_write_pipe(pi);
+    let f1 = File {
+        data: FileDataArc::new(FileData {
+            readable: false,
+            writable: true,
+            data: SpecificData::Pipe(pipe),
+        })?,
+    };
 
     Ok((f0, f1))
 }
 
-pub fn close(pipe: NonNull<Pipe>, writable: bool) {
-    let do_free;
-    {
-        let pi = unsafe { pipe.as_ref() };
-        let mut pi = pi.data.lock();
+impl PipeFile {
+    pub(super) fn close(&self, writable: bool) {
+        let mut pi = self.data.lock();
         if writable {
             pi.writeopen = false;
             proc::wakeup((&raw const pi.nread).cast());
@@ -76,64 +67,58 @@ pub fn close(pipe: NonNull<Pipe>, writable: bool) {
             pi.readopen = false;
             proc::wakeup((&raw const pi.nwrite).cast());
         }
-        do_free = !pi.readopen && !pi.writeopen;
-    };
-    if do_free {
-        unsafe {
-            page::free_page(pipe.cast());
-        }
     }
-}
 
-pub fn write(pipe: &Pipe, addr: VirtAddr, n: usize) -> Result<usize, Error> {
-    let p = Proc::current();
-    let mut i = 0;
+    pub(super) fn write(&self, addr: VirtAddr, n: usize) -> Result<usize, Error> {
+        let p = Proc::current();
+        let mut i = 0;
 
-    let mut pipe = pipe.data.lock();
-    while i < n {
-        if !pipe.readopen || p.killed() {
-            return Err(Error::Unknown);
+        let mut pipe = self.data.lock();
+        while i < n {
+            if !pipe.readopen || p.killed() {
+                return Err(Error::Unknown);
+            }
+            if pipe.nwrite == pipe.nread + PIPE_SIZE {
+                proc::wakeup((&raw const pipe.nread).cast());
+                proc::sleep((&raw const pipe.nwrite).cast(), &mut pipe);
+                continue;
+            }
+
+            let Ok(byte) = vm::copy_in(p.pagetable().unwrap(), addr.byte_add(i)) else {
+                break;
+            };
+            let idx = pipe.nwrite % PIPE_SIZE;
+            pipe.data[idx] = byte;
+            pipe.nwrite += 1;
+            i += 1;
         }
-        if pipe.nwrite == pipe.nread + PIPE_SIZE {
-            proc::wakeup((&raw const pipe.nread).cast());
-            proc::sleep((&raw const pipe.nwrite).cast(), &mut pipe);
-            continue;
-        }
-
-        let Ok(byte) = vm::copy_in(p.pagetable().unwrap(), addr.byte_add(i)) else {
-            break;
-        };
-        let idx = pipe.nwrite % PIPE_SIZE;
-        pipe.data[idx] = byte;
-        pipe.nwrite += 1;
-        i += 1;
+        proc::wakeup((&raw const pipe.nread).cast());
+        Ok(i)
     }
-    proc::wakeup((&raw const pipe.nread).cast());
-    Ok(i)
-}
 
-pub fn read(pipe: &Pipe, addr: VirtAddr, n: usize) -> Result<usize, Error> {
-    let p = Proc::current();
+    pub(super) fn read(&self, addr: VirtAddr, n: usize) -> Result<usize, Error> {
+        let p = Proc::current();
 
-    let mut pipe = pipe.data.lock();
-    while pipe.nread == pipe.nwrite && pipe.writeopen {
-        if p.killed() {
-            return Err(Error::Unknown);
+        let mut pipe = self.data.lock();
+        while pipe.nread == pipe.nwrite && pipe.writeopen {
+            if p.killed() {
+                return Err(Error::Unknown);
+            }
+            proc::sleep((&raw const pipe.nread).cast(), &mut pipe);
         }
-        proc::sleep((&raw const pipe.nread).cast(), &mut pipe);
+        let mut i = 0;
+        while i < n {
+            if pipe.nread == pipe.nwrite {
+                break;
+            }
+            let ch = pipe.data[pipe.nread % PIPE_SIZE];
+            pipe.nread += 1;
+            if vm::copy_out(p.pagetable().unwrap(), addr.byte_add(i), &ch).is_err() {
+                break;
+            }
+            i += 1;
+        }
+        proc::wakeup((&raw const pipe.nwrite).cast());
+        Ok(i)
     }
-    let mut i = 0;
-    while i < n {
-        if pipe.nread == pipe.nwrite {
-            break;
-        }
-        let ch = pipe.data[pipe.nread % PIPE_SIZE];
-        pipe.nread += 1;
-        if vm::copy_out(p.pagetable().unwrap(), addr.byte_add(i), &ch).is_err() {
-            break;
-        }
-        i += 1;
-    }
-    proc::wakeup((&raw const pipe.nwrite).cast());
-    Ok(i)
 }
