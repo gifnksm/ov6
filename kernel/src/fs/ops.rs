@@ -82,8 +82,8 @@ pub fn create<'tx>(
 
     if let Some(mut child_dp) = child_lip.as_dir() {
         // Create "." and ".." entries
-        if child_dp.link(p, b".", child_dp.inum()).is_err()
-            || child_dp.link(p, b"..", parent_dp.inum()).is_err()
+        if child_dp.link(p, b".", child_dp.ino()).is_err()
+            || child_dp.link(p, b"..", parent_dp.ino()).is_err()
         {
             // TODO: refactor error handling. immediate closure pattern is denied by borrow check.
             child_lip.data_mut().nlink = 0;
@@ -92,7 +92,7 @@ pub fn create<'tx>(
         }
     }
 
-    if parent_dp.link(p, name, child_lip.inum()).is_err() {
+    if parent_dp.link(p, name, child_lip.ino()).is_err() {
         // TODO: refactor error handling. immediate closure pattern is denied by borrow check.
         child_lip.data_mut().nlink = 0;
         child_lip.update();
@@ -131,7 +131,7 @@ pub fn link(tx: &Tx<false>, p: &Proc, old_path: &[u8], new_path: &[u8]) -> Resul
         let Some(mut parent_dp) = parent_lip.as_dir() else {
             return Err(Error::Unknown);
         };
-        parent_dp.link(p, name, old_ip.inum())?;
+        parent_dp.link(p, name, old_ip.ino())?;
 
         Ok(())
     })();

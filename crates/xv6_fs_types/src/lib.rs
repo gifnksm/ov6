@@ -235,12 +235,12 @@ pub struct InodeBlock([Inode; INODE_PER_BLOCK]);
 const _: () = const { assert!(size_of::<InodeBlock>() == FS_BLOCK_SIZE) };
 
 impl InodeBlock {
-    pub fn inode(&self, inum: InodeNo) -> &Inode {
-        &self.0[inum.value() as usize % INODE_PER_BLOCK]
+    pub fn inode(&self, ino: InodeNo) -> &Inode {
+        &self.0[ino.value() as usize % INODE_PER_BLOCK]
     }
 
-    pub fn inode_mut(&mut self, inum: InodeNo) -> &mut Inode {
-        &mut self.0[inum.value() as usize % INODE_PER_BLOCK]
+    pub fn inode_mut(&mut self, ino: InodeNo) -> &mut Inode {
+        &mut self.0[ino.value() as usize % INODE_PER_BLOCK]
     }
 }
 
@@ -305,26 +305,26 @@ pub const DIR_SIZE: usize = 14;
 #[repr(C)]
 #[derive(Debug, Pod)]
 pub struct DirEntry {
-    inum: u16,
+    ino: u16,
     name: [u8; DIR_SIZE],
 }
 
 impl DirEntry {
     #[must_use]
-    pub fn inum(&self) -> Option<InodeNo> {
-        if self.inum == 0 {
+    pub fn ino(&self) -> Option<InodeNo> {
+        if self.ino == 0 {
             None
         } else {
-            Some(InodeNo::new(self.inum.into()))
+            Some(InodeNo::new(self.ino.into()))
         }
     }
 
-    pub fn set_inum(&mut self, inum: Option<InodeNo>) {
-        if let Some(inum) = inum {
-            assert_ne!(inum.0, 0);
-            self.inum = inum.0.try_into().unwrap();
+    pub fn set_ino(&mut self, ino: Option<InodeNo>) {
+        if let Some(ino) = ino {
+            assert_ne!(ino.0, 0);
+            self.ino = ino.0.try_into().unwrap();
         } else {
-            self.inum = 0;
+            self.ino = 0;
         }
     }
 

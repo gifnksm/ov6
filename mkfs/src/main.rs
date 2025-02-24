@@ -180,7 +180,7 @@ impl FileSystem {
     ) -> io::Result<()> {
         assert!(name.len() < DIR_SIZE);
         let mut de = DirEntry::zeroed();
-        de.set_inum(Some(InodeNo::new(ino.value().to_le())));
+        de.set_ino(Some(InodeNo::new(ino.value().to_le())));
         de.set_name(name.as_bytes());
         self.append_inode(dir_ino, &de)?;
         Ok(())
@@ -275,7 +275,7 @@ impl FileSystem {
         let mut inode = Inode::zeroed();
         self.read_inode(ino, &mut inode)?;
         let mut file_off = usize::try_from(u32::from_le(inode.size)).unwrap();
-        // println!("append inum {ino} at off {file_off} {} sz", data.len());
+        // println!("append ino {ino} at off {file_off} {} sz", data.len());
 
         while !data.is_empty() {
             let file_bidx = file_off / FS_BLOCK_SIZE;

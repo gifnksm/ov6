@@ -36,8 +36,8 @@ impl<'tx, 'i, 'l, const READ_ONLY: bool> DirInode<'tx, 'i, 'l, READ_ONLY> {
         self.0.dev()
     }
 
-    pub fn inum(&self) -> InodeNo {
-        self.0.inum()
+    pub fn ino(&self) -> InodeNo {
+        self.0.ino()
     }
 
     pub fn get_inner<'s>(&'s mut self) -> &'s mut LockedTxInode<'tx, 'i, READ_ONLY>
@@ -56,7 +56,7 @@ impl<const READ_ONLY: bool> DirInode<'_, '_, '_, READ_ONLY> {
         // skip first two entry ("." and "..").
         for off in (2 * de_size..size).step_by(de_size) {
             let de = self.0.read_as::<repr::DirEntry>(p, off).unwrap();
-            if de.inum().is_some() {
+            if de.ino().is_some() {
                 return false;
             }
         }
@@ -71,11 +71,11 @@ impl<'tx, const READ_ONLY: bool> DirInode<'tx, '_, '_, READ_ONLY> {
     pub fn lookup(&mut self, p: &Proc, name: &[u8]) -> Option<(TxInode<'tx, READ_ONLY>, usize)> {
         for off in (0..self.0.data().size as usize).step_by(size_of::<repr::DirEntry>()) {
             let de = self.0.read_as::<repr::DirEntry>(p, off).unwrap();
-            let Some(inum) = de.inum() else { continue };
+            let Some(ino) = de.ino() else { continue };
             if !de.is_same_name(name) {
                 continue;
             }
-            let ip = TxInode::get(self.0.tx, self.0.dev, inum);
+            let ip = TxInode::get(self.0.tx, self.0.dev, ino);
             return Some((ip, off));
         }
         None
@@ -83,8 +83,8 @@ impl<'tx, const READ_ONLY: bool> DirInode<'tx, '_, '_, READ_ONLY> {
 }
 
 impl DirInode<'_, '_, '_, false> {
-    /// Writes a new directory entry (`name` and `inum`) into the directory.
-    pub fn link(&mut self, p: &Proc, name: &[u8], inum: InodeNo) -> Result<(), Error> {
+    /// Writes a new directory entry (`name` and `ino`) into the directory.
+    pub fn link(&mut self, p: &Proc, name: &[u8], ino: InodeNo) -> Result<(), Error> {
         // Check that name is not present.
         if self.lookup(p, name).is_some() {
             return Err(Error::Unknown);
@@ -100,11 +100,11 @@ impl DirInode<'_, '_, '_, false> {
                 let de = self.0.read_as::<repr::DirEntry>(p, off).unwrap();
                 (de, off)
             })
-            .find(|(de, _)| de.inum().is_none())
+            .find(|(de, _)| de.ino().is_none())
             .unwrap_or((repr::DirEntry::zeroed(), size));
 
         de.set_name(name);
-        de.set_inum(Some(inum));
+        de.set_ino(Some(ino));
         self.0.write_data(p, off, &de)?;
         // write_inode_data(tx, p, NonNull::new(dp).unwrap(), off, de)?;
         Ok(())

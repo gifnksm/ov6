@@ -205,7 +205,7 @@ pub fn stat(p: &Proc, f: &File, addr: VirtAddr) -> Result<(), Error> {
             };
             let st = Stat {
                 dev: lip.dev().value().cast_signed(),
-                ino: lip.inum().value(),
+                ino: lip.ino().value(),
                 ty: ty as _,
                 nlink: lip.nlink(),
                 size: u64::from(lip.size()),

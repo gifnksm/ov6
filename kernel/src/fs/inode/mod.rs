@@ -45,7 +45,7 @@
 //! Thus a typical sequence is:
 //!
 //!   ```
-//!   let mut ip = Inode::get(dev, inum)
+//!   let mut ip = Inode::get(dev, ino)
 //!   let locked = ip.lock();
 //!   ... examine and modify ip.xxx ...
 //!
@@ -87,7 +87,7 @@ type InodeDataGuard<'a> = SleepLockGuard<'a, Option<InodeData>>;
 #[derive(Clone)]
 pub struct Inode {
     dev: DeviceNo,
-    inum: InodeNo,
+    ino: InodeNo,
     data: InodeDataPtr,
 }
 
@@ -96,7 +96,7 @@ pub struct Inode {
 pub struct TxInode<'tx, const READ_ONLY: bool> {
     tx: &'tx Tx<'tx, READ_ONLY>,
     dev: DeviceNo,
-    inum: InodeNo,
+    ino: InodeNo,
     data: InodeDataPtr,
 }
 
@@ -135,22 +135,22 @@ impl InodeData {
 pub struct LockedTxInode<'tx, 'i, const READ_ONLY: bool> {
     tx: &'tx Tx<'tx, READ_ONLY>,
     dev: DeviceNo,
-    inum: InodeNo,
+    ino: InodeNo,
     data: InodeDataPtr,
     locked: InodeDataGuard<'i>,
 }
 
 struct InodeEntry {
     dev: DeviceNo,
-    inum: InodeNo,
+    ino: InodeNo,
     data: InodeDataPtr,
 }
 
 impl InodeEntry {
-    fn new(dev: DeviceNo, inum: InodeNo) -> Self {
+    fn new(dev: DeviceNo, ino: InodeNo) -> Self {
         Self {
             dev,
-            inum,
+            ino,
             data: Arc::new(SleepLock::new(None)),
         }
     }
@@ -158,11 +158,11 @@ impl InodeEntry {
     /// Resets the `InodeEntry`.
     ///
     /// Caller must ensures that no other reference to this entry exist.
-    fn reset(&mut self, dev: DeviceNo, inum: InodeNo) -> Result<(), Error> {
+    fn reset(&mut self, dev: DeviceNo, ino: InodeNo) -> Result<(), Error> {
         let data = Arc::get_mut(&mut self.data).ok_or(Error::Unknown)?;
         *data.try_lock()? = None;
         self.dev = dev;
-        self.inum = inum;
+        self.ino = ino;
         Ok(())
     }
 }
@@ -175,8 +175,8 @@ impl<const READ_ONLY: bool> TxInode<'_, READ_ONLY> {
         self.dev
     }
 
-    pub fn inum(&self) -> InodeNo {
-        self.inum
+    pub fn ino(&self) -> InodeNo {
+        self.ino
     }
 }
 
@@ -184,7 +184,7 @@ impl Inode {
     pub fn from_tx<const READ_ONLY: bool>(tx: &TxInode<'_, READ_ONLY>) -> Self {
         Self {
             dev: tx.dev,
-            inum: tx.inum,
+            ino: tx.ino,
             data: Arc::clone(&tx.data),
         }
     }
@@ -192,7 +192,7 @@ impl Inode {
     pub fn from_locked<const READ_ONLY: bool>(locked: &LockedTxInode<'_, '_, READ_ONLY>) -> Self {
         Self {
             dev: locked.dev,
-            inum: locked.inum,
+            ino: locked.ino,
             data: Arc::clone(&locked.data),
         }
     }
@@ -204,26 +204,21 @@ impl Inode {
         TxInode {
             tx,
             dev: self.dev,
-            inum: self.inum,
+            ino: self.ino,
             data: Arc::clone(&self.data),
         }
     }
 }
 
 impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
-    fn new(tx: &'tx Tx<READ_ONLY>, dev: DeviceNo, inum: InodeNo, data: InodeDataPtr) -> Self {
-        TxInode {
-            tx,
-            dev,
-            inum,
-            data,
-        }
+    fn new(tx: &'tx Tx<READ_ONLY>, dev: DeviceNo, ino: InodeNo, data: InodeDataPtr) -> Self {
+        TxInode { tx, dev, ino, data }
     }
 
-    /// Finds the inode with number `inum` on device `dev`.
+    /// Finds the inode with number `ino` on device `dev`.
     ///
     /// Returns the in-memory inode copy.
-    pub fn get(tx: &'tx Tx<READ_ONLY>, dev: DeviceNo, inum: InodeNo) -> Self {
+    pub fn get(tx: &'tx Tx<READ_ONLY>, dev: DeviceNo, ino: InodeNo) -> Self {
         let mut table = INODE_TABLE.lock();
 
         let mut empty = None;
@@ -240,11 +235,11 @@ impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
                 return None;
             }
 
-            if entry.dev != dev || entry.inum != inum {
+            if entry.dev != dev || entry.ino != ino {
                 return None;
             }
             let data = Arc::clone(&entry.data);
-            Some(TxInode::new(tx, dev, inum, data))
+            Some(TxInode::new(tx, dev, ino, data))
         });
 
         if let Some(found) = iter {
@@ -257,18 +252,18 @@ impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
 
         let data = match empty {
             Some(entry) => {
-                entry.reset(dev, inum).unwrap();
+                entry.reset(dev, ino).unwrap();
                 Arc::clone(&entry.data)
             }
             None => {
-                let entry = InodeEntry::new(dev, inum);
+                let entry = InodeEntry::new(dev, ino);
                 let data = Arc::clone(&entry.data);
                 *empty = Some(entry);
                 data
             }
         };
 
-        TxInode::new(tx, dev, inum, data)
+        TxInode::new(tx, dev, ino, data)
     }
 
     /// Drops a reference to an in-memory inode.
@@ -292,7 +287,7 @@ impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
         Ok(LockedTxInode::new(
             self.tx,
             self.dev,
-            self.inum,
+            self.ino,
             Arc::clone(&self.data),
             locked,
         ))
@@ -303,7 +298,7 @@ impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
     /// This also reads the inode from disk if it is not already in memory.
     pub fn lock<'a>(&'a mut self) -> LockedTxInode<'tx, 'a, READ_ONLY> {
         let locked = self.data.lock();
-        LockedTxInode::new(self.tx, self.dev, self.inum, Arc::clone(&self.data), locked)
+        LockedTxInode::new(self.tx, self.dev, self.ino, Arc::clone(&self.data), locked)
     }
 }
 
@@ -313,8 +308,8 @@ impl<'tx> TxInode<'tx, false> {
     /// Returns a n unlocked but allocated and referenced inode,
     /// or `Err()` if there is no free inode.
     pub fn alloc(tx: &'tx Tx<false>, dev: DeviceNo, ty: i16) -> Result<TxInode<'tx, false>, Error> {
-        let inum = alloc_inum(tx, dev, ty)?;
-        Ok(Self::get(tx, dev, inum))
+        let ino = alloc_ino(tx, dev, ty)?;
+        Ok(Self::get(tx, dev, ino))
     }
 }
 
@@ -342,7 +337,7 @@ impl<const READ_ONLY: bool> Drop for TxInode<'_, READ_ONLY> {
             let mut lip = LockedTxInode {
                 tx: &*tx,
                 dev: lip.dev,
-                inum: lip.inum,
+                ino: lip.ino,
                 data: lip.data,
                 locked: lip.locked,
             };
@@ -356,23 +351,23 @@ impl<'tx, 'i, const READ_ONLY: bool> LockedTxInode<'tx, 'i, READ_ONLY> {
     fn new(
         tx: &'tx Tx<'tx, READ_ONLY>,
         dev: DeviceNo,
-        inum: InodeNo,
+        ino: InodeNo,
         data: InodeDataPtr,
         mut locked: InodeDataGuard<'i>,
     ) -> LockedTxInode<'tx, 'i, READ_ONLY> {
         if locked.is_none() {
             // read data from disk
             let sb = SUPER_BLOCK.get();
-            let mut br = tx.get_block(dev, sb.inode_block(inum));
+            let mut br = tx.get_block(dev, sb.inode_block(ino));
             let Ok(bg) = br.lock().read();
-            let dip = bg.data::<repr::InodeBlock>().inode(inum);
+            let dip = bg.data::<repr::InodeBlock>().inode(ino);
             *locked = Some(InodeData::from_repr(dip));
         }
 
         LockedTxInode {
             tx,
             dev,
-            inum,
+            ino,
             data,
             locked,
         }
@@ -382,8 +377,8 @@ impl<'tx, 'i, const READ_ONLY: bool> LockedTxInode<'tx, 'i, READ_ONLY> {
         self.dev
     }
 
-    pub fn inum(&self) -> InodeNo {
-        self.inum
+    pub fn ino(&self) -> InodeNo {
+        self.ino
     }
 
     pub fn ty(&self) -> i16 {
@@ -424,17 +419,17 @@ impl<'tx, 'i, const READ_ONLY: bool> LockedTxInode<'tx, 'i, READ_ONLY> {
 ///
 /// Marks it as allocated by giving it type `ty`.
 /// Returns an allocated inode number or Err() if there is no free inode.
-fn alloc_inum(tx: &Tx<false>, dev: DeviceNo, ty: i16) -> Result<InodeNo, Error> {
+fn alloc_ino(tx: &Tx<false>, dev: DeviceNo, ty: i16) -> Result<InodeNo, Error> {
     let sb = SUPER_BLOCK.get();
 
-    for inum in 1..(sb.ninodes) {
-        let inum = InodeNo::new(inum);
-        let mut br = tx.get_block(dev, sb.inode_block(inum));
+    for ino in 1..(sb.ninodes) {
+        let ino = InodeNo::new(ino);
+        let mut br = tx.get_block(dev, sb.inode_block(ino));
         let Ok(mut bg) = br.lock().read();
-        let disk_ip = bg.data_mut::<repr::InodeBlock>().inode_mut(inum);
+        let disk_ip = bg.data_mut::<repr::InodeBlock>().inode_mut(ino);
         if disk_ip.is_free() {
             disk_ip.allocate(ty);
-            return Ok(inum);
+            return Ok(ino);
         }
     }
     crate::println!("no free inodes");

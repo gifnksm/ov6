@@ -168,7 +168,7 @@ impl Iterator for ReadDir {
             if size == 0 {
                 return None;
             }
-            if ent.inum().is_none() {
+            if ent.ino().is_none() {
                 continue;
             }
             assert_eq!(size, size_of::<xv6_fs_types::DirEntry>());

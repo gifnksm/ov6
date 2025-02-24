@@ -117,9 +117,9 @@ impl LockedTxInode<'_, '_, false> {
     /// that lives on disk.
     pub fn update(&self) {
         let sb = SUPER_BLOCK.get();
-        let mut br = self.tx.get_block(self.dev, sb.inode_block(self.inum));
+        let mut br = self.tx.get_block(self.dev, sb.inode_block(self.ino));
         let Ok(mut bg) = br.lock().read();
-        let dip = bg.data_mut::<repr::InodeBlock>().inode_mut(self.inum);
+        let dip = bg.data_mut::<repr::InodeBlock>().inode_mut(self.ino);
         self.data().write_repr(dip);
     }
 
