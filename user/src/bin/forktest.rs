@@ -1,11 +1,12 @@
 #![no_std]
 
-use xv6_user_lib::{eprintln, process};
+use user::{message, try_or_panic};
+use xv6_user_lib::process;
 
 const N: usize = 1000;
 
 fn forktest() {
-    eprintln!("fork test");
+    message!("start");
 
     let mut n = 0;
 
@@ -21,25 +22,20 @@ fn forktest() {
         }
     }
 
-    if n == N {
-        panic!("fork claimed to work N times!");
-    }
+    assert_ne!(n, N, "fork claimed to work N times!");
 
     for _ in 0..n {
-        let Ok((_pid, status)) = process::wait() else {
-            panic!("wait stopped early");
-        };
-
-        if !status.success() {
-            panic!("child failed");
-        }
+        let (_pid, status) = try_or_panic!(
+            process::wait(),
+            e => "wait stopped early: {e}"
+        );
+        assert!(status.success(), "child failed");
     }
 
-    if process::wait().is_ok() {
-        panic!("wait got too many");
-    }
+    assert!(process::wait().is_err(), "wait got too manye");
 
-    eprintln!("fork test OK (n={n})");
+    message!("{n} processes forked");
+    message!("OK");
 }
 
 fn main() {

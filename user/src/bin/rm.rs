@@ -1,21 +1,21 @@
 #![no_std]
 
-use xv6_user_lib::{env, eprintln, fs, process};
+use user::{try_or, usage_and_exit};
+use xv6_user_lib::{env, fs, process};
 
 fn main() {
-    let prog = env::arg0();
     let args = env::args_cstr();
 
     if args.len() < 1 {
-        eprintln!("Usage: {prog} files...\n");
-        process::exit(0);
+        usage_and_exit!("files...");
     }
 
     for arg in args {
-        if let Err(e) = fs::remove_file(arg) {
-            eprintln!("{prog}: {} failed to delete: {e}", arg.to_str().unwrap());
-            break;
-        }
+        try_or!(
+            fs::remove_file(arg),
+            break,
+            e => "{} failed to delete: {e}", arg.to_str().unwrap(),
+        );
     }
 
     process::exit(0);

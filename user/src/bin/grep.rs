@@ -1,17 +1,17 @@
 #![no_std]
 
+use user::{try_or, try_or_exit, usage_and_exit};
 use xv6_user_lib::{
-    env, eprintln,
+    env,
     fs::{File, OpenFlags},
     io::{self, Read},
-    println, process,
+    println,
 };
 
 fn grep<R>(pattern: &str, mut input: R, buf: &mut [u8])
 where
     R: Read,
 {
-    let prog = env::arg0();
     let mut filled = 0;
 
     loop {
@@ -27,9 +27,10 @@ where
         let mut consumed = 0;
         while let Some(i) = buf[consumed..filled].iter().position(|c| *c == b'\n') {
             let line = &buf[consumed..filled][..i];
-            let Ok(line) = str::from_utf8(line) else {
-                panic!("{prog}: invalid utf-8");
-            };
+            let line = try_or_exit!(
+                str::from_utf8(line),
+                e => "parse line error: {e}",
+            );
             if match_(pattern, line) {
                 println!("{}", line);
             }
@@ -44,28 +45,27 @@ where
 fn main() {
     let mut buf = [0; 1024];
 
-    let prog = env::arg0();
     let mut args = env::args_cstr();
 
     let Some(pattern) = args.next() else {
-        eprintln!("Usage: {prog} pattern [file...]");
-        process::exit(1);
+        usage_and_exit!("pattern [file...]");
     };
 
-    let Ok(pattern) = pattern.to_str() else {
-        eprintln!("{prog}: invalid utf-8");
-        process::exit(1);
-    };
+    let pattern = try_or_exit!(
+        pattern.to_str(),
+        e => "parse pattern error: {e}",
+    );
 
     if args.len() == 0 {
         let stdin = io::stdin();
         grep(pattern, stdin, &mut buf);
     } else {
         for arg in args {
-            let Ok(file) = File::open(arg, OpenFlags::READ_ONLY) else {
-                eprintln!("{prog}: cannot open {}", arg.to_str().unwrap());
-                continue;
-            };
+            let file = try_or!(
+                File::open(arg, OpenFlags::READ_ONLY),
+                continue,
+                e => "cannot open {}: {e}", arg.to_str().unwrap(),
+            );
             grep(pattern, file, &mut buf);
         }
     }

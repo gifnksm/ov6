@@ -2,8 +2,9 @@
 
 use core::ffi::CStr;
 
+use user::{ensure_or, try_or};
 use xv6_user_lib::{
-    env, eprintln,
+    env,
     fs::{self, Metadata, StatType},
     println, process,
 };
@@ -18,45 +19,45 @@ fn print_entry(name: &str, meta: &Metadata) {
 }
 
 fn ls(path: &CStr) {
-    let prog = env::arg0();
-
-    let Ok(meta) = fs::metadata(path) else {
-        eprintln!("{prog}: cannot stat {}", path.to_str().unwrap());
-        return;
-    };
+    let meta = try_or!(
+        fs::metadata(path),
+        return,
+        e => "cannot stat {}: {e}", path.to_str().unwrap(),
+    );
 
     match meta.ty() {
         StatType::File | StatType::Dev => print_entry(path.to_str().unwrap(), &meta),
         StatType::Dir => {
-            let Ok(entries) = fs::read_dir(path) else {
-                eprintln!(
-                    "{prog}: cannot open {} as directory",
-                    path.to_str().unwrap()
-                );
-                return;
-            };
+            let entries = try_or!(
+                fs::read_dir(path),
+                return,
+                e => "cannot open {} as directory: {e}", path.to_str().unwrap(),
+            );
             for ent in entries {
-                let Ok(ent) = ent else {
-                    eprintln!("{prog}: cannot read directory entry");
-                    return;
-                };
+                let ent = try_or!(
+                    ent,
+                    return,
+                    e => "cannot read directory entry: {e}",
+                );
                 let name = ent.name();
                 let mut buf = [0; 512];
                 let path_len = path.to_bytes().len();
-                if path_len + 1 + name.len() + 1 > buf.len() {
-                    eprintln!("{prog}: path too long");
-                    continue;
-                }
+                ensure_or!(
+                    path_len + name.len() + 2 <= buf.len(),
+                    continue,
+                    "path too long"
+                );
                 buf[..path_len].copy_from_slice(path.to_bytes());
                 buf[path_len] = b'/';
                 buf[path_len + 1..][..name.len()].copy_from_slice(name.as_bytes());
                 buf[path_len + 1 + name.len()] = 0;
                 let file_path =
                     CStr::from_bytes_with_nul(&buf[..path_len + 1 + name.len() + 1]).unwrap();
-                let Ok(meta) = fs::metadata(file_path) else {
-                    eprintln!("{prog}: cannot stat {}", file_path.to_str().unwrap());
-                    continue;
-                };
+                let meta = try_or!(
+                    fs::metadata(file_path),
+                    continue,
+                    e => "cannot stat {}: {e}", file_path.to_str().unwrap(),
+                );
                 print_entry(name, &meta);
             }
         }

@@ -1,7 +1,8 @@
 #![no_std]
 
+use user::{ensure_or_exit, try_or_exit};
 use xv6_user_lib::{
-    env, eprintln,
+    env,
     fs::File,
     io::{self, Read, Write},
     process,
@@ -15,21 +16,18 @@ where
     let mut stdout = io::stdout();
     let mut buf = [0; 512];
     loop {
-        let Ok(nread) = input.read(&mut buf) else {
-            eprintln!("cat: read error");
-            process::exit(1);
-        };
+        let nread = try_or_exit!(
+            input.read(&mut buf),
+            e => "read error: {e}",
+        );
         if nread == 0 {
             break;
         }
-        let Ok(nwrite) = stdout.write(&buf[..nread]) else {
-            eprintln!("cat: write error");
-            process::exit(1);
-        };
-        if nwrite != nread {
-            eprintln!("cat: write error {nwrite} vs {nread}");
-            process::exit(1);
-        }
+        let nwrite = try_or_exit!(
+            stdout.write(&buf[..nread]),
+            e => "write error: {e}",
+        );
+        ensure_or_exit!(nwrite == nread, "write error {nwrite} vs {nread}");
     }
 }
 
@@ -41,11 +39,10 @@ fn main() {
     }
 
     for arg in args {
-        let Ok(file) = File::open(arg, OpenFlags::READ_ONLY) else {
-            eprintln!("cat: cannot open file {}\n", arg.to_str().unwrap());
-            process::exit(1);
-        };
-
+        let file = try_or_exit!(
+            File::open(arg, OpenFlags::READ_ONLY),
+            e => "cannot open file {file}: {e}", file = arg.to_str().unwrap(),
+        );
         cat(&file);
     }
 }
