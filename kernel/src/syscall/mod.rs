@@ -3,6 +3,7 @@ use core::panic;
 use xv6_syscall::SyscallType;
 
 use crate::{
+    error::Error,
     memory::vm::{self, VirtAddr},
     println,
     proc::Proc,
@@ -12,19 +13,19 @@ mod file;
 mod proc;
 
 /// Fetches a `usize` at `addr` from the current process.
-fn fetch_addr(p: &Proc, addr: VirtAddr) -> Result<VirtAddr, ()> {
+fn fetch_addr(p: &Proc, addr: VirtAddr) -> Result<VirtAddr, Error> {
     if !p.is_valid_addr(addr..addr.byte_add(size_of::<usize>())) {
-        return Err(());
+        return Err(Error::Unknown);
     }
-    let va = vm::copy_in(p.pagetable().unwrap(), addr)?;
+    let va = vm::copy_in(p.pagetable().unwrap(), addr).map_err(|()| Error::Unknown)?;
     Ok(VirtAddr::new(va))
 }
 
 /// Fetches the nul-terminated string at addr from the current process.
 ///
 /// Returns length of the string, not including nul.
-fn fetch_str<'a>(p: &Proc, addr: VirtAddr, buf: &'a mut [u8]) -> Result<&'a [u8], ()> {
-    vm::copy_in_str(p.pagetable().unwrap(), buf, addr)?;
+fn fetch_str<'a>(p: &Proc, addr: VirtAddr, buf: &'a mut [u8]) -> Result<&'a [u8], Error> {
+    vm::copy_in_str(p.pagetable().unwrap(), buf, addr).map_err(|()| Error::Unknown)?;
     let len = buf.iter().position(|&c| c == 0).unwrap();
     Ok(&buf[..len])
 }
@@ -59,7 +60,7 @@ pub fn arg_addr(p: &Proc, n: usize) -> VirtAddr {
 ///
 /// Copies into buf, at most buf's length.
 /// Returns string length if Ok, or Err if the string is not nul-terminated.
-pub fn arg_str<'a>(p: &Proc, n: usize, buf: &'a mut [u8]) -> Result<&'a [u8], ()> {
+pub fn arg_str<'a>(p: &Proc, n: usize, buf: &'a mut [u8]) -> Result<&'a [u8], Error> {
     let addr = arg_addr(p, n);
     fetch_str(p, addr, buf)
 }
@@ -94,6 +95,13 @@ pub fn syscall(p: &Proc) {
         SyscallType::Mkdir => self::file::sys_mkdir,
         SyscallType::Close => self::file::sys_close,
     };
-    let res = f(p).map(|f| f as u64).unwrap_or(u64::MAX);
-    p.trapframe_mut().unwrap().a0 = res as u64;
+    let ret = match f(p) {
+        Ok(ret) => ret.cast_signed(),
+        Err(e) => {
+            let v = xv6_syscall::Error::from(e) as isize;
+            assert!(v < 0);
+            v
+        }
+    };
+    p.trapframe_mut().unwrap().a0 = ret as u64;
 }

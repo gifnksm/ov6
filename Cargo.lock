@@ -62,6 +62,7 @@ dependencies = [
  "page_alloc",
  "riscv",
  "strum",
+ "thiserror",
  "xv6_fs_types",
  "xv6_kernel_params",
  "xv6_syscall",

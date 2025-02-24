@@ -62,3 +62,9 @@ pub enum SyscallType {
     Mkdir = 20,
     Close = 21,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr)]
+#[repr(isize)]
+pub enum Error {
+    Unknown = -1,
+}

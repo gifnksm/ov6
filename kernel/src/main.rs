@@ -15,6 +15,7 @@ extern crate alloc;
 
 mod console;
 mod cpu;
+mod error;
 mod file;
 mod fs;
 mod interrupt;
