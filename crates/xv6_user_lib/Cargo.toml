@@ -15,5 +15,6 @@ bench = false
 [dependencies]
 dataview.workspace = true
 strum.workspace = true
+thiserror.workspace = true
 xv6_fs_types.workspace = true
 xv6_syscall.workspace = true

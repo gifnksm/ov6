@@ -1,18 +1,7 @@
-use core::fmt;
-
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("not a directory")]
     NotADirectory,
+    #[error("unknown error")]
     Unknown,
-}
-
-impl core::error::Error for Error {}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::NotADirectory => write!(f, "not a directory"),
-            Self::Unknown => write!(f, "unknown error"),
-        }
-    }
 }
