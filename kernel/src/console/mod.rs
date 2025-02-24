@@ -12,6 +12,7 @@
 use core::ffi::c_int;
 
 use crate::{
+    error::Error,
     file::{self, DevSw},
     proc::{self, Proc},
     sync::SpinLock,
@@ -65,7 +66,7 @@ static CONS: SpinLock<Cons> = SpinLock::new(Cons {
 /// Writes the bytes to the console.
 ///
 /// User write()s to the console go here.
-fn write(p: &Proc, user_src: bool, src: usize, n: usize) -> Result<usize, ()> {
+fn write(p: &Proc, user_src: bool, src: usize, n: usize) -> Result<usize, Error> {
     for i in 0..n {
         let mut c: [u8; 1] = [0];
         if proc::either_copy_in_bytes(p, &mut c, user_src, src + i).is_err() {
@@ -82,7 +83,7 @@ fn write(p: &Proc, user_src: bool, src: usize, n: usize) -> Result<usize, ()> {
 /// Copy (up to) a whole input line to `dst`.
 /// `user_dst` indicates whether `dst` is a user
 /// or kernel address.
-fn read(p: &Proc, user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize, ()> {
+fn read(p: &Proc, user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize, Error> {
     let target = n;
     let mut cons = CONS.lock();
     while n > 0 {
@@ -91,7 +92,7 @@ fn read(p: &Proc, user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize,
         while cons.r == cons.w {
             if p.killed() {
                 drop(cons);
-                return Err(());
+                return Err(Error::Unknown);
             }
             proc::sleep((&raw const cons.r).cast(), &mut cons);
         }
@@ -181,7 +182,7 @@ extern "C" fn console_write(user_src: c_int, src: u64, n: c_int) -> c_int {
     let p = Proc::current();
     match write(p, user_src != 0, src as usize, n as usize) {
         Ok(n) => n as c_int,
-        Err(()) => -1,
+        Err(Error::Unknown) => -1,
     }
 }
 
@@ -189,7 +190,7 @@ extern "C" fn console_read(user_dst: c_int, dst: u64, n: c_int) -> c_int {
     let p = Proc::current();
     match read(p, user_dst != 0, dst as usize, n as usize) {
         Ok(n) => n as c_int,
-        Err(()) => -1,
+        Err(Error::Unknown) => -1,
     }
 }
 

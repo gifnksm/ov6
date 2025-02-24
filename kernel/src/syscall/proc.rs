@@ -18,15 +18,13 @@ pub fn sys_exit(p: &Proc) -> Result<usize, Error> {
 
 pub fn sys_wait(p: &Proc) -> Result<usize, Error> {
     let addr = syscall::arg_addr(p, 0);
-    let pid = proc::wait(p, addr).map_err(|()| Error::Unknown)?;
+    let pid = proc::wait(p, addr)?;
     Ok(pid.get() as usize)
 }
 
 pub fn sys_kill(p: &Proc) -> Result<usize, Error> {
     let pid = syscall::arg_int(p, 0);
-    proc::kill(ProcId::new(pid as i32))
-        .map(|()| 0)
-        .map_err(|()| Error::Unknown)
+    proc::kill(ProcId::new(pid as i32)).map(|()| 0)
 }
 
 pub fn sys_getpid(p: &Proc) -> Result<usize, Error> {
@@ -36,7 +34,7 @@ pub fn sys_getpid(p: &Proc) -> Result<usize, Error> {
 pub fn sys_sbrk(p: &Proc) -> Result<usize, Error> {
     let n = syscall::arg_int(p, 0);
     let addr = p.size();
-    proc::grow_proc(p, n as isize).map_err(|()| Error::Unknown)?;
+    proc::grow_proc(p, n as isize)?;
     Ok(addr)
 }
 

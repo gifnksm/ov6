@@ -10,6 +10,7 @@ use xv6_fs_types::{T_DEVICE, T_DIR, T_FILE};
 use xv6_syscall::{Stat, StatType};
 
 use crate::{
+    error::Error,
     fs::{self, FS_BLOCK_SIZE, Inode},
     memory::vm::{self, VirtAddr},
     param::{MAX_OP_BLOCKS, NDEV, NFILE},
@@ -190,7 +191,7 @@ pub fn close(f: &File) {
 /// Gets metadata about file `f`.
 ///
 /// `addr` is a user virtual address, pointing to a struct stat.
-pub fn stat(p: &Proc, f: &File, addr: VirtAddr) -> Result<(), ()> {
+pub fn stat(p: &Proc, f: &File, addr: VirtAddr) -> Result<(), Error> {
     match f.ty {
         FileType::Inode | FileType::Device => {
             let tx = fs::begin_readonly_tx();
@@ -200,7 +201,7 @@ pub fn stat(p: &Proc, f: &File, addr: VirtAddr) -> Result<(), ()> {
                 T_DIR => StatType::Dir,
                 T_FILE => StatType::File,
                 T_DEVICE => StatType::Dir,
-                _ => return Err(()),
+                _ => return Err(Error::Unknown),
             };
             let st = Stat {
                 dev: lip.dev().value().cast_signed(),
@@ -214,16 +215,16 @@ pub fn stat(p: &Proc, f: &File, addr: VirtAddr) -> Result<(), ()> {
             vm::copy_out(p.pagetable().unwrap(), addr, &st)?;
             Ok(())
         }
-        _ => Err(()),
+        _ => Err(Error::Unknown),
     }
 }
 
 /// Reads from file `f`.
 ///
 /// `addr` is a user virtual address.
-pub fn read(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> {
+pub fn read(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, Error> {
     if f.readable == 0 {
-        return Err(());
+        return Err(Error::Unknown);
     }
 
     match f.ty {
@@ -232,14 +233,14 @@ pub fn read(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> {
         FileType::Device => {
             let devsw = unsafe { (&raw const DEVSW).as_ref() }.unwrap();
             let Some(dev) = devsw.get(f.major as usize) else {
-                return Err(());
+                return Err(Error::Unknown);
             };
             let Some(read) = dev.read else {
-                return Err(());
+                return Err(Error::Unknown);
             };
             let sz = read(1, addr.addr() as u64, n as i32);
             if sz < 0 {
-                return Err(());
+                return Err(Error::Unknown);
             }
             Ok(sz as usize)
         }
@@ -259,9 +260,9 @@ pub fn read(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> {
 /// Writes to file `f`.
 ///
 /// `addr` is a user virtual address.
-pub fn write(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> {
+pub fn write(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, Error> {
     if f.writable == 0 {
-        return Err(());
+        return Err(Error::Unknown);
     }
 
     match f.ty {
@@ -270,14 +271,14 @@ pub fn write(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> 
         FileType::Device => {
             let devsw = unsafe { (&raw const DEVSW).as_ref() }.unwrap();
             let Some(dev) = devsw.get(f.major as usize) else {
-                return Err(());
+                return Err(Error::Unknown);
             };
             let Some(write) = dev.write else {
-                return Err(());
+                return Err(Error::Unknown);
             };
             let sz = write(1, addr.addr() as u64, n as i32);
             if sz < 0 {
-                return Err(());
+                return Err(Error::Unknown);
             }
             Ok(sz as usize)
         }
@@ -313,13 +314,13 @@ pub fn write(p: &Proc, f: &File, addr: VirtAddr, n: usize) -> Result<usize, ()> 
                 ip.put();
                 tx.end();
 
-                if res != Ok(n1) {
+                if !res.is_ok_and(|n| n == n1) {
                     // error from write_inode
                     break;
                 }
                 i += n1;
             }
-            if i == n { Ok(n) } else { Err(()) }
+            if i == n { Ok(n) } else { Err(Error::Unknown) }
         }
     }
 }

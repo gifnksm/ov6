@@ -68,6 +68,7 @@
 use alloc::sync::Arc;
 
 use crate::{
+    error::Error,
     param::NINODE,
     sync::{SleepLock, SleepLockGuard, SpinLock},
 };
@@ -157,8 +158,8 @@ impl InodeEntry {
     /// Resets the `InodeEntry`.
     ///
     /// Caller must ensures that no other reference to this entry exist.
-    fn reset(&mut self, dev: DeviceNo, inum: InodeNo) -> Result<(), ()> {
-        let data = Arc::get_mut(&mut self.data).ok_or(())?;
+    fn reset(&mut self, dev: DeviceNo, inum: InodeNo) -> Result<(), Error> {
+        let data = Arc::get_mut(&mut self.data).ok_or(Error::Unknown)?;
         *data.try_lock()? = None;
         self.dev = dev;
         self.inum = inum;
@@ -286,7 +287,7 @@ impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
     ///
     /// This also reads the inode from disk if it is not already in memory.
     /// Returns `Err()` if the inode is already locked.
-    pub fn try_lock<'a>(&'a mut self) -> Result<LockedTxInode<'tx, 'a, READ_ONLY>, ()> {
+    pub fn try_lock<'a>(&'a mut self) -> Result<LockedTxInode<'tx, 'a, READ_ONLY>, Error> {
         let locked = self.data.try_lock()?;
         Ok(LockedTxInode::new(
             self.tx,
@@ -311,7 +312,7 @@ impl<'tx> TxInode<'tx, false> {
     ///
     /// Returns a n unlocked but allocated and referenced inode,
     /// or `Err()` if there is no free inode.
-    pub fn alloc(tx: &'tx Tx<false>, dev: DeviceNo, ty: i16) -> Result<TxInode<'tx, false>, ()> {
+    pub fn alloc(tx: &'tx Tx<false>, dev: DeviceNo, ty: i16) -> Result<TxInode<'tx, false>, Error> {
         let inum = alloc_inum(tx, dev, ty)?;
         Ok(Self::get(tx, dev, inum))
     }
@@ -423,7 +424,7 @@ impl<'tx, 'i, const READ_ONLY: bool> LockedTxInode<'tx, 'i, READ_ONLY> {
 ///
 /// Marks it as allocated by giving it type `ty`.
 /// Returns an allocated inode number or Err() if there is no free inode.
-fn alloc_inum(tx: &Tx<false>, dev: DeviceNo, ty: i16) -> Result<InodeNo, ()> {
+fn alloc_inum(tx: &Tx<false>, dev: DeviceNo, ty: i16) -> Result<InodeNo, Error> {
     let sb = SUPER_BLOCK.get();
 
     for inum in 1..(sb.ninodes) {
@@ -437,5 +438,5 @@ fn alloc_inum(tx: &Tx<false>, dev: DeviceNo, ty: i16) -> Result<InodeNo, ()> {
         }
     }
     crate::println!("no free inodes");
-    Err(())
+    Err(Error::Unknown)
 }

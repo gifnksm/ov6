@@ -8,6 +8,7 @@ use core::{
 use mutex_api::Mutex;
 
 use crate::{
+    error::Error,
     proc::{self, Proc, ProcId},
     sync::RawSpinLock,
 };
@@ -36,11 +37,11 @@ impl RawSleepLock {
         }
     }
 
-    pub fn try_acquire(&self) -> Result<(), ()> {
+    pub fn try_acquire(&self) -> Result<(), Error> {
         self.lk.try_acquire()?;
         if self.locked.load(Ordering::Acquire) {
             self.lk.release();
-            return Err(());
+            return Err(Error::Unknown);
         }
         self.locked.store(true, Ordering::Relaxed);
         unsafe {
@@ -97,7 +98,7 @@ impl<T> SleepLock<T> {
         }
     }
 
-    pub fn try_lock(&self) -> Result<SleepLockGuard<T>, ()> {
+    pub fn try_lock(&self) -> Result<SleepLockGuard<T>, Error> {
         self.lock.try_acquire()?;
         Ok(SleepLockGuard { lock: self })
     }

@@ -17,7 +17,7 @@ fn fetch_addr(p: &Proc, addr: VirtAddr) -> Result<VirtAddr, Error> {
     if !p.is_valid_addr(addr..addr.byte_add(size_of::<usize>())) {
         return Err(Error::Unknown);
     }
-    let va = vm::copy_in(p.pagetable().unwrap(), addr).map_err(|()| Error::Unknown)?;
+    let va = vm::copy_in(p.pagetable().unwrap(), addr)?;
     Ok(VirtAddr::new(va))
 }
 
@@ -25,7 +25,7 @@ fn fetch_addr(p: &Proc, addr: VirtAddr) -> Result<VirtAddr, Error> {
 ///
 /// Returns length of the string, not including nul.
 fn fetch_str<'a>(p: &Proc, addr: VirtAddr, buf: &'a mut [u8]) -> Result<&'a [u8], Error> {
-    vm::copy_in_str(p.pagetable().unwrap(), buf, addr).map_err(|()| Error::Unknown)?;
+    vm::copy_in_str(p.pagetable().unwrap(), buf, addr)?;
     let len = buf.iter().position(|&c| c == 0).unwrap();
     Ok(&buf[..len])
 }

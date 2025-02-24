@@ -12,6 +12,7 @@ use bitflags::bitflags;
 use riscv::{asm, register::satp};
 
 use crate::{
+    error::Error,
     interrupt::trampoline,
     memory::{
         layout::{KERN_BASE, PHYS_TOP, PLIC, TRAMPOLINE, UART0, VIRTIO0},
@@ -137,7 +138,7 @@ fn make_kernel_pt() -> &'static mut PageTable {
         addr: usize,
         size: usize,
         perm: PtEntryFlags,
-    ) -> Result<(), ()> {
+    ) -> Result<(), Error> {
         kpgtbl.map_pages(VirtAddr(addr), size, PhysAddr(addr), perm)
     }
 
@@ -250,8 +251,10 @@ pub struct PageTable([PtEntry; 512]);
 
 impl PageTable {
     /// Allocates a new empty page table.
-    fn allocate() -> Result<NonNull<Self>, ()> {
-        let pt = page::alloc_zeroed_page().ok_or(())?.cast::<Self>();
+    fn allocate() -> Result<NonNull<Self>, Error> {
+        let pt = page::alloc_zeroed_page()
+            .ok_or(Error::Unknown)?
+            .cast::<Self>();
         Ok(pt)
     }
 
@@ -288,9 +291,14 @@ impl PageTable {
     ///
     /// `va` MUST be page-aligned.
     ///
-    /// Returns `Ok(())` on success, `Err(())` if `walk()` couldn't
+    /// Returns `Ok(())` on success, `Err()` if `walk()` couldn't
     /// allocate a needed page-table page.
-    pub fn map_page(&mut self, va: VirtAddr, pa: PhysAddr, perm: PtEntryFlags) -> Result<(), ()> {
+    pub fn map_page(
+        &mut self,
+        va: VirtAddr,
+        pa: PhysAddr,
+        perm: PtEntryFlags,
+    ) -> Result<(), Error> {
         assert!(va.is_page_aligned(), "va={va:?}");
         assert!(perm.intersects(PtEntryFlags::RWX), "perm={perm:?}");
 
@@ -308,7 +316,7 @@ impl PageTable {
     ///
     /// `va` and `size` MUST be page-aligned.
     ///
-    /// Returns `Ok(())` on success, `Err(())` if `walk()` couldn't
+    /// Returns `Ok(())` on success, `Err()` if `walk()` couldn't
     /// allocate a needed page-table page.
     pub fn map_pages(
         &mut self,
@@ -316,7 +324,7 @@ impl PageTable {
         size: usize,
         pa: PhysAddr,
         perm: PtEntryFlags,
-    ) -> Result<(), ()> {
+    ) -> Result<(), Error> {
         assert!(va.is_page_aligned(), "va={va:?}");
         assert!(size.is_page_aligned(), "size={size:#x}");
         assert_ne!(size, 0, "size={size:#x}");
@@ -395,7 +403,7 @@ impl PageTable {
         va: VirtAddr,
         insert_new_table: bool,
         f: F,
-    ) -> Result<T, ()>
+    ) -> Result<T, Error>
     where
         F: for<'a> FnOnce(&'a mut PtEntry) -> T,
     {
@@ -413,7 +421,7 @@ impl PageTable {
                 }
 
                 if !insert_new_table {
-                    return Err(());
+                    return Err(Error::Unknown);
                 }
 
                 pt = Self::allocate()?;
@@ -657,8 +665,8 @@ pub mod user {
 
     /// Creates an empty user page table.
     ///
-    /// Returns `Err(())` if out of memory.
-    pub fn create() -> Result<NonNull<PageTable>, ()> {
+    /// Returns `Err()` if out of memory.
+    pub fn create() -> Result<NonNull<PageTable>, Error> {
         PageTable::allocate()
     }
 
@@ -687,7 +695,7 @@ pub mod user {
         oldsz: usize,
         newsz: usize,
         xperm: PtEntryFlags,
-    ) -> Result<usize, ()> {
+    ) -> Result<usize, Error> {
         if newsz < oldsz {
             return Ok(oldsz);
         }
@@ -696,7 +704,7 @@ pub mod user {
         for va in (oldsz..newsz).step_by(PAGE_SIZE) {
             let Some(mem) = page::alloc_zeroed_page() else {
                 dealloc(pagetable, va, oldsz);
-                return Err(());
+                return Err(Error::Unknown);
             };
             if pagetable
                 .map_page(
@@ -710,7 +718,7 @@ pub mod user {
                     page::free_page(mem);
                 }
                 dealloc(pagetable, va, oldsz);
-                return Err(());
+                return Err(Error::Unknown);
             }
         }
 
@@ -773,7 +781,7 @@ pub mod user {
     ///
     /// Copies both the page table and the
     /// physical memory.
-    pub fn copy(old: &PageTable, new: &mut PageTable, sz: usize) -> Result<(), ()> {
+    pub fn copy(old: &PageTable, new: &mut PageTable, sz: usize) -> Result<(), Error> {
         let res = (|| {
             for va in (0..sz).step_by(PAGE_SIZE) {
                 let pte = old.find_leaf_entry(VirtAddr(va)).ok_or(va)?;
@@ -800,7 +808,7 @@ pub mod user {
             unmap(new, VirtAddr(0), va / PAGE_SIZE, true);
         }
 
-        res.map_err(|_| ())
+        res.map_err(|_| Error::Unknown)
     }
 
     /// Marks a PTE invalid for user access.
@@ -820,7 +828,7 @@ pub mod user {
 /// Copies from user to kernel.
 ///
 /// Copies from `src` to virtual address `dst_va` in a given page table.
-pub fn copy_out<T>(pagetable: &PageTable, dst_va: VirtAddr, src: &T) -> Result<(), ()> {
+pub fn copy_out<T>(pagetable: &PageTable, dst_va: VirtAddr, src: &T) -> Result<(), Error> {
     let src = unsafe { slice::from_raw_parts(ptr::from_ref(src).cast(), mem::size_of::<T>()) };
     copy_out_bytes(pagetable, dst_va, src)
 }
@@ -832,11 +840,11 @@ pub fn copy_out_bytes(
     pagetable: &PageTable,
     mut dst_va: VirtAddr,
     mut src: &[u8],
-) -> Result<(), ()> {
+) -> Result<(), Error> {
     while !src.is_empty() {
         let va0 = dst_va.page_rounddown();
         if va0 >= VirtAddr::MAX {
-            return Err(());
+            return Err(Error::Unknown);
         }
         let offset = dst_va.0 - va0.0;
         let mut n = PAGE_SIZE - offset;
@@ -844,7 +852,9 @@ pub fn copy_out_bytes(
             n = src.len();
         }
 
-        let dst_page = pagetable.fetch_page(va0, PtEntryFlags::UW).ok_or(())?;
+        let dst_page = pagetable
+            .fetch_page(va0, PtEntryFlags::UW)
+            .ok_or(Error::Unknown)?;
         let dst = &mut dst_page[offset..][..n];
         dst.copy_from_slice(&src[..n]);
         src = &src[n..];
@@ -857,7 +867,7 @@ pub fn copy_out_bytes(
 /// Copies from user to kernel.
 ///
 /// Returns the copy from virtual address `src_va` in a given page table.
-pub fn copy_in<T>(pagetable: &PageTable, src_va: VirtAddr) -> Result<T, ()> {
+pub fn copy_in<T>(pagetable: &PageTable, src_va: VirtAddr) -> Result<T, Error> {
     let mut dst = mem::MaybeUninit::<T>::uninit();
     copy_in_raw(pagetable, dst.as_mut_ptr().cast(), size_of::<T>(), src_va)?;
     Ok(unsafe { dst.assume_init() })
@@ -866,14 +876,14 @@ pub fn copy_in<T>(pagetable: &PageTable, src_va: VirtAddr) -> Result<T, ()> {
 // /// Copies from user to kernel.
 // ///
 // /// Copies to `dst` from virtual address `src_va` in a given page table.
-// pub fn copy_in_to<T>(pagetable: &PageTable, dst: &mut T, src_va: VirtAddr) -> Result<(), ()> {
+// pub fn copy_in_to<T>(pagetable: &PageTable, dst: &mut T, src_va: VirtAddr) -> Result<(), Error> {
 //     copy_in_raw(pagetable, ptr::from_mut(dst).cast(), size_of::<T>(), src_va)
 // }
 
 /// Copies from user to kernel.
 ///
 /// Copies to `dst` from virtual address `src_va` in a given page table.
-pub fn copy_in_bytes(pagetable: &PageTable, dst: &mut [u8], src_va: VirtAddr) -> Result<(), ()> {
+pub fn copy_in_bytes(pagetable: &PageTable, dst: &mut [u8], src_va: VirtAddr) -> Result<(), Error> {
     copy_in_raw(pagetable, dst.as_mut_ptr(), dst.len(), src_va)
 }
 
@@ -885,7 +895,7 @@ pub fn copy_in_raw(
     mut dst: *mut u8,
     mut dst_size: usize,
     mut src_va: VirtAddr,
-) -> Result<(), ()> {
+) -> Result<(), Error> {
     while dst_size > 0 {
         let va0 = src_va.page_rounddown();
         let offset = src_va.0 - va0.0;
@@ -893,7 +903,9 @@ pub fn copy_in_raw(
         if n > dst_size {
             n = dst_size;
         }
-        let src_page = pagetable.fetch_page(va0, PtEntryFlags::UR).ok_or(())?;
+        let src_page = pagetable
+            .fetch_page(va0, PtEntryFlags::UR)
+            .ok_or(Error::Unknown)?;
         let src = &src_page[offset..][..n];
         unsafe {
             dst.copy_from(src.as_ptr(), n);
@@ -914,10 +926,12 @@ pub fn copy_in_str(
     pagetable: &PageTable,
     mut dst: &mut [u8],
     mut src_va: VirtAddr,
-) -> Result<(), ()> {
+) -> Result<(), Error> {
     while !dst.is_empty() {
         let va0 = src_va.page_rounddown();
-        let src_page = pagetable.fetch_page(va0, PtEntryFlags::UR).ok_or(())?;
+        let src_page = pagetable
+            .fetch_page(va0, PtEntryFlags::UR)
+            .ok_or(Error::Unknown)?;
 
         let offset = src_va.0 - va0.0;
         let mut n = PAGE_SIZE - offset;
@@ -939,5 +953,5 @@ pub fn copy_in_str(
 
         src_va = va0.byte_add(PAGE_SIZE);
     }
-    Err(())
+    Err(Error::Unknown)
 }

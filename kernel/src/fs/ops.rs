@@ -1,6 +1,6 @@
 use dataview::PodMethods as _;
 
-use crate::{fs::repr, proc::Proc};
+use crate::{error::Error, fs::repr, proc::Proc};
 
 use super::{
     DIR_SIZE, Tx,
@@ -9,25 +9,25 @@ use super::{
     repr::{T_DEVICE, T_FILE},
 };
 
-pub fn unlink(tx: &Tx<false>, p: &Proc, path: &[u8]) -> Result<(), ()> {
+pub fn unlink(tx: &Tx<false>, p: &Proc, path: &[u8]) -> Result<(), Error> {
     let mut name = [0; DIR_SIZE];
     let (mut parent_ip, name) = path::resolve_parent(tx, p, path, &mut name)?;
 
     // Cannot unlink "." of "..".
     if name == b".." || name == b"." {
-        return Err(());
+        return Err(Error::Unknown);
     }
 
     let mut parent_lip = parent_ip.lock();
-    let mut parent_dp = parent_lip.as_dir().ok_or(())?;
+    let mut parent_dp = parent_lip.as_dir().ok_or(Error::Unknown)?;
 
-    let (mut child_ip, off) = parent_dp.lookup(p, name).ok_or(())?;
+    let (mut child_ip, off) = parent_dp.lookup(p, name).ok_or(Error::Unknown)?;
     let mut child_lip = child_ip.lock();
 
     assert!(child_lip.data().nlink > 0);
     if let Some(mut child_dp) = child_lip.as_dir() {
         if !child_dp.is_empty(p) {
-            return Err(());
+            return Err(Error::Unknown);
         }
     }
 
@@ -55,13 +55,13 @@ pub fn create<'tx>(
     ty: i16,
     major: i16,
     minor: i16,
-) -> Result<TxInode<'tx, false>, ()> {
+) -> Result<TxInode<'tx, false>, Error> {
     let mut name = [0; DIR_SIZE];
     let (mut parent_ip, name) = path::resolve_parent(tx, p, path, &mut name)?;
 
     let mut parent_lip = parent_ip.lock();
     let Some(mut parent_dp) = parent_lip.as_dir() else {
-        return Err(());
+        return Err(Error::Unknown);
     };
 
     if let Some((mut child_ip, _off)) = parent_dp.lookup(p, name) {
@@ -70,7 +70,7 @@ pub fn create<'tx>(
             drop(lip);
             return Ok(child_ip);
         }
-        return Err(());
+        return Err(Error::Unknown);
     }
 
     let mut child_ip = TxInode::alloc(tx, parent_dp.dev(), ty)?;
@@ -88,7 +88,7 @@ pub fn create<'tx>(
             // TODO: refactor error handling. immediate closure pattern is denied by borrow check.
             child_lip.data_mut().nlink = 0;
             child_lip.update();
-            return Err(());
+            return Err(Error::Unknown);
         }
     }
 
@@ -96,7 +96,7 @@ pub fn create<'tx>(
         // TODO: refactor error handling. immediate closure pattern is denied by borrow check.
         child_lip.data_mut().nlink = 0;
         child_lip.update();
-        return Err(());
+        return Err(Error::Unknown);
     }
 
     if child_lip.is_dir() {
@@ -109,12 +109,12 @@ pub fn create<'tx>(
     Ok(child_ip)
 }
 
-pub fn link(tx: &Tx<false>, p: &Proc, old_path: &[u8], new_path: &[u8]) -> Result<(), ()> {
+pub fn link(tx: &Tx<false>, p: &Proc, old_path: &[u8], new_path: &[u8]) -> Result<(), Error> {
     let mut old_ip = path::resolve(tx, p, old_path)?;
     let mut old_lip = old_ip.lock();
 
     if old_lip.is_dir() {
-        return Err(());
+        return Err(Error::Unknown);
     }
 
     old_lip.data_mut().nlink += 1;
@@ -126,10 +126,10 @@ pub fn link(tx: &Tx<false>, p: &Proc, old_path: &[u8], new_path: &[u8]) -> Resul
         let (mut parent_ip, name) = path::resolve_parent(tx, p, new_path, &mut name)?;
         let mut parent_lip = parent_ip.lock();
         if parent_lip.dev() != old_ip.dev() {
-            return Err(());
+            return Err(Error::Unknown);
         }
         let Some(mut parent_dp) = parent_lip.as_dir() else {
-            return Err(());
+            return Err(Error::Unknown);
         };
         parent_dp.link(p, name, old_ip.inum())?;
 

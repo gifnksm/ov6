@@ -12,6 +12,7 @@ use core::{
 
 use crate::{
     cpu::Cpu,
+    error::Error,
     file::{self, File},
     fs::{self, DeviceNo, Inode},
     interrupt::{self, trampoline, trap},
@@ -365,15 +366,15 @@ impl Proc {
             *p.state.get() = ProcState::Used;
         }
 
-        let res: Result<(), ()> = (|| {
+        let res: Result<(), Error> = (|| {
             unsafe {
                 *p.pid.get() = Self::allocate_pid();
                 *p.state.get() = ProcState::Used;
 
                 // Allocate a trapframe page.
-                *p.trapframe.get() = Some(page::alloc_page().ok_or(())?.cast());
+                *p.trapframe.get() = Some(page::alloc_page().ok_or(Error::Unknown)?.cast());
                 // An empty user page table.
-                *p.pagetable.get() = Some(create_pagetable(p).ok_or(())?);
+                *p.pagetable.get() = Some(create_pagetable(p).ok_or(Error::Unknown)?);
                 // Set up new context to start executing ad forkret,
                 // which returns to user space.
                 (*p.context.get()).clear();
@@ -570,7 +571,7 @@ pub fn user_init() {
 }
 
 /// Grows or shrink user memory by nBytes.
-pub fn grow_proc(p: &Proc, n: isize) -> Result<(), ()> {
+pub fn grow_proc(p: &Proc, n: isize) -> Result<(), Error> {
     let old_sz = unsafe { *p.sz.get() };
     let new_sz = (old_sz as isize + n) as usize;
     let pagetable = p.pagetable_mut().unwrap();
@@ -718,7 +719,7 @@ pub fn exit(p: &Proc, status: i32) -> ! {
 /// Waits for a child process to exit and return its pid.
 ///
 /// Returns `Err` if this process has no children.
-pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, ()> {
+pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, Error> {
     WAIT_LOCK.acquire();
 
     loop {
@@ -744,7 +745,7 @@ pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, ()> {
                 {
                     pp.lock.release();
                     WAIT_LOCK.release();
-                    return Err(());
+                    return Err(Error::Unknown);
                 }
                 pp.free();
                 pp.lock.release();
@@ -757,7 +758,7 @@ pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, ()> {
         // No point waiting if we don't have any children.
         if !have_kids || p.killed() {
             WAIT_LOCK.release();
-            return Err(());
+            return Err(Error::Unknown);
         }
 
         // Wait for a child to exit.
@@ -940,7 +941,7 @@ pub fn wakeup(chan: *const c_void) {
 ///
 /// The victim won't exit until it tries to return
 /// to user spaec (see `usertrap()`).
-pub fn kill(pid: ProcId) -> Result<(), ()> {
+pub fn kill(pid: ProcId) -> Result<(), Error> {
     for p in &PROC {
         p.lock.acquire();
         unsafe {
@@ -956,12 +957,17 @@ pub fn kill(pid: ProcId) -> Result<(), ()> {
         }
         p.lock.release();
     }
-    Err(())
+    Err(Error::Unknown)
 }
 
 /// Copies to either a user address, or kernel address,
 /// depending on `user_dst`.
-pub fn either_copy_out_bytes(p: &Proc, user_dst: bool, dst: usize, src: &[u8]) -> Result<(), ()> {
+pub fn either_copy_out_bytes(
+    p: &Proc,
+    user_dst: bool,
+    dst: usize,
+    src: &[u8],
+) -> Result<(), Error> {
     if user_dst {
         return vm::copy_out_bytes(p.pagetable().unwrap(), VirtAddr::new(dst), src);
     }
@@ -981,7 +987,7 @@ pub fn either_copy_in_bytes(
     dst: &mut [u8],
     user_src: bool,
     src: usize,
-) -> Result<(), ()> {
+) -> Result<(), Error> {
     if user_src {
         return vm::copy_in_bytes(p.pagetable().unwrap(), dst, VirtAddr::new(src));
     }

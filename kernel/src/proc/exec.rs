@@ -1,6 +1,7 @@
 use core::{ffi::CStr, slice};
 
 use crate::{
+    error::Error,
     fs::{self, LockedTxInode},
     memory::vm::{self, PAGE_SIZE, PageRound as _, PageTable, PtEntryFlags, VirtAddr},
     param::{MAX_ARG, USER_STACK},
@@ -21,7 +22,7 @@ fn flags2perm(flags: u32) -> PtEntryFlags {
     perm
 }
 
-pub fn exec(path: &[u8], argv: *const *const u8) -> Result<usize, ()> {
+pub fn exec(path: &[u8], argv: *const *const u8) -> Result<usize, Error> {
     let p = Proc::current();
     let tx = fs::begin_tx();
     let mut ip = fs::path::resolve(&tx, p, path)?;
@@ -30,27 +31,29 @@ pub fn exec(path: &[u8], argv: *const *const u8) -> Result<usize, ()> {
     // Check ELF header
     let mut elf = ElfHeader::zero();
 
-    if lip.read(
+    let nread = lip.read(
         p,
         false,
         VirtAddr::new((&raw mut elf).addr()),
         0,
         size_of::<ElfHeader>(),
-    ) != Ok(size_of::<ElfHeader>())
-    {
-        return Err(());
+    )?;
+    if nread != size_of::<ElfHeader>() {
+        return Err(Error::Unknown);
     }
     if elf.magic != ELF_MAGIC {
-        return Err(());
+        return Err(Error::Unknown);
     }
 
-    let mut pagetable = proc::create_pagetable(p).ok_or(())?;
+    let mut pagetable = proc::create_pagetable(p).ok_or(Error::Unknown)?;
 
     // Load program into memory.
     let mut sz = 0;
-    if let Err(()) = load_segments(p, &mut lip, unsafe { pagetable.as_mut() }, &mut sz, &elf) {
+    if let Err(Error::Unknown) =
+        load_segments(p, &mut lip, unsafe { pagetable.as_mut() }, &mut sz, &elf)
+    {
         proc::free_pagetable(pagetable, sz);
-        return Err(());
+        return Err(Error::Unknown);
     }
 
     lip.unlock();
@@ -59,7 +62,7 @@ pub fn exec(path: &[u8], argv: *const *const u8) -> Result<usize, ()> {
 
     if allocate_stack_pages(unsafe { pagetable.as_mut() }, &mut sz).is_err() {
         proc::free_pagetable(pagetable, sz);
-        return Err(());
+        return Err(Error::Unknown);
     }
 
     let sp = sz;
@@ -68,7 +71,7 @@ pub fn exec(path: &[u8], argv: *const *const u8) -> Result<usize, ()> {
     // Push argument strings, prepare rest of stack in ustack.
     let Ok((sp, argc)) = push_arguments(unsafe { pagetable.as_ref() }, sp, stack_base, argv) else {
         proc::free_pagetable(pagetable, sz);
-        return Err(());
+        return Err(Error::Unknown);
     };
 
     // arguments to user main(argc, argv).
@@ -101,7 +104,7 @@ fn load_segments<const READ_ONLY: bool>(
     pagetable: &mut PageTable,
     sz: &mut usize,
     elf: &ElfHeader,
-) -> Result<(), ()> {
+) -> Result<(), Error> {
     for i in 0..elf.phnum {
         let off = elf.phoff as usize + usize::from(i) * size_of::<ProgramHeader>();
         let mut ph = ProgramHeader::zero();
@@ -116,13 +119,13 @@ fn load_segments<const READ_ONLY: bool>(
             continue;
         }
         if ph.memsz < ph.filesz {
-            return Err(());
+            return Err(Error::Unknown);
         }
         if ph.vaddr.checked_add(ph.memsz).is_none() {
-            return Err(());
+            return Err(Error::Unknown);
         }
         if !(ph.vaddr as usize).is_page_aligned() {
-            return Err(());
+            return Err(Error::Unknown);
         }
         *sz = vm::user::alloc(
             pagetable,
@@ -153,7 +156,7 @@ fn load_segment<const READ_ONLY: bool>(
     lip: &mut LockedTxInode<READ_ONLY>,
     offset: usize,
     sz: usize,
-) -> Result<(), ()> {
+) -> Result<(), Error> {
     assert!(va.is_page_aligned());
 
     for i in (0..sz).step_by(PAGE_SIZE) {
@@ -167,8 +170,9 @@ fn load_segment<const READ_ONLY: bool>(
             PAGE_SIZE
         };
 
-        if lip.read(p, false, VirtAddr::new(pa.addr()), offset + i, n) != Ok(n) {
-            return Err(());
+        let nread = lip.read(p, false, VirtAddr::new(pa.addr()), offset + i, n)?;
+        if nread != n {
+            return Err(Error::Unknown);
         }
     }
 
@@ -179,7 +183,7 @@ fn load_segment<const READ_ONLY: bool>(
 ///
 /// Makes the first inaccessible as a stack guard.
 /// Uses the rest as the user stack.
-fn allocate_stack_pages(pagetable: &mut PageTable, sz: &mut usize) -> Result<(), ()> {
+fn allocate_stack_pages(pagetable: &mut PageTable, sz: &mut usize) -> Result<(), Error> {
     *sz = sz.page_roundup();
     *sz = vm::user::alloc(
         pagetable,
@@ -196,7 +200,7 @@ fn push_arguments(
     mut sp: usize,
     stack_base: usize,
     argv: *const *const u8,
-) -> Result<(usize, usize), ()> {
+) -> Result<(usize, usize), Error> {
     let mut ustack = [0usize; MAX_ARG];
 
     let mut argc = 0;
@@ -206,13 +210,13 @@ fn push_arguments(
             break;
         }
         if argc >= MAX_ARG {
-            return Err(());
+            return Err(Error::Unknown);
         }
         let arg = unsafe { CStr::from_ptr(arg) };
         sp -= arg.to_bytes_with_nul().len();
         sp -= sp % 16; // risc-v sp must be 16-byte aligned
         if sp < stack_base {
-            return Err(());
+            return Err(Error::Unknown);
         }
         vm::copy_out_bytes(pagetable, VirtAddr::new(sp), arg.to_bytes_with_nul())?;
         ustack[argc] = sp;
@@ -224,7 +228,7 @@ fn push_arguments(
     sp -= (argc + 1) * size_of::<usize>();
     sp -= sp % 16;
     if sp < stack_base {
-        return Err(());
+        return Err(Error::Unknown);
     }
     let src =
         unsafe { slice::from_raw_parts(ustack.as_ptr().cast(), (argc + 1) * size_of::<usize>()) };

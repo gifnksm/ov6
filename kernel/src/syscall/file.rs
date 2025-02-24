@@ -41,14 +41,14 @@ pub fn sys_read(p: &Proc) -> Result<usize, Error> {
     let va = syscall::arg_addr(p, 1);
     let n = syscall::arg_int(p, 2);
     let (_fd, f) = arg_fd(p, 0)?;
-    file::read(p, unsafe { f.as_ref() }, va, n).map_err(|()| Error::Unknown)
+    file::read(p, unsafe { f.as_ref() }, va, n)
 }
 
 pub fn sys_write(p: &Proc) -> Result<usize, Error> {
     let va = syscall::arg_addr(p, 1);
     let n = syscall::arg_int(p, 2);
     let (_fd, f) = arg_fd(p, 0)?;
-    file::write(p, unsafe { f.as_ref() }, va, n).map_err(|()| Error::Unknown)
+    file::write(p, unsafe { f.as_ref() }, va, n)
 }
 
 pub fn sys_close(p: &Proc) -> Result<usize, Error> {
@@ -61,7 +61,7 @@ pub fn sys_close(p: &Proc) -> Result<usize, Error> {
 pub fn sys_fstat(p: &Proc) -> Result<usize, Error> {
     let va = syscall::arg_addr(p, 1);
     let (_fd, f) = arg_fd(p, 0)?;
-    file::stat(p, unsafe { f.as_ref() }, va).map_err(|()| Error::Unknown)?;
+    file::stat(p, unsafe { f.as_ref() }, va)?;
     Ok(0)
 }
 
@@ -74,7 +74,7 @@ pub fn sys_link(p: &Proc) -> Result<usize, Error> {
     let new = syscall::arg_str(p, 1, &mut new)?;
 
     let tx = fs::begin_tx();
-    fs::ops::link(&tx, p, old, new).map_err(|()| Error::Unknown)?;
+    fs::ops::link(&tx, p, old, new)?;
     Ok(0)
 }
 
@@ -83,7 +83,7 @@ pub fn sys_unlink(p: &Proc) -> Result<usize, Error> {
     let path = syscall::arg_str(p, 0, &mut path)?;
 
     let tx = fs::begin_tx();
-    fs::ops::unlink(&tx, p, path).map_err(|()| Error::Unknown)?;
+    fs::ops::unlink(&tx, p, path)?;
     Ok(0)
 }
 
@@ -94,9 +94,9 @@ pub fn sys_open(p: &Proc) -> Result<usize, Error> {
 
     let tx = fs::begin_tx();
     let mut ip = if mode.contains(OpenFlags::CREATE) {
-        fs::ops::create(&tx, p, path, T_FILE, 0, 0).map_err(|()| Error::Unknown)?
+        fs::ops::create(&tx, p, path, T_FILE, 0, 0)?
     } else {
-        let mut ip = fs::path::resolve(&tx, p, path).map_err(|()| Error::Unknown)?;
+        let mut ip = fs::path::resolve(&tx, p, path)?;
         let lip = ip.lock();
         if lip.is_dir() && mode != OpenFlags::READ_ONLY {
             return Err(Error::Unknown);
@@ -139,7 +139,7 @@ pub fn sys_mkdir(p: &Proc) -> Result<usize, Error> {
     let path = syscall::arg_str(p, 0, &mut path)?;
 
     let tx = fs::begin_tx();
-    let _ip = fs::ops::create(&tx, p, path, T_DIR, 0, 0).map_err(|()| Error::Unknown)?;
+    let _ip = fs::ops::create(&tx, p, path, T_DIR, 0, 0)?;
 
     Ok(0)
 }
@@ -151,7 +151,7 @@ pub fn sys_mknod(p: &Proc) -> Result<usize, Error> {
     let minor = syscall::arg_int(p, 2) as i16;
 
     let tx = fs::begin_tx();
-    let _ip = fs::ops::create(&tx, p, path, T_DEVICE, major, minor).map_err(|()| Error::Unknown)?;
+    let _ip = fs::ops::create(&tx, p, path, T_DEVICE, major, minor)?;
 
     Ok(0)
 }
@@ -161,7 +161,7 @@ pub fn sys_chdir(p: &Proc) -> Result<usize, Error> {
     let path = syscall::arg_str(p, 0, &mut path)?;
 
     let tx = fs::begin_tx();
-    let mut ip = fs::path::resolve(&tx, p, path).map_err(|()| Error::Unknown)?;
+    let mut ip = fs::path::resolve(&tx, p, path)?;
     if !ip.lock().is_dir() {
         return Err(Error::Unknown);
     }
@@ -204,7 +204,7 @@ pub fn sys_exec(p: &Proc) -> Result<usize, Error> {
         return Err(Error::Unknown);
     }
 
-    let ret = exec::exec(path, argv.as_ptr().cast()).map_err(|()| Error::Unknown);
+    let ret = exec::exec(path, argv.as_ptr().cast());
 
     for arg in argv.iter().filter_map(|&a| a) {
         unsafe {
@@ -218,7 +218,7 @@ pub fn sys_exec(p: &Proc) -> Result<usize, Error> {
 pub fn sys_pipe(p: &Proc) -> Result<usize, Error> {
     let fd_array = syscall::arg_addr(p, 0);
 
-    let (rf, wf) = pipe::alloc().map_err(|()| Error::Unknown)?;
+    let (rf, wf) = pipe::alloc()?;
 
     let Ok(rfd) = fd_alloc(p, rf.into()) else {
         file::close(rf);

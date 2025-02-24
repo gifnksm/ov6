@@ -1,6 +1,7 @@
 use core::ptr::NonNull;
 
 use crate::{
+    error::Error,
     memory::{
         page,
         vm::{self, VirtAddr},
@@ -31,18 +32,18 @@ struct PipeData {
     writeopen: bool,
 }
 
-pub fn alloc() -> Result<(&'static File, &'static File), ()> {
+pub fn alloc() -> Result<(&'static File, &'static File), Error> {
     let Ok(f0) = super::alloc().ok_or(()) else {
-        return Err(());
+        return Err(Error::Unknown);
     };
     let Ok(f1) = super::alloc().ok_or(()) else {
         super::close(f0);
-        return Err(());
+        return Err(Error::Unknown);
     };
     let Some(mut pi) = page::alloc_page().map(|p| p.cast::<Pipe>()) else {
         super::close(f0);
         super::close(f1);
-        return Err(());
+        return Err(Error::Unknown);
     };
 
     unsafe {
@@ -84,14 +85,14 @@ pub fn close(pipe: NonNull<Pipe>, writable: bool) {
     }
 }
 
-pub fn write(pipe: &Pipe, addr: VirtAddr, n: usize) -> Result<usize, ()> {
+pub fn write(pipe: &Pipe, addr: VirtAddr, n: usize) -> Result<usize, Error> {
     let p = Proc::current();
     let mut i = 0;
 
     let mut pipe = pipe.data.lock();
     while i < n {
         if !pipe.readopen || p.killed() {
-            return Err(());
+            return Err(Error::Unknown);
         }
         if pipe.nwrite == pipe.nread + PIPE_SIZE {
             proc::wakeup((&raw const pipe.nread).cast());
@@ -111,13 +112,13 @@ pub fn write(pipe: &Pipe, addr: VirtAddr, n: usize) -> Result<usize, ()> {
     Ok(i)
 }
 
-pub fn read(pipe: &Pipe, addr: VirtAddr, n: usize) -> Result<usize, ()> {
+pub fn read(pipe: &Pipe, addr: VirtAddr, n: usize) -> Result<usize, Error> {
     let p = Proc::current();
 
     let mut pipe = pipe.data.lock();
     while pipe.nread == pipe.nwrite && pipe.writeopen {
         if p.killed() {
-            return Err(());
+            return Err(Error::Unknown);
         }
         proc::sleep((&raw const pipe.nread).cast(), &mut pipe);
     }

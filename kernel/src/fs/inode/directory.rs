@@ -3,7 +3,11 @@
 use dataview::PodMethods as _;
 
 use crate::{
-    fs::{DeviceNo, InodeNo, repr, repr::T_DIR},
+    error::Error,
+    fs::{
+        DeviceNo, InodeNo,
+        repr::{self, T_DIR},
+    },
     proc::Proc,
 };
 
@@ -80,10 +84,10 @@ impl<'tx, const READ_ONLY: bool> DirInode<'tx, '_, '_, READ_ONLY> {
 
 impl DirInode<'_, '_, '_, false> {
     /// Writes a new directory entry (`name` and `inum`) into the directory.
-    pub fn link(&mut self, p: &Proc, name: &[u8], inum: InodeNo) -> Result<(), ()> {
+    pub fn link(&mut self, p: &Proc, name: &[u8], inum: InodeNo) -> Result<(), Error> {
         // Check that name is not present.
         if self.lookup(p, name).is_some() {
-            return Err(());
+            return Err(Error::Unknown);
         }
 
         // Looks for an empty dirent.

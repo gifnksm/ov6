@@ -10,6 +10,7 @@ use core::{mem::MaybeUninit, ptr};
 use dataview::Pod;
 
 use crate::{
+    error::Error,
     fs::{
         BlockNo, SUPER_BLOCK, data_block,
         repr::{self, FS_BLOCK_SIZE, MAX_FILE, NUM_DIRECT_REFS, NUM_INDIRECT_REFS},
@@ -144,7 +145,7 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
         dst: VirtAddr,
         off: usize,
         mut n: usize,
-    ) -> Result<usize, ()> {
+    ) -> Result<usize, Error> {
         let data = self.data();
         let size = data.size as usize;
         if off > size || off.checked_add(n).is_none() {
@@ -178,7 +179,7 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
     }
 
     /// Reads the inode's data as `T`.
-    pub fn read_as<T>(&mut self, p: &Proc, off: usize) -> Result<T, ()>
+    pub fn read_as<T>(&mut self, p: &Proc, off: usize) -> Result<T, Error>
     where
         T: Pod,
     {
@@ -191,7 +192,7 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
             size_of::<T>(),
         )?;
         if read != size_of::<T>() {
-            return Err(());
+            return Err(Error::Unknown);
         }
         Ok(unsafe { dst.assume_init() })
     }
@@ -212,13 +213,13 @@ impl LockedTxInode<'_, '_, false> {
         src: VirtAddr,
         off: usize,
         n: usize,
-    ) -> Result<usize, ()> {
+    ) -> Result<usize, Error> {
         let size = self.data().size as usize;
         if off > size || off.checked_add(n).is_none() {
-            return Err(());
+            return Err(Error::Unknown);
         }
         if off + n > MAX_FILE * FS_BLOCK_SIZE {
-            return Err(());
+            return Err(Error::Unknown);
         }
 
         let mut tot = 0;
@@ -257,7 +258,7 @@ impl LockedTxInode<'_, '_, false> {
     }
 
     /// Writes `data` to inode.
-    pub fn write_data<T>(&mut self, p: &Proc, off: usize, data: &T) -> Result<(), ()>
+    pub fn write_data<T>(&mut self, p: &Proc, off: usize, data: &T) -> Result<(), Error>
     where
         T: Pod,
     {
@@ -269,7 +270,7 @@ impl LockedTxInode<'_, '_, false> {
             size_of::<T>(),
         )?;
         if written != size_of::<T>() {
-            return Err(());
+            return Err(Error::Unknown);
         }
         Ok(())
     }

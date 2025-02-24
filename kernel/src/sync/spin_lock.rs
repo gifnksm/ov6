@@ -7,7 +7,7 @@ use core::{
 
 use mutex_api::Mutex;
 
-use crate::{cpu::Cpu, interrupt, proc};
+use crate::{cpu::Cpu, error::Error, interrupt, proc};
 
 #[derive(Default)]
 pub struct RawSpinLock {
@@ -25,7 +25,7 @@ impl RawSpinLock {
         }
     }
 
-    pub fn try_acquire(&self) -> Result<(), ()> {
+    pub fn try_acquire(&self) -> Result<(), Error> {
         // disable interrupts to avoid deadlock.
         interrupt::push_disabled().forget(); // drop re-enables interrupts, so we must forget it here.
 
@@ -36,7 +36,7 @@ impl RawSpinLock {
         // references happen strictly after the lock is acquired.
         // On RISC-V, this emits a fence instruction.
         if self.locked.swap(true, Ordering::Acquire) {
-            return Err(());
+            return Err(Error::Unknown);
         }
 
         // Record info about lock acquisition for holding() and debugging.
@@ -120,7 +120,7 @@ impl<T> SpinLock<T> {
     // /// Acquires the lock.
     // ///
     // /// Loops (spins) until the lock is acquired.
-    // pub fn try_lock(&self) -> Result<SpinLockGuard<T>, ()> {
+    // pub fn try_lock(&self) -> Result<SpinLockGuard<T>, Error> {
     //     self.lock.try_acquire()?;
     //     Ok(SpinLockGuard { lock: self })
     // }
