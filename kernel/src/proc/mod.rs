@@ -368,9 +368,6 @@ impl Proc {
 
         let res: Result<(), Error> = (|| {
             unsafe {
-                *p.pid.get() = Self::allocate_pid();
-                *p.state.get() = ProcState::Used;
-
                 // Allocate a trapframe page.
                 *p.trapframe.get() = Some(page::alloc_page().ok_or(Error::Unknown)?.cast());
                 // An empty user page table.
