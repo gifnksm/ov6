@@ -91,12 +91,6 @@ $U/usys.o : $U/usys.S
 target/$(RUST_TARGET)/release/kernel: FORCE
 	cargo build -p kernel --release
 
-target/$(RUST_TARGET)/release/libxv6_user_syscall.a: FORCE
-	cargo build -p xv6_user_syscall --release --features panic_handler
-
-target/$(RUST_TARGET)/release/libxv6_user_lib.a: FORCE
-	cargo build -p xv6_user_lib --release
-
 target/$(RUST_TARGET)/release/%: FORCE
 	cargo build -p user --bin $(notdir $@) --release
 

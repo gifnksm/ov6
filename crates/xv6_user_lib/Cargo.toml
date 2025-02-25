@@ -8,7 +8,7 @@ edition.workspace = true
 forced-target = "riscv64gc-unknown-none-elf"
 
 [lib]
-crate-type = ["staticlib", "rlib"]
+crate-type = ["rlib"]
 test = false
 bench = false
 
