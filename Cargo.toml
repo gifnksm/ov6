@@ -9,6 +9,7 @@ edition = "2024"
 [workspace.dependencies]
 bitflags = "2.8.0"
 dataview = "1.0.1"
+memchr = { version = "2.7.4", default-features = false, features = ["alloc"] }
 riscv = "0.12.1"
 
 block_io = { path = "crates/block_io" }

@@ -14,6 +14,8 @@ bench = false
 
 [dependencies]
 dataview.workspace = true
+memchr.workspace = true
+once_init.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 xv6_fs_types.workspace = true

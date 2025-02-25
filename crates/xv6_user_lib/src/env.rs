@@ -4,6 +4,8 @@ use core::{
     sync::atomic::{AtomicPtr, AtomicUsize, Ordering},
 };
 
+use crate::{error::Error, os::xv6::syscall};
+
 pub(crate) static ARGC: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static ARGV: AtomicPtr<*const u8> = AtomicPtr::new(core::ptr::null_mut());
 
@@ -77,4 +79,8 @@ impl ExactSizeIterator for ArgsCStr {
     fn len(&self) -> usize {
         self.iter.len()
     }
+}
+
+pub fn set_current_directory(path: &CStr) -> Result<(), Error> {
+    syscall::chdir(path)
 }

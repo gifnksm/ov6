@@ -14,6 +14,7 @@ use dataview::Pod;
 
 /// A synchronization primitive which can be written to only once.
 pub struct OnceInit<T> {
+    initializing: AtomicBool,
     initialized: AtomicBool,
     value: UnsafeCell<MaybeUninit<T>>,
 }
@@ -45,9 +46,31 @@ impl<T> OnceInit<T> {
     /// Creates a new uninitialized cell.
     pub const fn new() -> Self {
         Self {
+            initializing: AtomicBool::new(false),
             initialized: AtomicBool::new(false),
             value: UnsafeCell::new(MaybeUninit::uninit()),
         }
+    }
+
+    pub fn try_init_with<F>(&self, f: F) -> Result<(), InitError>
+    where
+        F: FnOnce() -> T,
+    {
+        if self
+            .initializing
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            return Err(InitError::AlreadyInitialized);
+        }
+
+        unsafe {
+            (*self.value.get()).write(f());
+        }
+
+        self.initialized.store(true, Ordering::Release);
+
+        Ok(())
     }
 
     /// Initializes the cell.
@@ -56,7 +79,7 @@ impl<T> OnceInit<T> {
     /// Returns `Err()` if the cell already initialized.
     pub fn try_init(&self, value: T) -> Result<(), T> {
         if self
-            .initialized
+            .initializing
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_err()
         {
@@ -66,6 +89,8 @@ impl<T> OnceInit<T> {
         unsafe {
             (*self.value.get()).write(value);
         }
+
+        self.initialized.store(true, Ordering::Release);
 
         Ok(())
     }
@@ -79,7 +104,7 @@ impl<T> OnceInit<T> {
         T: Pod,
     {
         if self
-            .initialized
+            .initializing
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_err()
         {
@@ -89,6 +114,8 @@ impl<T> OnceInit<T> {
         unsafe {
             (*self.value.get()).as_mut_ptr().copy_from(value, 1);
         }
+
+        self.initialized.store(true, Ordering::Release);
 
         Ok(())
     }

@@ -1,7 +1,14 @@
+#![feature(core_io_borrowed_buf)]
 #![feature(lang_items)]
 #![feature(naked_functions)]
+#![feature(maybe_uninit_slice)]
 #![allow(internal_features)]
 #![no_std]
+
+extern crate alloc as alloc_crate;
+
+#[macro_use]
+mod macros;
 
 pub mod alloc;
 pub mod env;
