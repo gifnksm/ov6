@@ -3,12 +3,14 @@
 #![allow(internal_features)]
 #![no_std]
 
+pub mod alloc;
 pub mod env;
 pub mod error;
 pub mod fs;
 pub mod io;
 pub mod os;
 pub mod process;
+pub mod sync;
 
 #[lang = "start"]
 fn lang_start<T>(main: fn() -> T, argc: isize, argv: *const *const u8, _: u8) -> isize {
