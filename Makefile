@@ -2,12 +2,44 @@
 .SECONDARY:
 .SECONDEXPANSION:
 
-K=kernel
-U=user
-R=target/xv6/release
-RN=target/release
+PROFILE=release
+ifeq ($(PROFILE),debug)
+# profile name `debug` is reserved, so we can't run `cargo <command> --profile debug`.
+CARGO_PROFILE_FLAG=
+else
+CARGO_PROFILE_FLAG=--profile $(PROFILE)
+endif
 
-RUST_TARGET=riscv64gc-unknown-none-elf
+U=user
+R=target/xv6/$(PROFILE)
+RN=target/$(PROFILE)
+
+RUST_CROSS_TARGET=riscv64gc-unknown-none-elf
+RX=target/$(RUST_CROSS_TARGET)/$(PROFILE)
+
+RUPROGS=\
+	cat\
+	echo\
+	forktest\
+	grep\
+	hello\
+	init\
+	kill\
+	ln\
+	ls\
+	mkdir\
+	rm\
+
+RX_RUPROGS=$(patsubst %,$(RX)/%,$(RUPROGS))
+R_RUPROGS=$(patsubst %,$R/%,$(RUPROGS))
+
+UPROGS=\
+	$U/_sh\
+	$U/_stressfs\
+	$U/_usertests\
+	$U/_grind\
+	$U/_wc\
+	$U/_zombie\
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin
@@ -62,6 +94,8 @@ endif
 LDFLAGS = -z max-page-size=4096 --gc-sections
 
 all: $R/kernel $R/kernel.asm $R/kernel.sym fs.img $U/initcode
+all: $(UPROGS)
+all: $(R_RUPROGS) $(addsuffix .sym,$(R_RUPROGS)) $(addsuffix .asm,$(R_RUPROGS))
 
 %.asm: %
 	$(OBJDUMP) -SC $< > $@
@@ -88,60 +122,42 @@ $U/usys.S : $U/usys.pl
 $U/usys.o : $U/usys.S
 	$(CC) $(CFLAGS) -c -o $U/usys.o $U/usys.S
 
-target/$(RUST_TARGET)/release/kernel: FORCE
-	cargo build -p kernel --release
+$(RX)/kernel:
+	cargo build -p kernel $(CARGO_PROFILE_FLAG)
 
-target/$(RUST_TARGET)/release/%: FORCE
-	cargo build -p user --bin $(notdir $@) --release
+define user_rule
+$$(RX)/$(1):
+	cargo build -p user --bin $(1) $$(CARGO_PROFILE_FLAG)
+
+endef
+
+$(foreach u,$(RUPROGS),$(eval $(call user_rule,$(u))))
+
+$(RN)/mkfs:
+	cargo build -p mkfs $(CARGO_PROFILE_FLAG)
 
 %/:
 	mkdir -p $@
 
 # create separate debuginfo file
 # https://users.rust-lang.org/t/how-to-gdb-with-split-debug-files/102989/3
-target/xv6/%.debug: target/$(RUST_TARGET)/% | $$(dir $$@)
+$R/%.debug: $(RX)/% | $$(dir $$@)
 	$(OBJCOPY) --only-keep-debug $< $@
 
-target/xv6/%: target/$(RUST_TARGET)/% target/xv6/%.debug | $$(dir $$@)
+$R/%: $(RX)/% $(R)/%.debug | $$(dir $$@)
 	$(OBJCOPY) --strip-debug --strip-unneeded --remove-section=".gnu_debuglink" --add-gnu-debuglink="$@.debug" $< $@
 
-# Prevent deletion of intermediate files, e.g. cat.o, after first build, so
-# that disk image changes after first build are persistent until clean.  More
-# details:
-# http://www.gnu.org/software/make/manual/html_node/Chained-Rules.html
-.PRECIOUS: %.o
+fs.img: $(RN)/mkfs README $(UPROGS) $(R_RUPROGS)
+	$(RN)/mkfs $@ README $(UPROGS) $(R_RUPROGS)
 
-RUPROGS=\
-	$R/cat\
-	$R/echo\
-	$R/forktest\
-	$R/grep\
-	$R/hello\
-	$R/init\
-	$R/kill\
-	$R/ln\
-	$R/ls\
-	$R/mkdir\
-	$R/rm\
+# convert Cargo's .d file (absolute path -> relative path)
+target/%.rel.d: target/%.d
+	sed "s@$$(pwd)/@@g" $< > $@
 
-UPROGS=\
-	$U/_sh\
-	$U/_stressfs\
-	$U/_usertests\
-	$U/_grind\
-	$U/_wc\
-	$U/_zombie\
-	$(RUPROGS)
-
-all: $(UPROGS) $(patsubst %,%.sym,$(RUPROGS)) $(patsubst %,%.asm,$(RUPROGS))
-
-fs.img: $(RN)/mkfs README $(UPROGS)
-	$(RN)/mkfs $@ README $(UPROGS)
-
-$(RN)/mkfs: FORCE
-	cargo build --release --bin mkfs
-
--include kernel/*.d user/*.d mkfd/*.d
+-include $(RX)/kernel.rel.d
+-include $(addsuffix .rel.d,$(RX_RUPROGS))
+-include $(RN)/mkfs.rel.d
+-include user/*.d
 
 clean:
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
@@ -198,4 +214,4 @@ qemu-gdb: $R/kernel .gdbinit fs.img
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
 FORCE:
-.PHONY: FORCE all clean qemu qemu-gdb tags check cargo-clippy typos
+.PHONY: FORCE all clean qemu qemu-gdb check cargo-clippy typos
