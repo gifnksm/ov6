@@ -5,17 +5,20 @@ use dataview::PodMethods as _;
 use crate::{
     error::Error,
     io::{Read, Write},
-    os, syscall,
+    os::{
+        fd::{AsFd as _, OwnedFd},
+        xv6::syscall,
+    },
 };
 
 pub use syscall::{OpenFlags, StatType};
 
 pub struct Metadata {
-    pub(crate) dev: u32,
-    pub(crate) ino: u32,
-    pub(crate) ty: StatType,
-    pub(crate) nlink: u16,
-    pub(crate) size: u64,
+    dev: u32,
+    ino: u32,
+    ty: StatType,
+    nlink: u16,
+    size: u64,
 }
 
 impl Metadata {
@@ -53,107 +56,84 @@ impl Metadata {
 }
 
 pub struct File {
-    fd: i32,
+    fd: OwnedFd,
 }
 
 impl File {
     pub fn open(path: &CStr, flags: OpenFlags) -> Result<Self, Error> {
-        let fd = os::fd_open(path, flags)?;
+        let fd = syscall::open(path, flags)?;
         Ok(Self { fd })
     }
 
     pub fn try_clone(&self) -> Result<Self, Error> {
-        let fd = os::fd_dup(self.fd)?;
+        let fd = syscall::dup(self.fd.as_fd())?;
         Ok(File { fd })
-    }
-
-    pub fn stat(&self) -> Result<Metadata, Error> {
-        os::fd_stat(self.fd)
-    }
-}
-
-impl Drop for File {
-    fn drop(&mut self) {
-        let _ = os::fd_close(self.fd); // ignore error here
     }
 }
 
 impl Write for File {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        os::fd_write(self.fd, buf)
+        syscall::write(self.fd.as_fd(), buf)
     }
 }
 
 impl Write for &'_ File {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        os::fd_write(self.fd, buf)
+        syscall::write(self.fd.as_fd(), buf)
     }
 }
 
 impl Read for File {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        os::fd_read(self.fd, buf)
+        syscall::read(self.fd.as_fd(), buf)
     }
 }
 
 impl Read for &'_ File {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        os::fd_read(self.fd, buf)
+        syscall::read(self.fd.as_fd(), buf)
     }
 }
 
 pub fn mknod(path: &CStr, major: i16, minor: i16) -> Result<(), Error> {
-    if unsafe { syscall::mknod(path.as_ptr(), major, minor) } < 0 {
-        return Err(Error::Unknown);
-    }
-    Ok(())
+    syscall::mknod(path, major, minor)
 }
 
 pub fn link(old: &CStr, new: &CStr) -> Result<(), Error> {
-    if unsafe { syscall::link(old.as_ptr(), new.as_ptr()) } < 0 {
-        return Err(Error::Unknown);
-    }
-    Ok(())
+    syscall::link(old, new)
 }
 
 pub fn metadata(path: &CStr) -> Result<Metadata, Error> {
-    let file = File::open(path, OpenFlags::READ_ONLY)?;
-    file.stat()
+    let fd = syscall::open(path, OpenFlags::READ_ONLY)?;
+    let stat = syscall::fstat(fd.as_fd())?;
+    Ok(Metadata {
+        dev: stat.dev.cast_unsigned(),
+        ino: stat.ino,
+        ty: stat.ty,
+        nlink: stat.nlink.cast_unsigned(),
+        size: stat.size,
+    })
 }
 
-pub fn remove_file(arg: &CStr) -> Result<(), Error> {
-    let res = unsafe { syscall::unlink(arg.as_ptr()) };
-    if res < 0 {
-        return Err(Error::Unknown);
-    }
-    Ok(())
+pub fn remove_file(path: &CStr) -> Result<(), Error> {
+    syscall::unlink(path)
 }
 
 pub fn create_dir(path: &CStr) -> Result<(), Error> {
-    let res = unsafe { syscall::mkdir(path.as_ptr()) };
-    if res < 0 {
-        return Err(Error::Unknown);
-    }
-    Ok(())
+    syscall::mkdir(path)
 }
 
 pub fn read_dir(path: &CStr) -> Result<ReadDir, Error> {
-    let fd = os::fd_open(path, OpenFlags::READ_ONLY)?;
-    let st = os::fd_stat(fd)?;
-    if !st.is_dir() {
+    let fd = syscall::open(path, OpenFlags::READ_ONLY)?;
+    let st = syscall::fstat(fd.as_fd())?;
+    if st.ty != StatType::Dir {
         return Err(Error::NotADirectory);
     }
     Ok(ReadDir { fd })
 }
 
 pub struct ReadDir {
-    fd: i32,
-}
-
-impl Drop for ReadDir {
-    fn drop(&mut self) {
-        let _ = os::fd_close(self.fd); // ignore error here
-    }
+    fd: OwnedFd,
 }
 
 impl Iterator for ReadDir {
@@ -162,7 +142,7 @@ impl Iterator for ReadDir {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let mut ent = xv6_fs_types::DirEntry::zeroed();
-            let Ok(size) = os::fd_read(self.fd, ent.as_bytes_mut()) else {
+            let Ok(size) = syscall::read(self.fd.as_fd(), ent.as_bytes_mut()) else {
                 return Some(Err(Error::Unknown));
             };
             if size == 0 {

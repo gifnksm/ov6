@@ -3,10 +3,9 @@
 use user::{ensure_or_exit, try_or_exit};
 use xv6_user_lib::{
     env,
-    fs::File,
+    fs::{File, OpenFlags},
     io::{self, Read, Write},
     process,
-    syscall::OpenFlags,
 };
 
 fn cat<T>(mut input: T)

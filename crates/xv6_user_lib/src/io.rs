@@ -1,10 +1,13 @@
 use core::fmt::{self, Write as _};
 
-use crate::{error::Error, os};
+use crate::{
+    error::Error,
+    os::{fd::RawFd, xv6::syscall},
+};
 
-pub const STDIN_FD: i32 = 0;
-pub const STDOUT_FD: i32 = 1;
-pub const STDERR_FD: i32 = 2;
+pub const STDIN_FD: RawFd = 0;
+pub const STDOUT_FD: RawFd = 1;
+pub const STDERR_FD: RawFd = 2;
 
 pub trait Read {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error>;
@@ -30,13 +33,13 @@ pub struct Stdout {}
 
 impl Write for Stdout {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        os::fd_write(STDOUT_FD, buf)
+        syscall::write(STDOUT_FD, buf)
     }
 }
 
 impl Write for &'_ Stdout {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        os::fd_write(STDOUT_FD, buf)
+        syscall::write(STDOUT_FD, buf)
     }
 }
 
@@ -51,13 +54,13 @@ pub struct Stderr {}
 
 impl Write for Stderr {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        os::fd_write(STDERR_FD, buf)
+        syscall::write(STDERR_FD, buf)
     }
 }
 
 impl Write for &'_ Stderr {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        os::fd_write(STDERR_FD, buf)
+        syscall::write(STDERR_FD, buf)
     }
 }
 
@@ -72,7 +75,7 @@ pub struct Stdin {}
 
 impl Read for Stdin {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        os::fd_read(STDIN_FD, buf)
+        syscall::read(STDIN_FD, buf)
     }
 }
 

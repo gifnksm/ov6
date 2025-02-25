@@ -22,7 +22,7 @@ pub struct Stat {
     /// Inode number
     pub ino: u32,
     /// Type of file
-    pub ty: i16,
+    pub ty: StatType,
     /// Number of links to file
     pub nlink: i16,
     /// Size of file in bytes

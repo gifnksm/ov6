@@ -14,24 +14,13 @@ fn main() {
     let console = match File::open(c"console", OpenFlags::READ_WRITE) {
         Ok(console) => console,
         Err(_) => {
-            try_or_panic!(
-                fs::mknod(c"console", CONSOLE, 0),
-                e => "create console failed: {e}",
-            );
-            try_or_panic!(
-                File::open(c"console", OpenFlags::READ_WRITE),
-                e => "open console failed: {e}",
-            )
+            // stdout/stderr are not created here, so we don't output error message here.
+            fs::mknod(c"console", CONSOLE, 0).unwrap();
+            File::open(c"console", OpenFlags::READ_WRITE).unwrap()
         }
     };
-    let _stdout = try_or_panic!(
-        console.try_clone(),
-        e => "create stdout failed: {e}",
-    );
-    let _stderr = try_or_panic!(
-        console.try_clone(),
-        e => "create stderr failed: {e}",
-    );
+    let _stdout = console.try_clone().unwrap();
+    let _stderr = console.try_clone().unwrap();
 
     loop {
         message!("starting sh");

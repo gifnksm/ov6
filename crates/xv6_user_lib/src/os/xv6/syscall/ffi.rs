@@ -35,37 +35,38 @@ macro_rules! syscall {
     };
 }
 
-syscall!(SyscallType::Fork => fn fork() -> i32);
+syscall!(SyscallType::Fork => fn fork() -> isize);
 syscall!(SyscallType::Exit => fn exit(status: i32) -> !);
 syscall!(
     SyscallType::Wait =>
     /// # Safety
     ///
     /// `wstatus` must be a valid pointer to an `i32`.
-    unsafe fn wait(wstatus: *mut i32) -> i32
+    unsafe fn wait(wstatus: *mut i32) -> isize
 );
 syscall!(
     SyscallType::Pipe =>
     /// # Safety
     ///
     /// `pipefd` must be a valid pointer to an array of 2 `i32`s.
-    unsafe fn pipe(pipefd: *mut i32) -> i32);
+    unsafe fn pipe(pipefd: *mut i32) -> isize
+);
 syscall!(
     SyscallType::Write =>
     /// # Safety
     ///
     /// `buf` must be a valid pointer to an array of `i32`s with a length of `count`.
-    unsafe fn write(fd: i32, buf: *const u8, count: usize) -> i32
+    unsafe fn write(fd: i32, buf: *const u8, count: usize) -> isize
 );
 syscall!(
     SyscallType::Read =>
     /// # Safety
     ///
     /// `buf` must be a valid pointer to an array of `i32`s with a length of `count`.
-    unsafe fn read(fd: i32, buf: *mut u8, count: usize) -> i32
+    unsafe fn read(fd: i32, buf: *mut u8, count: usize) -> isize
 );
-syscall!(SyscallType::Close => fn close(fd: i32) -> i32);
-syscall!(SyscallType::Kill => fn kill(pid: i32) -> i32);
+syscall!(SyscallType::Close => fn close(fd: i32) -> isize);
+syscall!(SyscallType::Kill => fn kill(pid: u32) -> isize);
 syscall!(
     SyscallType::Exec =>
     /// # Safety
@@ -73,59 +74,59 @@ syscall!(
     /// `path` must be a valid pointer to a null-terminated string.
     /// `argv` must be a valid pointer to an array of null-terminated strings.
     /// The last element of `argv` must be a null pointer.
-    unsafe fn exec(path: *const u8, argv: *const *const u8) -> i32
+    unsafe fn exec(path: *const u8, argv: *const *const u8) -> isize
 );
 syscall!(
     SyscallType::Open =>
     /// # Safety
     ///
     /// `path` must be a valid pointer to a null-terminated string.
-    unsafe fn open(path: *const u8, flags: OpenFlags) -> i32
+    unsafe fn open(path: *const u8, flags: OpenFlags) -> isize
 );
 syscall!(
     SyscallType::Mknod =>
     /// # Safety
     ///
     /// `path` must be a valid pointer to a null-terminated string.
-    unsafe fn mknod(path: *const u8, major: i16, minor: i16) -> i32
+    unsafe fn mknod(path: *const u8, major: i16, minor: i16) -> isize
 );
 syscall!(
     SyscallType::Unlink =>
     /// # Safety
     ///
     /// `path` must be a valid pointer to a null-terminated string.
-    unsafe fn unlink(path: *const u8) -> i32
+    unsafe fn unlink(path: *const u8) -> isize
 );
 syscall!(
     SyscallType::Fstat =>
     /// # Safety
     ///
     /// `stat` must be a valid pointer to a `Stat` struct.
-    unsafe fn fstat(fd: i32, stat: *mut Stat) -> i32
+    unsafe fn fstat(fd: i32, stat: *mut Stat) -> isize
 );
 syscall!(
     SyscallType::Link =>
     /// # Safety
     ///
     /// `oldpath` and `newpath` must be valid pointers to null-terminated strings.
-    unsafe fn link(oldpath: *const u8, newpath: *const u8) -> i32
+    unsafe fn link(oldpath: *const u8, newpath: *const u8) -> isize
 );
 syscall!(
     SyscallType::Mkdir =>
     /// # Safety
     ///
     /// `path` must be a valid pointer to a null-terminated string.
-    unsafe fn mkdir(path: *const u8) -> i32
+    unsafe fn mkdir(path: *const u8) -> isize
 );
 syscall!(
     SyscallType::Chdir =>
     /// # Safety
     ///
     /// `path` must be a valid pointer to a null-terminated string.
-    unsafe fn chdir(path: *const u8) -> i32
+    unsafe fn chdir(path: *const u8) -> isize
 );
-syscall!(SyscallType::Dup => fn dup(fd: i32) -> i32);
-syscall!(SyscallType::Getpid => fn getpid() -> i32);
-syscall!(SyscallType::Sbrk => fn sbrk(incr: i32) -> *mut char);
-syscall!(SyscallType::Sleep => fn sleep(n: i32) -> i32);
-syscall!(SyscallType::Uptime => fn uptime() -> i32);
+syscall!(SyscallType::Dup => fn dup(fd: i32) -> isize);
+syscall!(SyscallType::Getpid => fn getpid() -> isize);
+syscall!(SyscallType::Sbrk => fn sbrk(incr: usize) -> isize);
+syscall!(SyscallType::Sleep => fn sleep(n: i32) -> isize);
+syscall!(SyscallType::Uptime => fn uptime() -> isize);

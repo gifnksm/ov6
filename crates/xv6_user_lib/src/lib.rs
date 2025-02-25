@@ -9,7 +9,6 @@ pub mod fs;
 pub mod io;
 pub mod os;
 pub mod process;
-pub mod syscall;
 
 #[lang = "start"]
 fn lang_start<T>(main: fn() -> T, argc: isize, argv: *const *const u8, _: u8) -> isize {
