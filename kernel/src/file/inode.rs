@@ -19,17 +19,17 @@ pub fn new_file(inode: Inode, readable: bool, writable: bool) -> Result<File, Er
     let data = FileDataArc::new(FileData {
         readable,
         writable,
-        data: SpecificData::Inode(InodeFile {
+        data: Some(SpecificData::Inode(InodeFile {
             inode,
             off: AtomicUsize::new(0),
-        }),
+        })),
     })?;
     Ok(File { data })
 }
 
 impl InodeFile {
-    pub(super) fn close(&self) {
-        super::common::close_inode(&self.inode);
+    pub(super) fn close(self) {
+        super::common::close_inode(self.inode);
     }
 
     pub(super) fn stat(&self, p: &Proc, addr: VirtAddr) -> Result<(), Error> {
@@ -38,7 +38,7 @@ impl InodeFile {
 
     pub(super) fn read(&self, p: &Proc, addr: VirtAddr, n: usize) -> Result<usize, Error> {
         let tx = fs::begin_readonly_tx();
-        let mut ip = self.inode.to_tx(&tx);
+        let mut ip = self.inode.clone().into_tx(&tx);
         let mut lip = ip.lock();
         let res = lip.read(p, true, addr, self.off.load(Ordering::Relaxed), n);
         if let Ok(sz) = res {
@@ -63,7 +63,7 @@ impl InodeFile {
             }
 
             let tx = fs::begin_tx();
-            let mut ip = self.inode.to_tx(&tx);
+            let mut ip = self.inode.clone().into_tx(&tx);
             let mut lip = ip.lock();
             let res = lip.write(
                 p,

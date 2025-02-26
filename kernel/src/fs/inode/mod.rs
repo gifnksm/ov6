@@ -89,7 +89,7 @@ type InodeDataGuard<'a> = SleepLockGuard<'a, Option<InodeData>>;
 pub struct Inode {
     dev: DeviceNo,
     ino: InodeNo,
-    data: InodeDataPtr,
+    data: Option<InodeDataPtr>,
 }
 
 /// In-memory copy of an inode.
@@ -156,7 +156,7 @@ impl Inode {
         Self {
             dev: tx.dev,
             ino: tx.ino,
-            data: Arc::clone(&tx.data),
+            data: Some(Arc::clone(&tx.data)),
         }
     }
 
@@ -164,20 +164,29 @@ impl Inode {
         Self {
             dev: locked.dev,
             ino: locked.ino,
-            data: Arc::clone(&locked.data),
+            data: Some(Arc::clone(&locked.data)),
         }
     }
 
-    pub fn to_tx<'a, const READ_ONLY: bool>(
-        &self,
+    pub fn into_tx<'a, const READ_ONLY: bool>(
+        mut self,
         tx: &'a Tx<READ_ONLY>,
     ) -> TxInode<'a, READ_ONLY> {
         TxInode {
             tx,
             dev: self.dev,
             ino: self.ino,
-            data: Arc::clone(&self.data),
+            data: self.data.take().unwrap(),
         }
+    }
+}
+
+impl Drop for Inode {
+    fn drop(&mut self) {
+        assert!(
+            self.data.is_none(),
+            "Inode::into_tx() must be called before dropped"
+        );
     }
 }
 

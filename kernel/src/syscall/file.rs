@@ -151,7 +151,8 @@ pub fn sys_chdir(p: &Proc) -> Result<usize, Error> {
     if !ip.lock().is_dir() {
         return Err(Error::Unknown);
     }
-    let _old = p.update_cwd(Inode::from_tx(&ip));
+    let old = p.update_cwd(Inode::from_tx(&ip));
+    old.into_tx(&tx).put();
 
     Ok(0)
 }

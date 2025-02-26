@@ -8,14 +8,14 @@ use crate::{
     proc::Proc,
 };
 
-pub(super) fn close_inode(inode: &Inode) {
+pub(super) fn close_inode(inode: Inode) {
     let tx = fs::begin_tx();
-    inode.to_tx(&tx).put();
+    inode.into_tx(&tx).put();
 }
 
 pub(super) fn stat_inode(inode: &Inode, p: &Proc, addr: VirtAddr) -> Result<(), Error> {
     let tx = fs::begin_readonly_tx();
-    let mut ip = inode.to_tx(&tx);
+    let mut ip = inode.clone().into_tx(&tx);
     let lip = ip.lock();
     let ty = match lip.ty() {
         T_DIR => StatType::Dir,

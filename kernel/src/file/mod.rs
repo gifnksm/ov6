@@ -27,7 +27,7 @@ pub struct File {
 struct FileData {
     readable: bool,
     writable: bool,
-    data: SpecificData,
+    data: Option<SpecificData>,
 }
 
 enum SpecificData {
@@ -38,10 +38,11 @@ enum SpecificData {
 
 impl Drop for FileData {
     fn drop(&mut self) {
-        match &self.data {
-            SpecificData::Pipe(pipe) => pipe.close(self.writable),
-            SpecificData::Inode(inode) => inode.close(),
-            SpecificData::Device(device) => device.close(),
+        match self.data.take() {
+            Some(SpecificData::Pipe(pipe)) => pipe.close(self.writable),
+            Some(SpecificData::Inode(inode)) => inode.close(),
+            Some(SpecificData::Device(device)) => device.close(),
+            None => {}
         }
     }
 }
@@ -79,8 +80,8 @@ impl File {
     /// `addr` is a user virtual address, pointing to a struct stat.
     pub fn stat(&self, p: &Proc, addr: VirtAddr) -> Result<(), Error> {
         match &self.data.data {
-            SpecificData::Inode(inode) => inode.stat(p, addr),
-            SpecificData::Device(device) => device.stat(p, addr),
+            Some(SpecificData::Inode(inode)) => inode.stat(p, addr),
+            Some(SpecificData::Device(device)) => device.stat(p, addr),
             _ => Err(Error::Unknown),
         }
     }
@@ -94,9 +95,10 @@ impl File {
         }
 
         match &self.data.data {
-            SpecificData::Pipe(pipe) => pipe.read(addr, n),
-            SpecificData::Inode(inode) => inode.read(p, addr, n),
-            SpecificData::Device(device) => device.read(addr, n),
+            Some(SpecificData::Pipe(pipe)) => pipe.read(addr, n),
+            Some(SpecificData::Inode(inode)) => inode.read(p, addr, n),
+            Some(SpecificData::Device(device)) => device.read(addr, n),
+            None => unreachable!(),
         }
     }
 
@@ -109,9 +111,10 @@ impl File {
         }
 
         match &self.data.data {
-            SpecificData::Pipe(pipe) => pipe.write(addr, n),
-            SpecificData::Inode(inode) => inode.write(p, addr, n),
-            SpecificData::Device(device) => device.write(addr, n),
+            Some(SpecificData::Pipe(pipe)) => pipe.write(addr, n),
+            Some(SpecificData::Inode(inode)) => inode.write(p, addr, n),
+            Some(SpecificData::Device(device)) => device.write(addr, n),
+            _ => unreachable!(),
         }
     }
 }

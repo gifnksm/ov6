@@ -253,8 +253,8 @@ impl Proc {
         }
     }
 
-    pub fn cwd(&self) -> Option<Inode> {
-        unsafe { &*self.cwd.get() }.clone()
+    pub fn cwd(&self) -> Option<&Inode> {
+        unsafe { &*self.cwd.get() }.as_ref()
     }
 
     pub fn name_mut(&self) -> NonNull<[u8; 16]> {
@@ -624,7 +624,7 @@ pub fn fork(p: &Proc) -> Option<ProcId> {
         }
     }
     unsafe {
-        *np.cwd.get() = p.cwd().clone();
+        *np.cwd.get() = p.cwd().cloned();
         *np.name.get() = *p.name.get();
     }
 
@@ -685,7 +685,11 @@ pub fn exit(p: &Proc, status: i32) -> ! {
         }
 
         let tx = fs::begin_tx();
-        let _ = unsafe { &mut *p.cwd.get() }.take().unwrap().to_tx(&tx);
+        unsafe { &mut *p.cwd.get() }
+            .take()
+            .unwrap()
+            .into_tx(&tx)
+            .put();
         tx.end();
 
         unsafe {

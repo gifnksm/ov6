@@ -43,14 +43,14 @@ pub(super) fn new_file() -> Result<(File, File), Error> {
         data: FileDataArc::new(FileData {
             readable: true,
             writable: false,
-            data: SpecificData::Pipe(pipe.clone()),
+            data: Some(SpecificData::Pipe(pipe.clone())),
         })?,
     };
     let f1 = File {
         data: FileDataArc::new(FileData {
             readable: false,
             writable: true,
-            data: SpecificData::Pipe(pipe),
+            data: Some(SpecificData::Pipe(pipe)),
         })?,
     };
 

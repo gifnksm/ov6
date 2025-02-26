@@ -54,14 +54,14 @@ pub(super) fn new_file(
     let data = FileDataArc::new(FileData {
         readable,
         writable,
-        data: SpecificData::Device(DeviceFile { major, inode }),
+        data: Some(SpecificData::Device(DeviceFile { major, inode })),
     })?;
     Ok(File { data })
 }
 
 impl DeviceFile {
-    pub(super) fn close(&self) {
-        super::common::close_inode(&self.inode);
+    pub(super) fn close(self) {
+        super::common::close_inode(self.inode);
     }
 
     pub(super) fn stat(&self, p: &Proc, addr: VirtAddr) -> Result<(), Error> {

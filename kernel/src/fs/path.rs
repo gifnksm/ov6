@@ -44,7 +44,7 @@ fn resolve_impl<'a, const READ_ONLY: bool>(
     let mut ip: TxInode<'_, READ_ONLY> = if path.first() == Some(&b'/') {
         TxInode::get(tx, DeviceNo::ROOT, InodeNo::ROOT)
     } else {
-        p.cwd().unwrap().clone().to_tx(tx)
+        p.cwd().unwrap().clone().into_tx(tx)
     };
 
     let mut path = path;
