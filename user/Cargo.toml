@@ -3,68 +3,6 @@ name = "user"
 version.workspace = true
 edition.workspace = true
 
-[lib]
-test = false
-bench = false
-
-[[bin]]
-name = "cat"
-test = false
-bench = false
-
-[[bin]]
-name = "echo"
-test = false
-bench = false
-
-[[bin]]
-name = "forktest"
-test = false
-bench = false
-
-[[bin]]
-name = "grep"
-test = false
-bench = false
-
-[[bin]]
-name = "hello"
-test = false
-bench = false
-
-[[bin]]
-name = "init"
-test = false
-bench = false
-
-[[bin]]
-name = "kill"
-test = false
-bench = false
-
-[[bin]]
-name = "ln"
-test = false
-bench = false
-
-[[bin]]
-name = "ls"
-test = false
-bench = false
-
-[[bin]]
-name = "mkdir"
-test = false
-bench = false
-
-[[bin]]
-name = "rm"
-test = false
-bench = false
-
-[[bin]]
-name = "sh"
-
 [dependencies]
 xv6_user_lib.workspace = true
 

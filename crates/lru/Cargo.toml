@@ -5,3 +5,6 @@ edition.workspace = true
 
 [dependencies]
 mutex_api.workspace = true
+
+[dev-dependencies]
+mutex_api = { workspace = true, features = ["std"] }

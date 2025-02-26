@@ -3,11 +3,6 @@ name = "xv6_user_lib"
 version.workspace = true
 edition.workspace = true
 
-[lib]
-crate-type = ["rlib"]
-test = false
-bench = false
-
 [dependencies]
 dataview.workspace = true
 memchr.workspace = true
