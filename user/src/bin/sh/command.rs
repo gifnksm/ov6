@@ -5,7 +5,6 @@ use user::try_or_exit;
 use xv6_user_lib::{
     fs::{File, OpenFlags},
     io::{STDIN_FD, STDOUT_FD},
-    os::fd::RawFd,
     pipe,
     process::{self, ForkResult},
     sync::spin::Mutex,
@@ -15,6 +14,19 @@ use crate::util;
 
 pub(super) const MAX_ARGS: usize = 10;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RedirectMode {
+    Input,
+    OutputTrunc,
+    OutputAppend,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RedirectFd {
+    Stdin,
+    Stdout,
+}
+
 #[derive(Debug)]
 pub(super) enum Command<'a> {
     Exec {
@@ -23,9 +35,8 @@ pub(super) enum Command<'a> {
     Redirect {
         cmd: Box<Command<'a>>,
         file: &'a str,
-        mode: OpenFlags,
-        fd: RawFd,
-        fd_name: &'static str,
+        mode: RedirectMode,
+        fd: RedirectFd,
     },
     Pipe {
         left: Box<Command<'a>>,
@@ -66,12 +77,23 @@ impl Command<'_> {
                 file,
                 mode,
                 fd,
-                fd_name,
             } => {
-                unsafe { util::close_or_exit(fd, fd_name) };
+                let (fd, fd_name) = match fd {
+                    RedirectFd::Stdin => (STDIN_FD, "stdin"),
+                    RedirectFd::Stdout => (STDOUT_FD, "stdout"),
+                };
                 let path = CString::new(file).unwrap();
+                let flags = match mode {
+                    RedirectMode::Input => OpenFlags::READ_ONLY,
+                    RedirectMode::OutputTrunc => {
+                        OpenFlags::WRITE_ONLY | OpenFlags::CREATE | OpenFlags::TRUNC
+                    }
+                    RedirectMode::OutputAppend => OpenFlags::WRITE_ONLY | OpenFlags::CREATE,
+                };
+
+                unsafe { util::close_or_exit(fd, fd_name) }
                 let _file = try_or_exit!(
-                    File::open(&path, mode),
+                    File::open(&path, flags),
                     e => "open {} failed: {e}", file
                 );
                 cmd.run();

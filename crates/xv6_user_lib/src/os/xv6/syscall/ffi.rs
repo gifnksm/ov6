@@ -41,7 +41,6 @@ macro_rules! syscall {
     ($ty:expr => $(#[$attr:meta])* fn $name:ident($($params:tt)*) -> $ret:ty) => {
         #[allow(unused_variables)]
         $(#[$attr])*
-        #[unsafe(no_mangle)]
         pub extern "C" fn $name($($params)*) -> $ret {
             panic!();
         }
@@ -49,7 +48,6 @@ macro_rules! syscall {
     ($ty:expr => $(#[$attr:meta])* unsafe fn $name:ident($($params:tt)*) -> $ret:ty) => {
         #[allow(unused_variables)]
         $(#[$attr])*
-        #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name($($params)*) -> $ret {
             panic!();
         }

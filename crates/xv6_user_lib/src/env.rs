@@ -9,6 +9,7 @@ use crate::{error::Error, os::xv6::syscall};
 pub(crate) static ARGC: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static ARGV: AtomicPtr<*const c_char> = AtomicPtr::new(core::ptr::null_mut());
 
+#[cfg(not(feature = "std"))]
 pub(crate) fn set_args(argc: usize, argv: *const *const c_char) {
     ARGC.store(argc, Ordering::Relaxed);
     ARGV.store(argv.cast_mut(), Ordering::Relaxed);

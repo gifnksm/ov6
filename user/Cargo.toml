@@ -64,8 +64,9 @@ bench = false
 
 [[bin]]
 name = "sh"
-test = false
-bench = false
 
 [dependencies]
 xv6_user_lib.workspace = true
+
+[dev-dependencies]
+xv6_user_lib = {workspace = true, features = ["std"]}

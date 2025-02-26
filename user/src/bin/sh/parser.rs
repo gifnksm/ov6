@@ -1,13 +1,9 @@
 use core::fmt;
 
 use alloc::{format, string::String, sync::Arc};
-use xv6_user_lib::{
-    fs::OpenFlags,
-    io::{STDIN_FD, STDOUT_FD},
-    sync::spin::Mutex,
-};
+use xv6_user_lib::sync::spin::Mutex;
 
-use crate::command::{Command, MAX_ARGS};
+use crate::command::{Command, MAX_ARGS, RedirectFd, RedirectMode};
 
 const SYMBOLS: &[char] = &['<', '|', '>', '&', ';', '(', ')'];
 
@@ -157,23 +153,20 @@ fn parse_redirs<'a>(mut cmd: Command<'a>, s: &mut &'a str) -> Result<Command<'a>
             '<' => Command::Redirect {
                 cmd: cmd.into(),
                 file,
-                mode: OpenFlags::READ_ONLY,
-                fd: STDIN_FD,
-                fd_name: "stdin",
+                mode: RedirectMode::Input,
+                fd: RedirectFd::Stdin,
             },
             '>' => Command::Redirect {
                 cmd: cmd.into(),
                 file,
-                mode: OpenFlags::WRITE_ONLY | OpenFlags::CREATE | OpenFlags::TRUNC,
-                fd: STDOUT_FD,
-                fd_name: "stdout",
+                mode: RedirectMode::OutputTrunc,
+                fd: RedirectFd::Stdout,
             },
             '+' => Command::Redirect {
                 cmd: cmd.into(),
                 file,
-                mode: OpenFlags::WRITE_ONLY | OpenFlags::CREATE,
-                fd: STDOUT_FD,
-                fd_name: "stdout",
+                mode: RedirectMode::OutputAppend,
+                fd: RedirectFd::Stdout,
             },
             _ => unreachable!(),
         }
@@ -219,4 +212,163 @@ fn parse_exec<'a>(s: &mut &'a str) -> Result<Command<'a>, ParseError> {
         cmd = parse_redirs(cmd, s)?;
     }
     Ok(cmd)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(input: &str) -> Result<Command, ParseError> {
+        let mut s = input;
+        let cmd = parse_cmd(&mut s)?;
+        assert!(s.is_empty());
+        Ok(cmd)
+    }
+
+    #[test]
+    fn test_parse_simple_command() {
+        let cmd = parse("echo hello").unwrap();
+        if let Command::Exec { argv } = cmd {
+            let args = argv.lock();
+            assert_eq!(args[0], Some("echo"));
+            assert_eq!(args[1], Some("hello"));
+            assert_eq!(args[2], None);
+        } else {
+            panic!("Expected Exec command");
+        }
+    }
+
+    #[test]
+    fn test_parse_pipe() {
+        let cmd = parse("echo hello | grep h").unwrap();
+        if let Command::Pipe { left, right } = cmd {
+            if let Command::Exec { argv } = *left {
+                let args = argv.lock();
+                assert_eq!(args[0], Some("echo"));
+                assert_eq!(args[1], Some("hello"));
+                assert_eq!(args[2], None);
+            } else {
+                panic!("Expected Exec command on the left side of the pipe");
+            }
+            if let Command::Exec { argv } = *right {
+                let args = argv.lock();
+                assert_eq!(args[0], Some("grep"));
+                assert_eq!(args[1], Some("h"));
+                assert_eq!(args[2], None);
+            } else {
+                panic!("Expected Exec command on the right side of the pipe");
+            }
+        } else {
+            panic!("Expected Pipe command");
+        }
+    }
+
+    #[test]
+    fn test_parse_redirection() {
+        let cmd = parse("echo hello > output.txt").unwrap();
+        if let Command::Redirect {
+            cmd,
+            file,
+            mode,
+            fd,
+        } = cmd
+        {
+            assert_eq!(file, "output.txt");
+            assert_eq!(mode, RedirectMode::OutputTrunc);
+            assert_eq!(fd, RedirectFd::Stdout);
+            if let Command::Exec { argv } = *cmd {
+                let args = argv.lock();
+                assert_eq!(args[0], Some("echo"));
+                assert_eq!(args[1], Some("hello"));
+                assert_eq!(args[2], None);
+            } else {
+                panic!("Expected Exec command");
+            }
+        } else {
+            panic!("Expected Redirect command");
+        }
+    }
+
+    #[test]
+    fn test_parse_background() {
+        let cmd = parse("sleep 1 &").unwrap();
+        if let Command::Back { cmd } = cmd {
+            if let Command::Exec { argv } = *cmd {
+                let args = argv.lock();
+                assert_eq!(args[0], Some("sleep"));
+                assert_eq!(args[1], Some("1"));
+                assert_eq!(args[2], None);
+            } else {
+                panic!("Expected Exec command");
+            }
+        } else {
+            panic!("Expected Back command");
+        }
+    }
+
+    #[test]
+    fn test_parse_list() {
+        let cmd = parse("echo hello; echo world").unwrap();
+        if let Command::List { left, right } = cmd {
+            if let Command::Exec { argv } = *left {
+                let args = argv.lock();
+                assert_eq!(args[0], Some("echo"));
+                assert_eq!(args[1], Some("hello"));
+                assert_eq!(args[2], None);
+            } else {
+                panic!("Expected Exec command on the left side of the list");
+            }
+            if let Command::Exec { argv } = *right {
+                let args = argv.lock();
+                assert_eq!(args[0], Some("echo"));
+                assert_eq!(args[1], Some("world"));
+                assert_eq!(args[2], None);
+            } else {
+                panic!("Expected Exec command on the right side of the list");
+            }
+        } else {
+            panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_commands() {
+        let cmd = parse("(echo hello; echo world) | grep h").unwrap();
+        if let Command::Pipe { left, right } = cmd {
+            if let Command::List {
+                left: list_left,
+                right: list_right,
+            } = *left
+            {
+                if let Command::Exec { argv } = *list_left {
+                    let args = argv.lock();
+                    assert_eq!(args[0], Some("echo"));
+                    assert_eq!(args[1], Some("hello"));
+                    assert_eq!(args[2], None);
+                } else {
+                    panic!("Expected Exec command on the left side of the list");
+                }
+                if let Command::Exec { argv } = *list_right {
+                    let args = argv.lock();
+                    assert_eq!(args[0], Some("echo"));
+                    assert_eq!(args[1], Some("world"));
+                    assert_eq!(args[2], None);
+                } else {
+                    panic!("Expected Exec command on the right side of the list");
+                }
+            } else {
+                panic!("Expected List command on the left side of the pipe");
+            }
+            if let Command::Exec { argv } = *right {
+                let args = argv.lock();
+                assert_eq!(args[0], Some("grep"));
+                assert_eq!(args[1], Some("h"));
+                assert_eq!(args[2], None);
+            } else {
+                panic!("Expected Exec command on the right side of the pipe");
+            }
+        } else {
+            panic!("Expected Pipe command");
+        }
+    }
 }

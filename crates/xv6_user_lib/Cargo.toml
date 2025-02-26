@@ -16,3 +16,7 @@ strum.workspace = true
 thiserror.workspace = true
 xv6_fs_types.workspace = true
 xv6_syscall.workspace = true
+
+[features]
+default = []
+std = []
