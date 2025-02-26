@@ -4,6 +4,8 @@ pub enum Error {
     InvalidUtf8,
     #[error("failed to fill whole buffer")]
     ReadExactEof,
+    #[error("failed to write whole buffer")]
+    WriteAllEof,
     #[error("not a directory")]
     NotADirectory,
     #[error("unknown error")]

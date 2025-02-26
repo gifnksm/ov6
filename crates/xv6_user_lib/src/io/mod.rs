@@ -95,6 +95,18 @@ where
 
 pub trait Write {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error>;
+
+    fn write_all(&mut self, mut buf: &[u8]) -> Result<(), Error> {
+        while !buf.is_empty() {
+            match self.write(buf) {
+                Ok(0) => return Err(Error::WriteAllEof),
+                Ok(n) => buf = &buf[n..],
+                Err(e) if e.is_interrupted() => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
 }
 
 pub trait BufRead: Read {

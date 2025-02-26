@@ -43,7 +43,7 @@ fn main() {
     for _i in 0..20 {
         // message!("write {idx}-{_i}");
         try_or_exit!(
-            file.write(&data),
+            file.write_all(&data),
             e => "write {} error: {e}", path.to_str().unwrap(),
         );
     }

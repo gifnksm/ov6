@@ -1,6 +1,6 @@
 #![no_std]
 
-use user::{ensure_or_exit, try_or_exit};
+use user::try_or_exit;
 use xv6_user_lib::{
     env,
     fs::{File, OpenFlags},
@@ -22,11 +22,10 @@ where
         if nread == 0 {
             break;
         }
-        let nwrite = try_or_exit!(
-            stdout.write(&buf[..nread]),
+        try_or_exit!(
+            stdout.write_all(&buf[..nread]),
             e => "write error: {e}",
         );
-        ensure_or_exit!(nwrite == nread, "write error {nwrite} vs {nread}");
     }
 }
 
