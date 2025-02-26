@@ -32,6 +32,7 @@ RUPROGS=\
 	sh\
 	stressfs\
 	wc\
+	zombie\
 
 RX_RUPROGS=$(patsubst %,$(RX)/%,$(RUPROGS))
 R_RUPROGS=$(patsubst %,$R/%,$(RUPROGS))
@@ -39,7 +40,6 @@ R_RUPROGS=$(patsubst %,$R/%,$(RUPROGS))
 UPROGS=\
 	$U/_usertests\
 	$U/_grind\
-	$U/_zombie\
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin

@@ -20,6 +20,7 @@ pub mod os;
 pub mod pipe;
 pub mod process;
 pub mod sync;
+pub mod thread;
 
 #[cfg(all(not(feature = "std"), not(test)))]
 #[lang = "start"]
