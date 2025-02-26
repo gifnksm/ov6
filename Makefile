@@ -30,12 +30,12 @@ RUPROGS=\
 	mkdir\
 	rm\
 	sh\
+	stressfs\
 
 RX_RUPROGS=$(patsubst %,$(RX)/%,$(RUPROGS))
 R_RUPROGS=$(patsubst %,$R/%,$(RUPROGS))
 
 UPROGS=\
-	$U/_stressfs\
 	$U/_usertests\
 	$U/_grind\
 	$U/_wc\
