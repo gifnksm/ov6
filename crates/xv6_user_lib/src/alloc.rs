@@ -100,7 +100,7 @@ fn expand_heap(mut nunits: usize, free_list: &mut *mut Header) -> Result<*mut He
             nunits = 4096;
         }
 
-        let p = syscall::sbrk(nunits * size_of::<Header>())?;
+        let p = syscall::sbrk((nunits * size_of::<Header>()).cast_signed())?;
 
         let hp = p.cast::<Header>();
         (*hp).size = nunits;

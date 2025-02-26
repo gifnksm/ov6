@@ -82,7 +82,7 @@ impl Read for PipeReader {
     }
 }
 
-impl Write for PipeReader {
+impl Write for PipeWriter {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         syscall::write(self.0.as_fd(), buf)
     }

@@ -1,4 +1,5 @@
 pub use crate::os::xv6::syscall::{exec, exit, fork, kill, wait};
+use crate::{error::Error, os::xv6::syscall};
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExitStatus {
@@ -33,4 +34,8 @@ impl ForkResult {
     pub fn is_child(&self) -> bool {
         matches!(self, Self::Child)
     }
+}
+
+pub fn id() -> Result<u32, Error> {
+    syscall::getpid()
 }

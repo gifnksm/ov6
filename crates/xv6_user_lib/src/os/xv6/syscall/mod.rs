@@ -135,7 +135,7 @@ pub fn getpid() -> Result<u32, Error> {
     to_result(ffi::getpid())
 }
 
-pub unsafe fn sbrk(n: usize) -> Result<*mut u8, Error> {
+pub unsafe fn sbrk(n: isize) -> Result<*mut u8, Error> {
     let addr: usize = to_result(ffi::sbrk(n))?;
     Ok(addr as _) // FIXME: ptr::without_provenance causes null pointer dereference in malloc
 }

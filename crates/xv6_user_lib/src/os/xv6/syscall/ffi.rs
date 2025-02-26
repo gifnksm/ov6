@@ -146,6 +146,6 @@ syscall!(
 );
 syscall!(SyscallType::Dup => fn dup(fd: i32) -> isize);
 syscall!(SyscallType::Getpid => fn getpid() -> isize);
-syscall!(SyscallType::Sbrk => fn sbrk(incr: usize) -> isize);
+syscall!(SyscallType::Sbrk => fn sbrk(incr: isize) -> isize);
 syscall!(SyscallType::Sleep => fn sleep(n: i32) -> isize);
 syscall!(SyscallType::Uptime => fn uptime() -> isize);

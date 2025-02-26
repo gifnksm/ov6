@@ -69,6 +69,17 @@ impl File {
         let fd = syscall::dup(self.fd.as_fd())?;
         Ok(File { fd })
     }
+
+    pub fn metadata(&self) -> Result<Metadata, Error> {
+        let stat = syscall::fstat(self.fd.as_fd())?;
+        Ok(Metadata {
+            dev: stat.dev.cast_unsigned(),
+            ino: stat.ino,
+            ty: stat.ty,
+            nlink: stat.nlink.cast_unsigned(),
+            size: stat.size,
+        })
+    }
 }
 
 impl Write for File {
