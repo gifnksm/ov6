@@ -1,5 +1,5 @@
 use core::{
-    ffi::CStr,
+    ffi::{CStr, c_char},
     slice,
     sync::atomic::{AtomicPtr, AtomicUsize, Ordering},
 };
@@ -7,14 +7,14 @@ use core::{
 use crate::{error::Error, os::xv6::syscall};
 
 pub(crate) static ARGC: AtomicUsize = AtomicUsize::new(0);
-pub(crate) static ARGV: AtomicPtr<*const u8> = AtomicPtr::new(core::ptr::null_mut());
+pub(crate) static ARGV: AtomicPtr<*const c_char> = AtomicPtr::new(core::ptr::null_mut());
 
-pub(crate) fn set_args(argc: usize, argv: *const *const u8) {
+pub(crate) fn set_args(argc: usize, argv: *const *const c_char) {
     ARGC.store(argc, Ordering::Relaxed);
     ARGV.store(argv.cast_mut(), Ordering::Relaxed);
 }
 
-fn argv() -> &'static [*const u8] {
+fn argv() -> &'static [*const c_char] {
     let argc = ARGC.load(Ordering::Relaxed);
     let argv = ARGV.load(Ordering::Relaxed);
     if argv.is_null() {
@@ -44,7 +44,7 @@ pub fn args_cstr() -> ArgsCStr {
 }
 
 pub struct Args {
-    iter: slice::Iter<'static, *const u8>,
+    iter: slice::Iter<'static, *const c_char>,
 }
 
 impl Iterator for Args {
@@ -64,7 +64,7 @@ impl ExactSizeIterator for Args {
 }
 
 pub struct ArgsCStr {
-    iter: slice::Iter<'static, *const u8>,
+    iter: slice::Iter<'static, *const c_char>,
 }
 
 impl Iterator for ArgsCStr {

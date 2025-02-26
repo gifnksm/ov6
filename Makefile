@@ -123,11 +123,11 @@ $U/usys.o : $U/usys.S
 	$(CC) $(CFLAGS) -c -o $U/usys.o $U/usys.S
 
 $(RX)/kernel:
-	cargo build -p kernel $(CARGO_PROFILE_FLAG)
+	cargo build -p kernel $(CARGO_PROFILE_FLAG) --target $(RUST_CROSS_TARGET)
 
 define user_rule
 $$(RX)/$(1):
-	cargo build -p user --bin $(1) $$(CARGO_PROFILE_FLAG)
+	cargo build -p user --bin $(1) $$(CARGO_PROFILE_FLAG) --target $$(RUST_CROSS_TARGET)
 
 endef
 

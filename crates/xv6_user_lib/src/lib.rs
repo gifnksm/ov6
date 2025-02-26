@@ -25,7 +25,7 @@ fn lang_start<T>(main: fn() -> T, argc: isize, argv: *const *const u8, _: u8) ->
     if argc < 0 {
         panic!("argc should be greater than 0");
     }
-    env::set_args(argc.cast_unsigned(), argv);
+    env::set_args(argc.cast_unsigned(), argv.cast());
     main();
     process::exit(0);
 }

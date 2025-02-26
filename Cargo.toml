@@ -27,3 +27,8 @@ xv6_user_lib = { path = "crates/xv6_user_lib" }
 
 [profile.release]
 debug = "full"
+panic = "abort"
+
+[profile.dev]
+debug = "full"
+panic = "abort"

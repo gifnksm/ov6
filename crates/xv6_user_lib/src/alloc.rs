@@ -6,7 +6,7 @@ use crate::{error::Error, os::xv6::syscall, sync::spin::Mutex};
 ///
 /// Memory layout:
 ///
-///     `| Header | Data | Header | Data | ...`
+/// `| Header | Data | Header | Data | ...`
 ///
 /// Each block is aligned to 16 bytes.
 #[repr(align(16))]

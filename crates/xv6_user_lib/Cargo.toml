@@ -1,11 +1,7 @@
-cargo-features = ["per-package-target"]
-
 [package]
 name = "xv6_user_lib"
 version.workspace = true
 edition.workspace = true
-
-forced-target = "riscv64gc-unknown-none-elf"
 
 [lib]
 crate-type = ["rlib"]

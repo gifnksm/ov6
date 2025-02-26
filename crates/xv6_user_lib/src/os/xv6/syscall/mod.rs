@@ -1,4 +1,8 @@
-use core::{convert::Infallible, ffi::CStr, mem::MaybeUninit};
+use core::{
+    convert::Infallible,
+    ffi::{CStr, c_char},
+    mem::MaybeUninit,
+};
 
 pub use xv6_syscall::{OpenFlags, Stat, StatType, SyscallType};
 
@@ -78,7 +82,7 @@ pub fn kill(pid: u32) -> Result<(), Error> {
     to_result_zero(ffi::kill(pid))
 }
 
-pub fn exec(path: &CStr, argv: &[*const u8]) -> Result<Infallible, Error> {
+pub fn exec(path: &CStr, argv: &[*const c_char]) -> Result<Infallible, Error> {
     assert!(
         argv.last().unwrap().is_null(),
         "last element of argv must be null"
