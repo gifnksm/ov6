@@ -5,7 +5,7 @@ extern crate alloc;
 use core::mem;
 
 use alloc::{ffi::CString, string::String};
-use user::{message, try_or, try_or_exit};
+use user::{exit, message, try_or, try_or_exit};
 use xv6_user_lib::{
     env, eprint,
     error::Error,
@@ -41,8 +41,15 @@ fn main() {
 
     // Read and run input commands.
     let mut buf = String::new();
-    while get_cmd(&mut buf).is_ok() {
-        let mut parts = buf.split_whitespace();
+    loop {
+        let mut cmd = match get_cmd(&mut buf) {
+            Ok(Some(cmd)) => cmd,
+            Ok(None) => break,
+            Err(e) => {
+                exit!("failed to read console: {e}");
+            }
+        };
+        let mut parts = cmd.split_whitespace();
         if parts.next() == Some("cd") {
             // chdir must be called by the parent, not the child.
             let (Some(dir), None) = (parts.next(), parts.next()) else {
@@ -58,9 +65,12 @@ fn main() {
 
         let ForkResult::Parent { child } = util::fork_or_exit() else {
             let cmd = try_or_exit!(
-                parser::parse_cmd(&mut buf.as_str()),
+                parser::parse_cmd(&mut cmd),
                 e => "syntax error: {e}",
             );
+            let Some(cmd) = cmd else {
+                process::exit(0);
+            };
             cmd.run();
         };
         util::wait_or_exit(&[child]);

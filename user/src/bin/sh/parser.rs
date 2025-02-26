@@ -7,6 +7,16 @@ use crate::command::{Command, MAX_ARGS, RedirectFd, RedirectMode};
 
 const SYMBOLS: &[char] = &['<', '|', '>', '&', ';', '(', ')'];
 
+macro_rules! try_opt {
+    ($e:expr) => {
+        match $e {
+            Ok(Some(cmd)) => cmd,
+            Ok(None) => return Ok(None),
+            Err(e) => return Err(e.into()),
+        }
+    };
+}
+
 #[derive(Debug)]
 pub(super) struct ParseError {
     msg: String,
@@ -107,41 +117,44 @@ fn consume_token<'s>(s: &mut &'s str) -> Option<Token<'s>> {
     Some(token)
 }
 
-pub(super) fn parse_cmd<'a>(s: &mut &'a str) -> Result<Command<'a>, ParseError> {
-    let cmd = parse_line(s)?;
+pub(super) fn parse_cmd<'a>(s: &mut &'a str) -> Result<Option<Command<'a>>, ParseError> {
+    let cmd = try_opt!(parse_line(s));
     trim_start(s);
     if !s.is_empty() {
         return Err(format!("leftover: {s:?}").into());
     }
-    Ok(cmd)
+    Ok(Some(cmd))
 }
 
-fn parse_line<'a>(s: &mut &'a str) -> Result<Command<'a>, ParseError> {
-    let mut cmd = parse_pipe(s)?;
+fn parse_line<'a>(s: &mut &'a str) -> Result<Option<Command<'a>>, ParseError> {
+    let mut cmd = try_opt!(parse_pipe(s));
     while consume_char(s, &['&']).is_some() {
         cmd = Command::Back { cmd: cmd.into() };
     }
     while consume_char(s, &[';']).is_some() {
         cmd = Command::List {
             left: cmd.into(),
-            right: parse_line(s)?.into(),
+            right: try_opt!(parse_line(s)).into(),
         };
     }
-    Ok(cmd)
+    Ok(Some(cmd))
 }
 
-fn parse_pipe<'a>(s: &mut &'a str) -> Result<Command<'a>, ParseError> {
-    let mut cmd = parse_exec(s)?;
+fn parse_pipe<'a>(s: &mut &'a str) -> Result<Option<Command<'a>>, ParseError> {
+    let mut cmd = try_opt!(parse_exec(s));
     if consume_char(s, &['|']).is_some() {
         cmd = Command::Pipe {
             left: cmd.into(),
-            right: parse_pipe(s)?.into(),
+            right: try_opt!(parse_pipe(s)).into(),
         };
     }
-    Ok(cmd)
+    Ok(Some(cmd))
 }
 
-fn parse_redirs<'a>(mut cmd: Command<'a>, s: &mut &'a str) -> Result<Command<'a>, ParseError> {
+fn parse_redirs<'a>(
+    mut cmd: Command<'a>,
+    s: &mut &'a str,
+) -> Result<Option<Command<'a>>, ParseError> {
     while peek_char(s, &['<', '>']).is_some() {
         let Some(Token::Punct(tok)) = consume_token(s) else {
             unreachable!()
@@ -171,20 +184,20 @@ fn parse_redirs<'a>(mut cmd: Command<'a>, s: &mut &'a str) -> Result<Command<'a>
             _ => unreachable!(),
         }
     }
-    Ok(cmd)
+    Ok(Some(cmd))
 }
 
-fn parse_block<'a>(s: &mut &'a str) -> Result<Command<'a>, ParseError> {
+fn parse_block<'a>(s: &mut &'a str) -> Result<Option<Command<'a>>, ParseError> {
     consume_char(s, &['(']).unwrap();
-    let mut cmd = parse_line(s)?;
+    let mut cmd = try_opt!(parse_line(s));
     if consume_char(s, &[')']).is_none() {
         return Err(r#"missing ")""#.into());
     }
-    cmd = parse_redirs(cmd, s)?;
-    Ok(cmd)
+    cmd = try_opt!(parse_redirs(cmd, s));
+    Ok(Some(cmd))
 }
 
-fn parse_exec<'a>(s: &mut &'a str) -> Result<Command<'a>, ParseError> {
+fn parse_exec<'a>(s: &mut &'a str) -> Result<Option<Command<'a>>, ParseError> {
     if peek_char(s, &['(']).is_some() {
         return parse_block(s);
     }
@@ -195,7 +208,7 @@ fn parse_exec<'a>(s: &mut &'a str) -> Result<Command<'a>, ParseError> {
     };
 
     let mut argc = 0;
-    cmd = parse_redirs(cmd, s)?;
+    cmd = try_opt!(parse_redirs(cmd, s));
     while peek_char(s, &['|', ')', '&', ';']).is_none() {
         let Some(tok) = consume_token(s) else {
             break;
@@ -209,25 +222,34 @@ fn parse_exec<'a>(s: &mut &'a str) -> Result<Command<'a>, ParseError> {
         if argc >= MAX_ARGS {
             return Err("too many arguments".into());
         }
-        cmd = parse_redirs(cmd, s)?;
+        cmd = try_opt!(parse_redirs(cmd, s));
     }
-    Ok(cmd)
+    if argc == 0 {
+        return Ok(None);
+    }
+    Ok(Some(cmd))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn parse(input: &str) -> Result<Command, ParseError> {
+    fn parse(input: &str) -> Result<Option<Command>, ParseError> {
         let mut s = input;
-        let cmd = parse_cmd(&mut s)?;
+        let cmd = try_opt!(parse_cmd(&mut s));
         assert!(s.is_empty());
-        Ok(cmd)
+        Ok(Some(cmd))
+    }
+
+    #[test]
+    fn test_parse_empty() {
+        assert!(parse("").unwrap().is_none());
+        assert!(parse("   ").unwrap().is_none());
     }
 
     #[test]
     fn test_parse_simple_command() {
-        let cmd = parse("echo hello").unwrap();
+        let cmd = parse("echo hello").unwrap().unwrap();
         if let Command::Exec { argv } = cmd {
             let args = argv.lock();
             assert_eq!(args[0], Some("echo"));
@@ -240,7 +262,7 @@ mod tests {
 
     #[test]
     fn test_parse_pipe() {
-        let cmd = parse("echo hello | grep h").unwrap();
+        let cmd = parse("echo hello | grep h").unwrap().unwrap();
         if let Command::Pipe { left, right } = cmd {
             if let Command::Exec { argv } = *left {
                 let args = argv.lock();
@@ -265,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_parse_redirection() {
-        let cmd = parse("echo hello > output.txt").unwrap();
+        let cmd = parse("echo hello > output.txt").unwrap().unwrap();
         if let Command::Redirect {
             cmd,
             file,
@@ -291,7 +313,7 @@ mod tests {
 
     #[test]
     fn test_parse_background() {
-        let cmd = parse("sleep 1 &").unwrap();
+        let cmd = parse("sleep 1 &").unwrap().unwrap();
         if let Command::Back { cmd } = cmd {
             if let Command::Exec { argv } = *cmd {
                 let args = argv.lock();
@@ -308,7 +330,7 @@ mod tests {
 
     #[test]
     fn test_parse_list() {
-        let cmd = parse("echo hello; echo world").unwrap();
+        let cmd = parse("echo hello; echo world").unwrap().unwrap();
         if let Command::List { left, right } = cmd {
             if let Command::Exec { argv } = *left {
                 let args = argv.lock();
@@ -333,7 +355,7 @@ mod tests {
 
     #[test]
     fn test_parse_nested_commands() {
-        let cmd = parse("(echo hello; echo world) | grep h").unwrap();
+        let cmd = parse("(echo hello; echo world) | grep h").unwrap().unwrap();
         if let Command::Pipe { left, right } = cmd {
             if let Command::List {
                 left: list_left,
