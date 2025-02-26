@@ -77,27 +77,16 @@ pub fn create<'tx>(
     let mut child_lip = child_ip.lock();
     child_lip.data_mut().major = major;
     child_lip.data_mut().minor = minor;
-    child_lip.data_mut().nlink = 1;
+    child_lip.data_mut().nlink = 0; // update after
     child_lip.update();
 
     if let Some(mut child_dp) = child_lip.as_dir() {
         // Create "." and ".." entries
-        if child_dp.link(p, b".", child_dp.ino()).is_err()
-            || child_dp.link(p, b"..", parent_dp.ino()).is_err()
-        {
-            // TODO: refactor error handling. immediate closure pattern is denied by borrow check.
-            child_lip.data_mut().nlink = 0;
-            child_lip.update();
-            return Err(Error::Unknown);
-        }
+        child_dp.link(p, b".", child_dp.ino())?;
+        child_dp.link(p, b"..", parent_dp.ino())?;
     }
 
-    if parent_dp.link(p, name, child_lip.ino()).is_err() {
-        // TODO: refactor error handling. immediate closure pattern is denied by borrow check.
-        child_lip.data_mut().nlink = 0;
-        child_lip.update();
-        return Err(Error::Unknown);
-    }
+    parent_dp.link(p, name, child_lip.ino())?;
 
     if child_lip.is_dir() {
         // now that success is guaranteed:
@@ -105,42 +94,35 @@ pub fn create<'tx>(
         parent_lip.update();
     }
 
+    child_lip.data_mut().nlink = 1;
+    child_lip.update();
+
     drop(child_lip);
     Ok(child_ip)
 }
 
 pub fn link(tx: &Tx<false>, p: &Proc, old_path: &[u8], new_path: &[u8]) -> Result<(), Error> {
     let mut old_ip = path::resolve(tx, p, old_path)?;
-    let mut old_lip = old_ip.lock();
-
+    let old_lip = old_ip.lock();
     if old_lip.is_dir() {
         return Err(Error::Unknown);
     }
-
-    old_lip.data_mut().nlink += 1;
-    old_lip.update();
     old_lip.unlock();
 
-    let res = (|| {
-        let mut name = [0; DIR_SIZE];
-        let (mut parent_ip, name) = path::resolve_parent(tx, p, new_path, &mut name)?;
-        let mut parent_lip = parent_ip.lock();
-        if parent_lip.dev() != old_ip.dev() {
-            return Err(Error::Unknown);
-        }
-        let Some(mut parent_dp) = parent_lip.as_dir() else {
-            return Err(Error::Unknown);
-        };
-        parent_dp.link(p, name, old_ip.ino())?;
-
-        Ok(())
-    })();
-
-    if res.is_err() {
-        let mut old_lip = old_ip.lock();
-        old_lip.data_mut().nlink -= 1;
-        old_lip.update();
+    let mut name = [0; DIR_SIZE];
+    let (mut parent_ip, name) = path::resolve_parent(tx, p, new_path, &mut name)?;
+    let mut parent_lip = parent_ip.lock();
+    if parent_lip.dev() != old_ip.dev() {
+        return Err(Error::Unknown);
     }
+    let Some(mut parent_dp) = parent_lip.as_dir() else {
+        return Err(Error::Unknown);
+    };
+    parent_dp.link(p, name, old_ip.ino())?;
 
-    res
+    let mut old_lip = old_ip.lock();
+    old_lip.data_mut().nlink += 1;
+    old_lip.update();
+
+    Ok(())
 }
