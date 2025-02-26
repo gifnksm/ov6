@@ -5,7 +5,7 @@ pub use xv6_syscall::{OpenFlags, Stat, StatType, SyscallType};
 use crate::{
     error::Error,
     os::fd::{AsRawFd, FromRawFd as _, OwnedFd},
-    process::ExitStatus,
+    process::{ExitStatus, ForkResult},
 };
 
 pub mod ffi;
@@ -28,8 +28,13 @@ fn to_result_zero(res: isize) -> Result<(), Error> {
     }
 }
 
-pub fn fork() -> Result<u32, Error> {
-    to_result(ffi::fork())
+pub fn fork() -> Result<ForkResult, Error> {
+    let pid = to_result(ffi::fork())?;
+    if pid == 0 {
+        Ok(ForkResult::Child)
+    } else {
+        Ok(ForkResult::Parent { child: pid })
+    }
 }
 
 pub fn exit(status: i32) -> ! {

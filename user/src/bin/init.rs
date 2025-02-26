@@ -5,7 +5,7 @@ use core::ptr;
 use user::{message, try_or_panic};
 use xv6_user_lib::{
     fs::{self, File, OpenFlags},
-    process,
+    process::{self, ForkResult},
 };
 
 const CONSOLE: i16 = 1;
@@ -25,18 +25,20 @@ fn main() {
     loop {
         message!("starting sh");
 
-        let pid = try_or_panic!(
+        let res = try_or_panic!(
             process::fork(),
             e => "fork failed: {e}",
         );
 
-        if pid == 0 {
+        let ForkResult::Parent { child: pid } = res else {
+            // child process
             let argv = [c"sh".as_ptr(), ptr::null()];
             try_or_panic!(
                 process::exec(c"sh", &argv),
                 e => "exec sh failed: {e}",
             );
-        }
+            unreachable!()
+        };
 
         loop {
             // this call to wait() returns if the shell exits,

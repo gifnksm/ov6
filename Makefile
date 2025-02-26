@@ -29,12 +29,12 @@ RUPROGS=\
 	ls\
 	mkdir\
 	rm\
+	sh\
 
 RX_RUPROGS=$(patsubst %,$(RX)/%,$(RUPROGS))
 R_RUPROGS=$(patsubst %,$R/%,$(RUPROGS))
 
 UPROGS=\
-	$U/_sh\
 	$U/_stressfs\
 	$U/_usertests\
 	$U/_grind\

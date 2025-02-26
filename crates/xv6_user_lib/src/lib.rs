@@ -16,6 +16,7 @@ pub mod error;
 pub mod fs;
 pub mod io;
 pub mod os;
+pub mod pipe;
 pub mod process;
 pub mod sync;
 

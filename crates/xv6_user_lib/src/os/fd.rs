@@ -1,11 +1,18 @@
 use core::{fmt, marker::PhantomData};
 
+use crate::error::Error;
+
 use super::xv6::syscall;
 
 pub type RawFd = i32;
 
 pub struct OwnedFd {
     fd: RawFd,
+}
+impl OwnedFd {
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        syscall::dup(self.fd)
+    }
 }
 
 impl Drop for OwnedFd {

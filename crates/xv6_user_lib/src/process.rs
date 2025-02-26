@@ -18,3 +18,19 @@ impl ExitStatus {
         self.status
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForkResult {
+    Parent { child: u32 },
+    Child,
+}
+
+impl ForkResult {
+    pub fn is_parent(&self) -> bool {
+        matches!(self, Self::Parent { .. })
+    }
+
+    pub fn is_child(&self) -> bool {
+        matches!(self, Self::Child)
+    }
+}

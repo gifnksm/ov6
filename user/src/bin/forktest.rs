@@ -12,12 +12,10 @@ fn forktest() {
 
     for i in 0..N {
         n = i;
-        let Ok(pid) = process::fork() else {
+        let Ok(res) = process::fork() else {
             break;
         };
-
-        if pid == 0 {
-            // child process
+        if res.is_child() {
             process::exit(0);
         }
     }
