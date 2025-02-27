@@ -74,7 +74,7 @@ impl<T> SlabAllocator<T> {
 
 /// A layout of `ArcInner<T>`.
 ///
-/// This is a helper type to use [`SlabAllocator`] as custom [`Allocator`] for [`Arc<T>`].
+/// This is a helper type to use [`SlabAllocator`] as custom `Allocator` for `Arc<T>`.
 pub struct ArcInnerLayout<T> {
     _strong: AtomicUsize,
     _weak: AtomicUsize,

@@ -52,6 +52,7 @@ extern "C" fn main() -> ! {
         fs::init(); // file system (buffer cache and hard disk)
         file::init(); // file table
         proc::user_init(); // first user process
+
         STARTED.store(true, Ordering::Release);
     } else {
         while !STARTED.load(Ordering::Acquire) {

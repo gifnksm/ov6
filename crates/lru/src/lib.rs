@@ -5,6 +5,8 @@
 
 extern crate alloc;
 
+use core::{ptr::NonNull, sync::atomic::AtomicUsize};
+
 use alloc::{
     alloc::{Allocator, Global},
     collections::LinkedList,
@@ -64,6 +66,19 @@ where
 {
     list: LinkedList<(Option<K>, Arc<V, A>), A>,
 }
+
+/// Allocation layout for [`LruMap`].
+///
+/// This struct has same layout as `alloc::collections::linked_list::Node<T>`.
+pub struct LruMapAllocLayout<K, V, A>
+where
+    A: Allocator,
+{
+    _next: Option<NonNull<Self>>,
+    _prev: Option<NonNull<Self>>,
+    _element: (Option<K>, Arc<V, A>),
+}
+unsafe impl<K, V, A> Send for LruMapAllocLayout<K, V, A> where A: Allocator {}
 
 impl<K, V> Default for LruMap<K, V, Global> {
     fn default() -> Self {
@@ -177,6 +192,15 @@ where
     list: &'list LruMutex,
     key: K,
     value: Arc<V, A>,
+}
+
+/// Allocation layout for `LruValue`.
+///
+/// This struct has same layout as `ArcInner<T>`.
+pub struct LruValueAllocLayout<V> {
+    _strong_count: AtomicUsize,
+    _weak_count: AtomicUsize,
+    _value: V,
 }
 
 impl<LruMutex, K, V, A> Drop for LruValue<'_, LruMutex, K, V, A>

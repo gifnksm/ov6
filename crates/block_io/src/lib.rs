@@ -44,6 +44,9 @@ pub struct BlockIoCache<Device, LruMutex> {
 /// * `BlockMutex`: The mutex type used to protect access to the block data.
 pub type LruMap<BlockMutex, A = Global> = lru::LruMap<usize, BlockMutex, A>;
 
+/// Allocation layout for [`LruMap`].
+pub type LruMapALlocLayout<BlockMutex, A = Global> = lru::LruMapAllocLayout<usize, BlockMutex, A>;
+
 /// A type alias for an LRU (Least Recently Used) value in the cache.
 ///
 /// This type alias simplifies the usage of the [`lru::LruValue`] type with block indices and block data.
@@ -52,9 +55,12 @@ pub type LruMap<BlockMutex, A = Global> = lru::LruMap<usize, BlockMutex, A>;
 ///
 /// * `'list`: The lifetime of the LRU list.
 /// * `LruMutex`: The mutex type used to protect access to the LRU list.
-/// * `BlockDataMutex`: The mutex type used to protect access to the block data.
-pub type LruValue<'list, LruMutex, BlockDataMutex, A = Global> =
-    lru::LruValue<'list, LruMutex, usize, BlockDataMutex, A>;
+/// * `BlockMutex`: The mutex type used to protect access to the block data.
+pub type LruValue<'list, LruMutex, BlockMutex, A = Global> =
+    lru::LruValue<'list, LruMutex, usize, BlockMutex, A>;
+
+/// Allocation layout for [`LruValue`].
+pub type LruValueAllocLayout<BlockMutex> = lru::LruValueAllocLayout<BlockMutex>;
 
 /// A reference to a block cache.
 pub struct BlockRef<'list, Device, LruMutex, BlockMutex, A = Global>
