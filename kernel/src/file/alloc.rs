@@ -57,7 +57,7 @@ impl Deref for FileDataArc {
 }
 
 impl FileDataArc {
-    pub(super) fn new(data: FileData) -> Result<Self, Error> {
+    pub(super) fn try_new(data: FileData) -> Result<Self, Error> {
         let data = Arc::try_new_in(data, FileAllocator).map_err(|AllocError| Error::Unknown)?;
         Ok(FileDataArc(data))
     }

@@ -51,7 +51,7 @@ pub(super) fn new_file(
     readable: bool,
     writable: bool,
 ) -> Result<File, Error> {
-    let data = FileDataArc::new(FileData {
+    let data = FileDataArc::try_new(FileData {
         readable,
         writable,
         data: Some(SpecificData::Device(DeviceFile { major, inode })),

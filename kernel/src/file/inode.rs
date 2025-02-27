@@ -16,7 +16,7 @@ pub(super) struct InodeFile {
 }
 
 pub fn new_file(inode: Inode, readable: bool, writable: bool) -> Result<File, Error> {
-    let data = FileDataArc::new(FileData {
+    let data = FileDataArc::try_new(FileData {
         readable,
         writable,
         data: Some(SpecificData::Inode(InodeFile {

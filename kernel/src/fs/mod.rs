@@ -55,6 +55,7 @@ impl DeviceNo {
 }
 
 pub fn init() {
+    inode::init();
     block_io::init();
     virtio_disk::init();
 }

@@ -65,31 +65,31 @@
 //! have locked the inodes involved; this lets callers create
 //! multi-step atomic operations.
 
-use alloc::sync::{Arc, Weak};
+use crate::{error::Error, sync::SleepLockGuard};
 
-use crate::{
-    error::Error,
-    sync::{SleepLock, SleepLockGuard},
-};
+use self::alloc::{InodeDataArc, InodeDataWeak};
 
 use super::{
     BlockNo, DeviceNo, InodeNo, SUPER_BLOCK, Tx,
     repr::{self, NUM_DIRECT_REFS},
 };
 
+mod alloc;
 mod content;
 mod directory;
 mod table;
 
-type InodeDataPtr = Arc<SleepLock<Option<InodeData>>>;
-type InodeDataWeakPtr = Weak<SleepLock<Option<InodeData>>>;
+pub(super) fn init() {
+    alloc::init();
+}
+
 type InodeDataGuard<'a> = SleepLockGuard<'a, Option<InodeData>>;
 
 #[derive(Clone)]
 pub struct Inode {
     dev: DeviceNo,
     ino: InodeNo,
-    data: Option<InodeDataPtr>,
+    data: Option<InodeDataArc>,
 }
 
 /// In-memory copy of an inode.
@@ -98,7 +98,7 @@ pub struct TxInode<'tx, const READ_ONLY: bool> {
     tx: &'tx Tx<'tx, READ_ONLY>,
     dev: DeviceNo,
     ino: InodeNo,
-    data: InodeDataPtr,
+    data: InodeDataArc,
 }
 
 pub(super) struct InodeData {
@@ -137,7 +137,7 @@ pub struct LockedTxInode<'tx, 'i, const READ_ONLY: bool> {
     tx: &'tx Tx<'tx, READ_ONLY>,
     dev: DeviceNo,
     ino: InodeNo,
-    data: InodeDataPtr,
+    data: InodeDataArc,
     locked: InodeDataGuard<'i>,
 }
 
@@ -156,7 +156,7 @@ impl Inode {
         Self {
             dev: tx.dev,
             ino: tx.ino,
-            data: Some(Arc::clone(&tx.data)),
+            data: Some(InodeDataArc::clone(&tx.data)),
         }
     }
 
@@ -164,7 +164,7 @@ impl Inode {
         Self {
             dev: locked.dev,
             ino: locked.ino,
-            data: Some(Arc::clone(&locked.data)),
+            data: Some(InodeDataArc::clone(&locked.data)),
         }
     }
 
@@ -191,7 +191,7 @@ impl Drop for Inode {
 }
 
 impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
-    fn new(tx: &'tx Tx<READ_ONLY>, dev: DeviceNo, ino: InodeNo, data: InodeDataPtr) -> Self {
+    fn new(tx: &'tx Tx<READ_ONLY>, dev: DeviceNo, ino: InodeNo, data: InodeDataArc) -> Self {
         TxInode { tx, dev, ino, data }
     }
 
@@ -227,7 +227,7 @@ impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
             self.tx,
             self.dev,
             self.ino,
-            Arc::clone(&self.data),
+            InodeDataArc::clone(&self.data),
             locked,
         ))
     }
@@ -237,7 +237,13 @@ impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
     /// This also reads the inode from disk if it is not already in memory.
     pub fn lock<'a>(&'a mut self) -> LockedTxInode<'tx, 'a, READ_ONLY> {
         let locked = self.data.lock();
-        LockedTxInode::new(self.tx, self.dev, self.ino, Arc::clone(&self.data), locked)
+        LockedTxInode::new(
+            self.tx,
+            self.dev,
+            self.ino,
+            InodeDataArc::clone(&self.data),
+            locked,
+        )
     }
 }
 
@@ -255,7 +261,7 @@ impl<'tx> TxInode<'tx, false> {
 impl<const READ_ONLY: bool> Drop for TxInode<'_, READ_ONLY> {
     fn drop(&mut self) {
         let table = table::lock();
-        if Arc::strong_count(&self.data) > 1 {
+        if InodeDataArc::strong_count(&self.data) > 1 {
             return;
         }
 
@@ -290,7 +296,7 @@ impl<'tx, 'i, const READ_ONLY: bool> LockedTxInode<'tx, 'i, READ_ONLY> {
         tx: &'tx Tx<'tx, READ_ONLY>,
         dev: DeviceNo,
         ino: InodeNo,
-        data: InodeDataPtr,
+        data: InodeDataArc,
         mut locked: InodeDataGuard<'i>,
     ) -> LockedTxInode<'tx, 'i, READ_ONLY> {
         if locked.is_none() {

@@ -1,4 +1,3 @@
-use alloc::sync::{Arc, Weak};
 use xv6_fs_types::InodeNo;
 use xv6_kernel_params::NINODE;
 
@@ -8,11 +7,11 @@ use crate::{
     sync::{SleepLock, SpinLock, SpinLockGuard},
 };
 
-use super::{InodeDataPtr, InodeDataWeakPtr};
+use super::{InodeDataArc, InodeDataWeak};
 
 static INODE_TABLE: SpinLock<InodeTable> = SpinLock::new(InodeTable::new());
 
-pub(super) fn get_or_insert(dev: DeviceNo, ino: InodeNo) -> Result<InodeDataPtr, Error> {
+pub(super) fn get_or_insert(dev: DeviceNo, ino: InodeNo) -> Result<InodeDataArc, Error> {
     INODE_TABLE.lock().get_or_insert(dev, ino)
 }
 
@@ -21,7 +20,7 @@ pub(super) fn lock() -> SpinLockGuard<'static, InodeTable> {
 }
 
 pub(super) struct InodeTable {
-    table: [Option<(DeviceNo, InodeNo, InodeDataWeakPtr)>; NINODE],
+    table: [Option<(DeviceNo, InodeNo, InodeDataWeak)>; NINODE],
 }
 
 impl InodeTable {
@@ -31,7 +30,7 @@ impl InodeTable {
         }
     }
 
-    fn get_or_insert(&mut self, dev: DeviceNo, ino: InodeNo) -> Result<InodeDataPtr, Error> {
+    fn get_or_insert(&mut self, dev: DeviceNo, ino: InodeNo) -> Result<InodeDataArc, Error> {
         let mut empty_idx = None;
         for (i, entry) in self.table.iter_mut().enumerate() {
             let Some(entry_body) = entry else {
@@ -39,7 +38,7 @@ impl InodeTable {
                 continue;
             };
 
-            if let Some(data) = Weak::upgrade(&entry_body.2) {
+            if let Some(data) = InodeDataWeak::upgrade(&entry_body.2) {
                 if entry_body.0 == dev && entry_body.1 == ino {
                     return Ok(data);
                 }
@@ -56,8 +55,8 @@ impl InodeTable {
         };
 
         // insert new entry
-        let data = Arc::new(SleepLock::new(None));
-        self.table[empty_idx] = Some((dev, ino, Arc::downgrade(&data)));
+        let data = InodeDataArc::try_new(SleepLock::new(None))?;
+        self.table[empty_idx] = Some((dev, ino, InodeDataArc::downgrade(&data)));
         Ok(data)
     }
 }
