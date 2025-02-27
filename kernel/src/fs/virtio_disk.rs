@@ -11,7 +11,7 @@ use crate::{
             VirtioBlkReqType, VirtqAvail, VirtqDesc, VirtqDescFlags, VirtqUsed,
         },
     },
-    memory::layout::VIRTIO0,
+    memory::{layout::VIRTIO0, page::PageFrameAllocator},
     sync::{SpinLock, SpinLockCondVar},
 };
 
@@ -30,20 +30,20 @@ struct Disk<const NUM: usize> {
     /// There are NUM descriptors.
     /// Most commands consist of a "chain" (a linked list) of a couple of
     /// these descriptors.
-    desc: Pin<Box<[VirtqDesc; NUM]>>,
+    desc: Pin<Box<[VirtqDesc; NUM], PageFrameAllocator>>,
 
     /// A ring in which the driver writes descriptor numbers
     /// that the driver would like the device to process.
     ///
     /// It only includes the head descriptor of each chain.
     /// The ring has NUM elements.
-    avail: Pin<Box<VirtqAvail<NUM>>>,
+    avail: Pin<Box<VirtqAvail<NUM>, PageFrameAllocator>>,
 
     /// A ring in which the device writes descriptor numbers that
     /// the device has finished processing (just the head of each chain).
     ///
     /// There are NUM used ring entries.
-    used: Pin<Box<VirtqUsed<NUM>>>,
+    used: Pin<Box<VirtqUsed<NUM>, PageFrameAllocator>>,
 
     /// Condition variable signaled when descriptors are freed.
     desc_freed: &'static SpinLockCondVar,
@@ -82,9 +82,9 @@ impl<const N: usize> Disk<N> {
     ) -> Self {
         Disk {
             base_address,
-            desc: Box::into_pin(Box::new(unsafe { mem::zeroed() })),
-            avail: Box::into_pin(Box::new(unsafe { mem::zeroed() })),
-            used: Box::into_pin(Box::new(unsafe { mem::zeroed() })),
+            desc: Box::into_pin(Box::new_in(unsafe { mem::zeroed() }, PageFrameAllocator)),
+            avail: Box::into_pin(Box::new_in(unsafe { mem::zeroed() }, PageFrameAllocator)),
+            used: Box::into_pin(Box::new_in(unsafe { mem::zeroed() }, PageFrameAllocator)),
             desc_freed,
             free: [true; N],
             used_idx: 0,

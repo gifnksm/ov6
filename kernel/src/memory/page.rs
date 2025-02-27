@@ -4,10 +4,14 @@
 //!
 //! Allocates whole 4096-byte pages.
 
-use core::ptr::{self, NonNull};
+use core::{
+    alloc::Layout,
+    ptr::{self, NonNull},
+};
 
+use alloc::alloc::{AllocError, Allocator};
 use once_init::OnceInit;
-use page_alloc::{PageFrameAllocator, RetrievePageFrameAllocator};
+use page_alloc::RetrievePageFrameAllocator;
 
 use crate::{
     memory::{layout::PHYS_TOP, vm::PAGE_SIZE},
@@ -33,11 +37,12 @@ const fn top() -> NonNull<u8> {
     NonNull::new(ptr::without_provenance_mut(PHYS_TOP)).unwrap()
 }
 
-static PAGE_FRAME_ALLOCATOR: OnceInit<SpinLock<PageFrameAllocator<PAGE_SIZE>>> = OnceInit::new();
+static PAGE_FRAME_ALLOCATOR: OnceInit<SpinLock<page_alloc::PageFrameAllocator<PAGE_SIZE>>> =
+    OnceInit::new();
 
 pub struct PageFrameAllocatorRetriever;
 impl RetrievePageFrameAllocator<PAGE_SIZE> for PageFrameAllocatorRetriever {
-    type AllocatorRef = SpinLockGuard<'static, PageFrameAllocator<PAGE_SIZE>>;
+    type AllocatorRef = SpinLockGuard<'static, page_alloc::PageFrameAllocator<PAGE_SIZE>>;
 
     fn retrieve_allocator() -> Self::AllocatorRef {
         PAGE_FRAME_ALLOCATOR.get().lock()
@@ -49,7 +54,7 @@ pub fn init() {
     let pa_end = top().page_rounddown();
 
     unsafe {
-        PAGE_FRAME_ALLOCATOR.init(SpinLock::new(PageFrameAllocator::new(
+        PAGE_FRAME_ALLOCATOR.init(SpinLock::new(page_alloc::PageFrameAllocator::new(
             pa_start.as_ptr()..pa_end.as_ptr(),
         )));
     }
@@ -84,4 +89,25 @@ pub fn alloc_page() -> Option<NonNull<u8>> {
 /// Returns `None` if the memory cannot be allocated.
 pub fn alloc_zeroed_page() -> Option<NonNull<u8>> {
     PAGE_FRAME_ALLOCATOR.get().lock().alloc_zeroed()
+}
+
+#[derive(Clone)]
+pub struct PageFrameAllocator;
+
+unsafe impl Allocator for PageFrameAllocator {
+    fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+        assert!(layout.size() <= PAGE_SIZE);
+        assert_eq!(PAGE_SIZE % layout.align(), 0);
+
+        let page = alloc_page().ok_or(AllocError)?;
+        Ok(NonNull::slice_from_raw_parts(page.cast(), PAGE_SIZE))
+    }
+
+    unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+        assert!(layout.size() <= PAGE_SIZE);
+        assert_eq!(PAGE_SIZE % layout.align(), 0);
+        assert_eq!(ptr.addr().get() % PAGE_SIZE, 0);
+
+        unsafe { free_page(ptr.cast()) }
+    }
 }
