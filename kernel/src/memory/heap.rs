@@ -1,23 +1,16 @@
-use page_alloc::heap_allocator::{GlobalHeapAllocator, HeapAllocator, RetrieveHeapAllocator};
+use core::alloc::GlobalAlloc;
 
-use crate::sync::{SpinLock, SpinLockGuard};
+struct PanicAllocator;
 
-use super::{page::PageFrameAllocatorRetriever, vm::PAGE_SIZE};
+unsafe impl GlobalAlloc for PanicAllocator {
+    unsafe fn alloc(&self, _layout: core::alloc::Layout) -> *mut u8 {
+        panic!("global alloc is not supported")
+    }
 
-static HEAP_ALLOCATOR: SpinLock<HeapAllocator<PAGE_SIZE>> = SpinLock::new(HeapAllocator::new());
-
-pub struct HeapAllocatorRetriever;
-impl RetrieveHeapAllocator<PAGE_SIZE> for HeapAllocatorRetriever {
-    type AllocatorRef = SpinLockGuard<'static, HeapAllocator<PAGE_SIZE>>;
-
-    fn retrieve_allocator() -> Self::AllocatorRef {
-        HEAP_ALLOCATOR.lock()
+    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: core::alloc::Layout) {
+        panic!("global alloc is not supported")
     }
 }
 
 #[global_allocator]
-static GLOBAL_ALLOCATOR: GlobalHeapAllocator<
-    PageFrameAllocatorRetriever,
-    HeapAllocatorRetriever,
-    PAGE_SIZE,
-> = GlobalHeapAllocator::new();
+static GLOBAL_ALLOCATOR: PanicAllocator = PanicAllocator;
