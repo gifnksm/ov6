@@ -2,9 +2,6 @@
 
 #![cfg_attr(not(test), no_std)]
 
-extern crate alloc;
-
-use alloc::boxed::Box;
 use dataview::{Pod, PodMethods as _};
 use lru::Lru;
 use mutex_api::Mutex;
@@ -90,7 +87,7 @@ pub struct BlockData<const BLOCK_SIZE: usize> {
     index: usize,
     valid: bool,
     dirty: bool,
-    data: Box<[u8; BLOCK_SIZE]>,
+    data: [u8; BLOCK_SIZE],
 }
 
 impl<const BLOCK_SIZE: usize> Default for BlockData<BLOCK_SIZE> {
@@ -99,7 +96,7 @@ impl<const BLOCK_SIZE: usize> Default for BlockData<BLOCK_SIZE> {
             index: 0,
             valid: false,
             dirty: true,
-            data: Box::new([0; BLOCK_SIZE]),
+            data: [0; BLOCK_SIZE],
         }
     }
 }
