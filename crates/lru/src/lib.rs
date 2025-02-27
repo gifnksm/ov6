@@ -1,7 +1,6 @@
 //! Least Recently Used (LRU) cache.
 
 #![feature(allocator_api)]
-#![feature(extract_if)]
 #![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
