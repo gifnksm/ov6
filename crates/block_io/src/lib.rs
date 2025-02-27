@@ -1,7 +1,10 @@
 //! LRU (Lease Recently Used) cache for block I/O.
-
+#![feature(allocator_api)]
 #![cfg_attr(not(test), no_std)]
 
+extern crate alloc;
+
+use alloc::alloc::{Allocator, Global};
 use dataview::{Pod, PodMethods as _};
 use lru::Lru;
 use mutex_api::Mutex;
@@ -39,7 +42,7 @@ pub struct BlockIoCache<Device, LruMutex> {
 /// # Type Parameters
 ///
 /// * `BlockMutex`: The mutex type used to protect access to the block data.
-pub type LruMap<BlockMutex> = lru::LruMap<usize, BlockMutex>;
+pub type LruMap<BlockMutex, A = Global> = lru::LruMap<usize, BlockMutex, A>;
 
 /// A type alias for an LRU (Least Recently Used) value in the cache.
 ///
@@ -50,17 +53,18 @@ pub type LruMap<BlockMutex> = lru::LruMap<usize, BlockMutex>;
 /// * `'list`: The lifetime of the LRU list.
 /// * `LruMutex`: The mutex type used to protect access to the LRU list.
 /// * `BlockDataMutex`: The mutex type used to protect access to the block data.
-pub type LruValue<'list, LruMutex, BlockDataMutex> =
-    lru::LruValue<'list, LruMutex, usize, BlockDataMutex>;
+pub type LruValue<'list, LruMutex, BlockDataMutex, A = Global> =
+    lru::LruValue<'list, LruMutex, usize, BlockDataMutex, A>;
 
 /// A reference to a block cache.
-pub struct BlockRef<'list, Device, LruMutex, BlockMutex>
+pub struct BlockRef<'list, Device, LruMutex, BlockMutex, A = Global>
 where
-    LruMutex: Mutex<Data = LruMap<BlockMutex>>,
+    LruMutex: Mutex<Data = LruMap<BlockMutex, A>>,
+    A: Allocator,
 {
     index: usize,
     device: &'list Device,
-    block: LruValue<'list, LruMutex, BlockMutex>,
+    block: LruValue<'list, LruMutex, BlockMutex, A>,
 }
 
 /// A lock guard of a block cache providing exclusive access.
@@ -72,13 +76,15 @@ pub struct BlockGuard<
     BlockMutex,
     const BLOCK_SIZE: usize,
     const VALID: bool,
+    A = Global,
 > where
-    LruMutex: Mutex<Data = LruMap<BlockMutex>>,
+    LruMutex: Mutex<Data = LruMap<BlockMutex, A>>,
     BlockMutex: Mutex<Data = BlockData<BLOCK_SIZE>> + 'block,
+    A: Allocator,
 {
     index: usize,
     device: &'list Device,
-    block: LruValue<'list, LruMutex, BlockMutex>,
+    block: LruValue<'list, LruMutex, BlockMutex, A>,
     data: BlockMutex::Guard<'block>,
 }
 
@@ -117,13 +123,32 @@ where
             lru: Lru::new(num_block),
         }
     }
+}
+
+impl<Device, LruMutex, BlockMutex, const BLOCK_SIZE: usize, A> BlockIoCache<Device, LruMutex>
+where
+    LruMutex: Mutex<Data = LruMap<BlockMutex, A>>,
+    BlockMutex: Mutex<Data = BlockData<BLOCK_SIZE>> + Default,
+    A: Allocator + Clone,
+{
+    /// Creates a new [`BlockIoCache`] instance.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `num_block` is `0`.
+    pub fn new_in(device: Device, num_block: usize, alloc: A) -> Self {
+        Self {
+            device,
+            lru: Lru::new_in(num_block, alloc),
+        }
+    }
 
     /// Returns a reference to the cached block with the given block index.
     ///
     /// If the block is cached, returns a reference to it.
     /// Otherwise, the value is not cached, recycles the least recently used (LRU) unreferenced cache and returns a reference to it.
     /// If all caches are referenced, returns `None`.
-    pub fn try_get(&self, index: usize) -> Option<BlockRef<'_, Device, LruMutex, BlockMutex>> {
+    pub fn try_get(&self, index: usize) -> Option<BlockRef<'_, Device, LruMutex, BlockMutex, A>> {
         let block = self.lru.get(index)?;
         Some(BlockRef {
             index,
@@ -141,7 +166,7 @@ where
     /// # Panic
     ///
     /// Panics if all buffers are referenced.
-    pub fn get(&self, index: usize) -> BlockRef<'_, Device, LruMutex, BlockMutex> {
+    pub fn get(&self, index: usize) -> BlockRef<'_, Device, LruMutex, BlockMutex, A> {
         match self.try_get(index) {
             Some(buf) => buf,
             None => panic!("block buffer exhausted"),
@@ -149,12 +174,13 @@ where
     }
 }
 
-impl<'list, Device, LruMutex, BlockMutex, const BLOCK_SIZE: usize>
-    BlockRef<'list, Device, LruMutex, BlockMutex>
+impl<'list, Device, LruMutex, BlockMutex, const BLOCK_SIZE: usize, A>
+    BlockRef<'list, Device, LruMutex, BlockMutex, A>
 where
     Device: BlockDevice<BLOCK_SIZE>,
-    LruMutex: Mutex<Data = LruMap<BlockMutex>>,
+    LruMutex: Mutex<Data = LruMap<BlockMutex, A>>,
     BlockMutex: Mutex<Data = BlockData<BLOCK_SIZE>> + 'list,
+    A: Allocator + Clone,
 {
     /// Returns the index number of the block.
     pub fn index(&self) -> usize {
@@ -164,7 +190,7 @@ where
     /// Acquires a block's lock and provides a mutable exclusive access to it.
     pub fn lock<'b>(
         &'b mut self,
-    ) -> BlockGuard<'list, 'b, Device, LruMutex, BlockMutex, BLOCK_SIZE, false> {
+    ) -> BlockGuard<'list, 'b, Device, LruMutex, BlockMutex, BLOCK_SIZE, false, A> {
         let block = self.block.value();
         let mut block = block.lock();
 
@@ -183,12 +209,13 @@ where
     }
 }
 
-impl<'list, Device, LruMutex, BlockMutex, const BLOCK_SIZE: usize> Clone
-    for BlockRef<'list, Device, LruMutex, BlockMutex>
+impl<'list, Device, LruMutex, BlockMutex, const BLOCK_SIZE: usize, A> Clone
+    for BlockRef<'list, Device, LruMutex, BlockMutex, A>
 where
     Device: BlockDevice<BLOCK_SIZE>,
-    LruMutex: Mutex<Data = LruMap<BlockMutex>>,
+    LruMutex: Mutex<Data = LruMap<BlockMutex, A>>,
     BlockMutex: Mutex<Data = BlockData<BLOCK_SIZE>> + 'list,
+    A: Allocator + Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -199,12 +226,13 @@ where
     }
 }
 
-impl<'list, 'block, Device, LruMutex, BlockMutex, const BLOCK_SIZE: usize, const VALID: bool>
-    BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, VALID>
+impl<'list, 'block, Device, LruMutex, BlockMutex, const BLOCK_SIZE: usize, const VALID: bool, A>
+    BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, VALID, A>
 where
     Device: BlockDevice<BLOCK_SIZE>,
-    LruMutex: Mutex<Data = LruMap<BlockMutex>>,
+    LruMutex: Mutex<Data = LruMap<BlockMutex, A>>,
     BlockMutex: Mutex<Data = BlockData<BLOCK_SIZE>> + 'list,
+    A: Allocator + Clone,
 {
     /// Returns the index number of the block.
     pub fn index(&self) -> usize {
@@ -212,7 +240,7 @@ where
     }
 
     /// Returns the reference to the block cache.
-    pub fn block(&self) -> BlockRef<'list, Device, LruMutex, BlockMutex> {
+    pub fn block(&self) -> BlockRef<'list, Device, LruMutex, BlockMutex, A> {
         BlockRef {
             index: self.index,
             device: self.device,
@@ -224,7 +252,7 @@ where
     pub fn read(
         mut self,
     ) -> Result<
-        BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, true>,
+        BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, true, A>,
         (Self, Device::Error),
     > {
         if !self.data.valid {
@@ -247,7 +275,7 @@ where
     pub fn set_data(
         mut self,
         data: &[u8],
-    ) -> BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, true> {
+    ) -> BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, true, A> {
         self.data.valid = true;
         self.data.dirty = true;
         self.data.data.copy_from_slice(data);
@@ -262,7 +290,7 @@ where
     /// Fills the whole block data with zero.
     pub fn zeroed(
         mut self,
-    ) -> BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, true> {
+    ) -> BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, true, A> {
         self.data.valid = true;
         self.data.dirty = true;
         self.data.data.fill(0);
@@ -281,7 +309,7 @@ where
 
     pub fn try_validate(
         self,
-    ) -> Result<BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, true>, Self>
+    ) -> Result<BlockGuard<'list, 'block, Device, LruMutex, BlockMutex, BLOCK_SIZE, true, A>, Self>
     {
         if self.data.valid {
             Ok(BlockGuard {
@@ -296,12 +324,13 @@ where
     }
 }
 
-impl<Device, LruMutex, BlockMutex, const BLOCK_SIZE: usize>
-    BlockGuard<'_, '_, Device, LruMutex, BlockMutex, BLOCK_SIZE, true>
+impl<Device, LruMutex, BlockMutex, const BLOCK_SIZE: usize, A>
+    BlockGuard<'_, '_, Device, LruMutex, BlockMutex, BLOCK_SIZE, true, A>
 where
     Device: BlockDevice<BLOCK_SIZE>,
-    LruMutex: Mutex<Data = LruMap<BlockMutex>>,
+    LruMutex: Mutex<Data = LruMap<BlockMutex, A>>,
     BlockMutex: Mutex<Data = BlockData<BLOCK_SIZE>>,
+    A: Allocator,
 {
     /// Returns a reference to the bytes of block cache.
     pub fn bytes(&self) -> &[u8; BLOCK_SIZE] {

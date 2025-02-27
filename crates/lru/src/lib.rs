@@ -1,11 +1,16 @@
 //! Least Recently Used (LRU) cache.
 
+#![feature(allocator_api)]
 #![feature(extract_if)]
 #![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
 
-use alloc::{collections::LinkedList, sync::Arc};
+use alloc::{
+    alloc::{Allocator, Global},
+    collections::LinkedList,
+    sync::Arc,
+};
 use mutex_api::Mutex;
 
 /// Least Recently Used (LRU) cache.
@@ -23,6 +28,20 @@ where
     {
         Self(LruMutex::new(LruMap::new(size)))
     }
+}
+
+impl<LruMutex, K, V, A> Lru<LruMutex>
+where
+    LruMutex: Mutex<Data = LruMap<K, V, A>>,
+    A: Allocator + Clone,
+{
+    /// Creates a new LRU cache with the given size and allocator.
+    pub fn new_in(size: usize, alloc: A) -> Self
+    where
+        V: Default,
+    {
+        Self(LruMutex::new(LruMap::new_in(size, alloc)))
+    }
 
     /// Returns a reference to the cached value associated with the key.
     ///
@@ -31,7 +50,7 @@ where
     /// If all values are referenced, returns `None`.
     ///
     /// When returned value is dropped, the key is promoted to the most recently used (MRU) position.
-    pub fn get(&self, key: K) -> Option<LruValue<LruMutex, K, V>>
+    pub fn get(&self, key: K) -> Option<LruValue<LruMutex, K, V, A>>
     where
         K: PartialEq + Clone,
     {
@@ -40,9 +59,19 @@ where
 }
 
 /// An key-value maps of Least Recently Used (LRU) cache.
-#[derive(Default)]
-pub struct LruMap<K, V> {
-    list: LinkedList<(Option<K>, Arc<V>)>,
+pub struct LruMap<K, V, A = Global>
+where
+    A: Allocator,
+{
+    list: LinkedList<(Option<K>, Arc<V, A>), A>,
+}
+
+impl<K, V> Default for LruMap<K, V, Global> {
+    fn default() -> Self {
+        Self {
+            list: LinkedList::default(),
+        }
+    }
 }
 
 impl<K, V> LruMap<K, V> {
@@ -51,11 +80,24 @@ impl<K, V> LruMap<K, V> {
     where
         V: Default,
     {
+        Self::new_in(size, Global)
+    }
+}
+
+impl<K, V, A> LruMap<K, V, A>
+where
+    A: Allocator + Clone,
+{
+    /// Creates a new `LruMap` with the given size and allocator.
+    fn new_in(size: usize, alloc: A) -> Self
+    where
+        V: Default,
+    {
         assert!(size > 0);
 
-        let mut list = LinkedList::new();
+        let mut list = LinkedList::new_in(alloc.clone());
         for _ in 0..size {
-            list.push_back((None, Arc::new(V::default())));
+            list.push_back((None, Arc::new_in(V::default(), alloc.clone())));
         }
         Self { list }
     }
@@ -71,7 +113,7 @@ impl<K, V> LruMap<K, V> {
         &mut self,
         key: K,
         list: &'a LruMutex,
-    ) -> Option<LruValue<'a, LruMutex, K, V>>
+    ) -> Option<LruValue<'a, LruMutex, K, V, A>>
     where
         LruMutex: Mutex<Data = Self>,
         K: PartialEq + Clone,
@@ -104,7 +146,12 @@ impl<K, V> LruMap<K, V> {
 
         None
     }
+}
 
+impl<K, V, A> LruMap<K, V, A>
+where
+    A: Allocator,
+{
     /// Promotes the cached value associated with the key to the most recently used (MRU) position.
     fn promote(&mut self, key: &K)
     where
@@ -122,30 +169,33 @@ impl<K, V> LruMap<K, V> {
 
 /// A reference to the cached value associated with the key.
 #[derive(Debug)]
-pub struct LruValue<'list, LruMutex, K, V>
+pub struct LruValue<'list, LruMutex, K, V, A>
 where
-    LruMutex: Mutex<Data = LruMap<K, V>>,
+    LruMutex: Mutex<Data = LruMap<K, V, A>>,
     K: PartialEq,
+    A: Allocator,
 {
     list: &'list LruMutex,
     key: K,
-    value: Arc<V>,
+    value: Arc<V, A>,
 }
 
-impl<LruMutex, K, V> Drop for LruValue<'_, LruMutex, K, V>
+impl<LruMutex, K, V, A> Drop for LruValue<'_, LruMutex, K, V, A>
 where
-    LruMutex: Mutex<Data = LruMap<K, V>>,
+    LruMutex: Mutex<Data = LruMap<K, V, A>>,
     K: PartialEq,
+    A: Allocator,
 {
     fn drop(&mut self) {
         self.list.lock().promote(&self.key);
     }
 }
 
-impl<LruMutex, K, V> LruValue<'_, LruMutex, K, V>
+impl<LruMutex, K, V, A> LruValue<'_, LruMutex, K, V, A>
 where
-    LruMutex: Mutex<Data = LruMap<K, V>>,
+    LruMutex: Mutex<Data = LruMap<K, V, A>>,
     K: PartialEq,
+    A: Allocator,
 {
     /// Returns the cache key.
     pub fn key(&self) -> &K {
@@ -158,16 +208,17 @@ where
     }
 }
 
-impl<LruMutex, K, V> Clone for LruValue<'_, LruMutex, K, V>
+impl<LruMutex, K, V, A> Clone for LruValue<'_, LruMutex, K, V, A>
 where
-    LruMutex: Mutex<Data = LruMap<K, V>>,
+    LruMutex: Mutex<Data = LruMap<K, V, A>>,
     K: PartialEq + Clone,
+    A: Allocator + Clone,
 {
     fn clone(&self) -> Self {
         Self {
             list: self.list,
             key: self.key.clone(),
-            value: self.value.clone(),
+            value: Arc::clone(&self.value),
         }
     }
 }
