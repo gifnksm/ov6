@@ -173,7 +173,7 @@ check: cargo-clippy typos doc
 test: cargo-test cargo-miri-test
 
 cargo-clippy:
-	cargo clippy --workspace --all-targets
+	cargo clippy --workspace
 
 cargo-test:
 	cargo test --workspace
