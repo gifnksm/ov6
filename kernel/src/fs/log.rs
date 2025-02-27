@@ -30,8 +30,9 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use alloc::vec::Vec;
+use arrayvec::ArrayVec;
 use once_init::OnceInit;
+use xv6_kernel_params::LOG_SIZE;
 
 use crate::{
     fs::{
@@ -50,20 +51,21 @@ use super::{
 struct LogHeader {
     sb: &'static SuperBlock,
     dev: DeviceNo,
-    blocks: Vec<BlockRef>,
+    blocks: ArrayVec<BlockRef, LOG_SIZE>,
 }
 
 impl LogHeader {
     fn new(dev: DeviceNo, sb: &'static SuperBlock) -> Self {
+        assert!(LOG_SIZE >= sb.max_log_len());
         Self {
             sb,
             dev,
-            blocks: Vec::with_capacity(sb.max_log_len()),
+            blocks: ArrayVec::new(),
         }
     }
 
     fn max_len(&self) -> usize {
-        self.sb.max_log_len()
+        self.blocks.capacity()
     }
 
     fn len(&self) -> usize {

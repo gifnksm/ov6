@@ -12,6 +12,7 @@ test = false
 bench = false
 
 [dependencies]
+arrayvec.workspace = true
 bitflags.workspace = true
 block_io.workspace = true
 dataview.workspace = true
