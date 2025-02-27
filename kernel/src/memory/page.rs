@@ -21,7 +21,7 @@ use crate::{
 use super::vm::PageRound as _;
 
 /// First address after kernel.
-const fn end() -> NonNull<u8> {
+fn end() -> NonNull<u8> {
     unsafe extern "C" {
         /// First address after kernel.
         ///
@@ -30,11 +30,14 @@ const fn end() -> NonNull<u8> {
         static mut END: [u8; 0];
     }
 
-    NonNull::new(&raw mut END).unwrap().cast()
+    NonNull::new(ptr::with_exposed_provenance_mut::<u8>(
+        (&raw mut END).expose_provenance(),
+    ))
+    .unwrap()
 }
 
-const fn top() -> NonNull<u8> {
-    NonNull::new(ptr::without_provenance_mut(PHYS_TOP)).unwrap()
+fn top() -> NonNull<u8> {
+    NonNull::new(ptr::with_exposed_provenance_mut(PHYS_TOP)).unwrap()
 }
 
 static PAGE_FRAME_ALLOCATOR: OnceInit<SpinLock<page_alloc::PageFrameAllocator<PAGE_SIZE>>> =

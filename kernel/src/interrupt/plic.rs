@@ -10,8 +10,8 @@ use crate::{
 pub fn init() {
     // set desired IRQ priorities non-zero (otherwise disabled).
     unsafe {
-        ptr::without_provenance_mut::<u32>(PLIC + UART0_IRQ * 4).write_volatile(1);
-        ptr::without_provenance_mut::<u32>(PLIC + VIRTIO0_IRQ * 4).write_volatile(1);
+        ptr::with_exposed_provenance_mut::<u32>(PLIC + UART0_IRQ * 4).write_volatile(1);
+        ptr::with_exposed_provenance_mut::<u32>(PLIC + VIRTIO0_IRQ * 4).write_volatile(1);
     }
 }
 
@@ -21,7 +21,7 @@ pub fn init_hart() {
     // set enable bits for this hart's S-mode
     // for the uart and virtio disk.
     unsafe {
-        ptr::without_provenance_mut::<u32>(plic_senable(hart))
+        ptr::with_exposed_provenance_mut::<u32>(plic_senable(hart))
             .write_volatile(1 << UART0_IRQ | 1 << VIRTIO0_IRQ);
     }
 
@@ -41,5 +41,7 @@ pub fn claim() -> usize {
 /// Tells the PLIC we've served this IRQ.
 pub fn complete(irq: usize) {
     let hart = cpu::id();
-    unsafe { ptr::without_provenance_mut::<u32>(plic_sclaim(hart)).write_volatile(irq as u32) };
+    unsafe {
+        ptr::with_exposed_provenance_mut::<u32>(plic_sclaim(hart)).write_volatile(irq as u32)
+    };
 }

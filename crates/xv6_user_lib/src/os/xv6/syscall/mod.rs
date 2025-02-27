@@ -2,6 +2,7 @@ use core::{
     convert::Infallible,
     ffi::{CStr, c_char},
     mem::MaybeUninit,
+    ptr,
 };
 
 pub use xv6_syscall::{OpenFlags, Stat, StatType, SyscallType};
@@ -137,7 +138,7 @@ pub fn getpid() -> Result<u32, Error> {
 
 pub unsafe fn sbrk(n: isize) -> Result<*mut u8, Error> {
     let addr: usize = to_result(ffi::sbrk(n))?;
-    Ok(addr as _) // FIXME: ptr::without_provenance causes null pointer dereference in malloc
+    Ok(ptr::with_exposed_provenance_mut(addr))
 }
 
 pub fn sleep(n: i32) -> Result<(), Error> {

@@ -230,11 +230,11 @@ impl PhysAddr {
     }
 
     fn as_ptr<T>(&self) -> *const T {
-        ptr::without_provenance(self.0)
+        ptr::with_exposed_provenance(self.0)
     }
 
     fn as_mut_ptr<T>(&self) -> NonNull<T> {
-        NonNull::new(ptr::without_provenance_mut(self.0)).unwrap()
+        NonNull::new(ptr::with_exposed_provenance_mut(self.0)).unwrap()
     }
 
     fn phys_page_num(&self) -> PhysPageNum {
@@ -750,8 +750,10 @@ pub mod user {
     /// All leaf mappings must already have been removed.
     pub(super) unsafe fn free_walk(pagetable_addr: usize) {
         unsafe {
-            let mut pagetable_ptr =
-                NonNull::new(ptr::without_provenance_mut::<PageTable>(pagetable_addr)).unwrap();
+            let mut pagetable_ptr = NonNull::new(ptr::with_exposed_provenance_mut::<PageTable>(
+                pagetable_addr,
+            ))
+            .unwrap();
             pagetable_ptr.as_mut().free_descendant();
             page::free_page(pagetable_ptr.cast());
         }
@@ -761,7 +763,7 @@ pub mod user {
     pub unsafe fn free(pagetable_addr: usize, sz: usize) {
         {
             let pagetable = unsafe {
-                ptr::without_provenance_mut::<PageTable>(pagetable_addr)
+                ptr::with_exposed_provenance_mut::<PageTable>(pagetable_addr)
                     .as_mut()
                     .unwrap()
             };

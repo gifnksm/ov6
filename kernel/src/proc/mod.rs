@@ -976,7 +976,7 @@ pub fn either_copy_out_bytes(
     }
 
     unsafe {
-        let dst = ptr::without_provenance_mut::<u8>(dst);
+        let dst = ptr::with_exposed_provenance_mut::<u8>(dst);
         let dst = slice::from_raw_parts_mut(dst, src.len());
         dst.copy_from_slice(src);
         Ok(())
@@ -995,7 +995,7 @@ pub fn either_copy_in_bytes(
         return vm::copy_in_bytes(p.pagetable().unwrap(), dst, VirtAddr::new(src));
     }
     unsafe {
-        let src = ptr::without_provenance::<u8>(src);
+        let src = ptr::with_exposed_provenance::<u8>(src);
         let src = slice::from_raw_parts(src, dst.len());
         dst.copy_from_slice(src);
         Ok(())

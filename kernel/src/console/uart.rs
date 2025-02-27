@@ -6,8 +6,8 @@ use crate::{console, interrupt, memory::layout::UART0, proc, sync::SpinLock};
 
 use super::print::PANICKED;
 
-const unsafe fn reg(offset: usize) -> *mut u8 {
-    unsafe { ptr::without_provenance_mut::<u8>(UART0).byte_add(offset) }
+unsafe fn reg(offset: usize) -> *mut u8 {
+    unsafe { ptr::with_exposed_provenance_mut::<u8>(UART0).byte_add(offset) }
 }
 
 // the UART control registers.
