@@ -2,7 +2,10 @@ use alloc::sync::Arc;
 
 use crate::{
     error::Error,
-    memory::vm::{self, VirtAddr},
+    memory::{
+        page::PageFrameAllocator,
+        vm::{self, VirtAddr},
+    },
     proc::{self, Proc},
     sync::SpinLock,
 };
@@ -13,7 +16,7 @@ const PIPE_SIZE: usize = 512;
 
 #[derive(Clone)]
 pub(super) struct PipeFile {
-    data: Arc<SpinLock<PipeData>>,
+    data: Arc<SpinLock<PipeData>, PageFrameAllocator>,
 }
 
 struct PipeData {
@@ -30,13 +33,16 @@ struct PipeData {
 
 pub(super) fn new_file() -> Result<(File, File), Error> {
     let pipe = PipeFile {
-        data: Arc::new(SpinLock::new(PipeData {
-            data: [0; PIPE_SIZE],
-            nread: 0,
-            nwrite: 0,
-            readopen: true,
-            writeopen: true,
-        })),
+        data: Arc::new_in(
+            SpinLock::new(PipeData {
+                data: [0; PIPE_SIZE],
+                nread: 0,
+                nwrite: 0,
+                readopen: true,
+                writeopen: true,
+            }),
+            PageFrameAllocator,
+        ),
     };
 
     let f0 = File {
