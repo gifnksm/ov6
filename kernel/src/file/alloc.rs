@@ -1,16 +1,18 @@
-use core::{alloc::Layout, mem::MaybeUninit, ops::Deref, ptr::NonNull, sync::atomic::AtomicUsize};
+use core::{alloc::Layout, mem::MaybeUninit, ops::Deref, ptr::NonNull};
 
 use alloc::{
     alloc::{AllocError, Allocator},
     sync::Arc,
 };
 use once_init::OnceInit;
-use slab_allocator::SlabAllocator;
+use slab_allocator::{ArcInnerLayout, SlabAllocator};
 use xv6_kernel_params::NFILE;
 
 use crate::{error::Error, sync::SpinLock};
 
 use super::FileData;
+
+type FileDataLayout = ArcInnerLayout<FileData>;
 
 static ALLOCATOR: OnceInit<SpinLock<SlabAllocator<FileDataLayout>>> = OnceInit::new();
 
@@ -41,13 +43,6 @@ unsafe impl Allocator for FileAllocator {
     unsafe fn deallocate(&self, ptr: NonNull<u8>, _layout: Layout) {
         unsafe { ALLOCATOR.get().lock().deallocate(ptr.cast()) }
     }
-}
-
-// same layout with `ArcInner<FileData>`
-struct FileDataLayout {
-    _strong: AtomicUsize,
-    _weak: AtomicUsize,
-    _data: FileData,
 }
 
 #[derive(Clone)]

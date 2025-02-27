@@ -1,6 +1,6 @@
 #![cfg_attr(not(test), no_std)]
 
-use core::{ops::Range, ptr::NonNull};
+use core::{ops::Range, ptr::NonNull, sync::atomic::AtomicUsize};
 
 pub struct SlabAllocator<T> {
     range: Range<*mut T>,
@@ -70,6 +70,15 @@ impl<T> SlabAllocator<T> {
             self.free_list = Some(run)
         }
     }
+}
+
+/// A layout of `ArcInner<T>`.
+///
+/// This is a helper type to use [`SlabAllocator`] as custom [`Allocator`] for [`Arc<T>`].
+pub struct ArcInnerLayout<T> {
+    _strong: AtomicUsize,
+    _weak: AtomicUsize,
+    _data: T,
 }
 
 #[cfg(test)]
