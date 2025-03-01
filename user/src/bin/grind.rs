@@ -5,15 +5,12 @@ use core::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use user::try_or_exit;
 use xv6_user_lib::{
     env,
     fs::{self, File},
     io::{Read as _, STDIN_FD, STDOUT_FD, Write as _},
     os::{fd::AsRawFd, xv6::syscall},
-    pipe, print,
-    process::{self, ForkResult},
-    thread,
+    pipe, print, process, thread,
 };
 
 static RAND_NEXT: AtomicU64 = AtomicU64::new(1);
@@ -139,24 +136,22 @@ fn go(name: char) {
                 let _ = fs::remove_file(c"../grindir/../a");
                 let _ = fs::link(c".././b", c"/grindir/../a");
             }
-            13 => match process::fork().unwrap() {
-                ForkResult::Child => {
-                    process::exit(0);
-                }
-                ForkResult::Parent { child: _ } => {
-                    process::wait().unwrap();
-                }
-            },
-            14 => match process::fork().unwrap() {
-                ForkResult::Child => {
+            13 => {
+                process::fork_fn(|| process::exit(0))
+                    .unwrap()
+                    .wait()
+                    .unwrap();
+            }
+            14 => {
+                process::fork_fn(|| {
                     let _ = process::fork().unwrap();
                     let _ = process::fork().unwrap();
                     process::exit(0);
-                }
-                ForkResult::Parent { child: _ } => {
-                    process::wait().unwrap();
-                }
-            },
+                })
+                .unwrap()
+                .wait()
+                .unwrap();
+            }
             15 => {
                 let _ = process::grow_break(6011).unwrap();
             }
@@ -167,50 +162,45 @@ fn go(name: char) {
                 }
             }
             17 => {
-                match process::fork().unwrap() {
-                    ForkResult::Child => {
-                        let _ = File::options()
-                            .read(true)
-                            .write(true)
-                            .create(true)
-                            .open(c"a");
-                        process::exit(0);
-                    }
-                    ForkResult::Parent { child: pid } => {
-                        env::set_current_directory(c"../grindir/..").unwrap();
-                        let _ = process::kill(pid);
-                        process::wait().unwrap();
-                    }
-                };
+                let child = process::fork_fn(|| {
+                    let _ = File::options()
+                        .read(true)
+                        .write(true)
+                        .create(true)
+                        .open(c"a");
+                    process::exit(0);
+                })
+                .unwrap();
+                env::set_current_directory(c"../grindir/..").unwrap();
+                let _ = process::kill(child.pid());
+                child.wait().unwrap();
             }
-            18 => match process::fork().unwrap() {
-                ForkResult::Child => {
+            18 => {
+                process::fork_fn(|| {
                     process::kill(process::id()).unwrap();
                     process::exit(0);
-                }
-                ForkResult::Parent { .. } => {
-                    process::wait().unwrap();
-                }
-            },
+                })
+                .unwrap()
+                .wait()
+                .unwrap();
+            }
             19 => {
                 let (mut rx, mut tx) = pipe::pipe().unwrap();
-                match process::fork().unwrap() {
-                    ForkResult::Child => {
-                        process::fork().unwrap();
-                        process::fork().unwrap();
-                        tx.write_all(b"x").unwrap();
-                        let mut buf = [0; 1];
-                        rx.read_exact(&mut buf).unwrap();
-                        process::exit(0);
-                    }
-                    ForkResult::Parent { .. } => {
-                        let _ = (rx, tx);
-                        process::wait().unwrap();
-                    }
-                }
+                let child = process::fork_fn(|| {
+                    process::fork().unwrap();
+                    process::fork().unwrap();
+                    tx.write_all(b"x").unwrap();
+                    let mut buf = [0; 1];
+                    rx.read_exact(&mut buf).unwrap();
+                    process::exit(0);
+                })
+                .unwrap();
+                // close pipe before wait
+                let _ = (rx, tx);
+                child.wait().unwrap();
             }
-            20 => match process::fork().unwrap() {
-                ForkResult::Child => {
+            20 => {
+                process::fork_fn(|| {
                     let _ = fs::remove_file(c"a");
                     let _ = fs::create_dir(c"a");
                     let _ = env::set_current_directory(c"a");
@@ -221,11 +211,11 @@ fn go(name: char) {
                         .open(c"x");
                     let _ = fs::remove_file(c"x");
                     process::exit(0);
-                }
-                ForkResult::Parent { child: _ } => {
-                    process::wait().unwrap();
-                }
-            },
+                })
+                .unwrap()
+                .wait()
+                .unwrap();
+            }
             21 => {
                 let _ = fs::remove_file(c"c");
                 // should always succeed. check that there are free i-nodes,
@@ -299,54 +289,38 @@ fn iter() {
     let _ = fs::remove_file(c"a");
     let _ = fs::remove_file(c"b");
 
-    let pid1 = match process::fork().unwrap() {
-        ForkResult::Child => {
-            RAND_NEXT.fetch_xor(31, Ordering::Relaxed);
-            go('A');
-            process::exit(0);
-        }
-        ForkResult::Parent { child } => child,
-    };
+    let child1 = process::fork_fn(|| {
+        RAND_NEXT.fetch_xor(31, Ordering::Relaxed);
+        go('A');
+        process::exit(0);
+    })
+    .unwrap();
 
-    let pid2 = match process::fork().unwrap() {
-        ForkResult::Child => {
-            RAND_NEXT.fetch_xor(7177, Ordering::Relaxed);
-            go('B');
-            process::exit(0);
-        }
-        ForkResult::Parent { child } => child,
-    };
+    let child2 = process::fork_fn(|| {
+        RAND_NEXT.fetch_xor(7177, Ordering::Relaxed);
+        go('B');
+        process::exit(0);
+    })
+    .unwrap();
 
-    let (_pid, status) = try_or_exit!(
-        process::wait(),
-        e => "wait failed: {e}",
-    );
+    let (_pid, status) = process::wait().unwrap();
     if !status.success() {
-        let _ = process::kill(pid1);
-        let _ = process::kill(pid2);
+        let _ = process::kill(child1.pid());
+        let _ = process::kill(child2.pid());
     }
-    let (_pid, _status) = try_or_exit!(
-        process::wait(),
-        e => "wait failed: {e}",
-    );
-
+    process::wait().unwrap();
     process::exit(0);
 }
 
 fn main() {
     loop {
-        match process::fork().unwrap() {
-            ForkResult::Child => {
-                iter();
-                process::exit(0);
-            }
-            ForkResult::Parent { .. } => {
-                try_or_exit!(
-                    process::wait(),
-                    e => "wait failed: {e}",
-                );
-            }
-        }
+        process::fork_fn(|| {
+            iter();
+            process::exit(0);
+        })
+        .unwrap()
+        .wait()
+        .unwrap();
 
         thread::sleep(20);
         RAND_NEXT.fetch_add(1, Ordering::Relaxed);

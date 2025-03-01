@@ -12,11 +12,8 @@ fn forktest() {
 
     for i in 0..N {
         n = i;
-        let Ok(res) = process::fork() else {
+        if process::fork_fn(|| process::exit(0)).is_err() {
             break;
-        };
-        if res.is_child() {
-            process::exit(0);
         }
     }
 

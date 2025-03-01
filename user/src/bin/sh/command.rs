@@ -129,16 +129,12 @@ impl Command<'_> {
                 util::wait_or_exit(&[left, right]);
             }
             Command::List { left, right } => {
-                let ForkResult::Parent { child } = util::fork_or_exit() else {
-                    left.run();
-                };
-                util::wait_or_exit(&[child]);
+                let child = util::fork_fn_or_exit(|| left.run());
+                util::wait_or_exit(&[child.pid()]);
                 right.run();
             }
             Command::Back { cmd } => {
-                if util::fork_or_exit().is_child() {
-                    cmd.run();
-                }
+                util::fork_fn_or_exit(|| cmd.run());
             }
         }
 

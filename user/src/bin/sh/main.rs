@@ -12,7 +12,7 @@ use xv6_user_lib::{
     fs::File,
     io::{self},
     os::fd::AsRawFd,
-    process::{self, ForkResult},
+    process,
 };
 
 mod command;
@@ -63,7 +63,7 @@ fn main() {
             continue;
         }
 
-        let ForkResult::Parent { child } = util::fork_or_exit() else {
+        let child = util::fork_fn_or_exit(|| {
             let cmd = try_or_exit!(
                 parser::parse_cmd(&mut cmd),
                 e => "syntax error: {e}",
@@ -72,8 +72,8 @@ fn main() {
                 process::exit(0);
             };
             cmd.run();
-        };
-        util::wait_or_exit(&[child]);
+        });
+        util::wait_or_exit(&[child.pid()]);
     }
     process::exit(0);
 }
