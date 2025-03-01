@@ -186,7 +186,7 @@ typos:
 
 doc:
 	cargo doc --workspace --document-private-items
-	cargo doc --workspace --document-private-items --target riscv64gc-unknown-none-elf
+	cargo doc --workspace --document-private-items --target $(RUST_CROSS_TARGET)
 
 # try to generate a unique GDB port
 GDBPORT = $(shell expr `id -u` % 5000 + 25000)
