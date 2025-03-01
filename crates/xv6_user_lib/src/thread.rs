@@ -1,5 +1,5 @@
-use crate::{error::Error, os::xv6::syscall};
+use crate::os::xv6::syscall;
 
-pub fn sleep(dur: i32) -> Result<(), Error> {
-    syscall::sleep(dur)
+pub fn sleep(dur: i32) {
+    syscall::sleep(dur).unwrap()
 }

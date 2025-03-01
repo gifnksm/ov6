@@ -11,10 +11,7 @@ fn main() {
 
     if res.is_parent() {
         // let child exit before parent.
-        try_or_exit!(
-            thread::sleep(5),
-            e => "sleep failed: {e}",
-        );
+        thread::sleep(5);
     }
 
     process::exit(0);

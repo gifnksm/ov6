@@ -348,10 +348,7 @@ fn main() {
             }
         }
 
-        try_or_exit!(
-            thread::sleep(20),
-            e => "sleep failed: {e}",
-        );
+        thread::sleep(20);
         RAND_NEXT.fetch_add(1, Ordering::Relaxed);
     }
 }
