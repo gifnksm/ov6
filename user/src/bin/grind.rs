@@ -48,7 +48,7 @@ fn rand() -> u64 {
 
 fn go(name: char) {
     let mut buf = [0; 999];
-    let break0 = unsafe { syscall::sbrk(0) }.unwrap().addr();
+    let break0 = process::current_break().addr();
 
     let _ = fs::create_dir(c"grindir");
     env::set_current_directory(c"grindir").unwrap();
@@ -138,17 +138,15 @@ fn go(name: char) {
                     process::wait().unwrap();
                 }
             },
-            15 => unsafe {
-                let _ = syscall::sbrk(6011).unwrap();
-            },
-            16 => unsafe {
-                if syscall::sbrk(0).unwrap().addr().cast_signed() > break0.cast_signed() {
-                    syscall::sbrk(
-                        -(syscall::sbrk(0).unwrap().addr().cast_signed() - break0.cast_signed()),
-                    )
-                    .unwrap();
+            15 => {
+                let _ = process::grow_break(6011).unwrap();
+            }
+            16 => {
+                if process::current_break().addr() > break0 {
+                    unsafe { process::shrink_break(process::current_break().addr() - break0) }
+                        .unwrap();
                 }
-            },
+            }
             17 => {
                 match process::fork().unwrap() {
                     ForkResult::Child => {
@@ -164,7 +162,7 @@ fn go(name: char) {
             }
             18 => match process::fork().unwrap() {
                 ForkResult::Child => {
-                    process::kill(process::id().unwrap()).unwrap();
+                    process::kill(process::id()).unwrap();
                     process::exit(0);
                 }
                 ForkResult::Parent { .. } => {

@@ -1,6 +1,6 @@
 use core::{alloc::GlobalAlloc, ptr};
 
-use crate::{error::Error, os::xv6::syscall, sync::spin::Mutex};
+use crate::{error::Error, process, sync::spin::Mutex};
 
 /// Header for free block
 ///
@@ -100,7 +100,7 @@ fn expand_heap(mut nunits: usize, free_list: &mut *mut Header) -> Result<*mut He
             nunits = 4096;
         }
 
-        let p = syscall::sbrk((nunits * size_of::<Header>()).cast_signed())?;
+        let p = process::grow_break(nunits * size_of::<Header>())?;
 
         let hp = p.cast::<Header>();
         (*hp).size = nunits;

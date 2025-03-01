@@ -36,6 +36,18 @@ impl ForkResult {
     }
 }
 
-pub fn id() -> Result<u32, Error> {
-    syscall::getpid()
+pub fn id() -> u32 {
+    syscall::getpid().unwrap()
+}
+
+pub fn current_break() -> *mut u8 {
+    unsafe { syscall::sbrk(0) }.unwrap()
+}
+
+pub fn grow_break(size: usize) -> Result<*mut u8, Error> {
+    unsafe { syscall::sbrk(size.try_into().unwrap()) }
+}
+
+pub unsafe fn shrink_break(size: usize) -> Result<*mut u8, Error> {
+    unsafe { syscall::sbrk(-isize::try_from(size).unwrap()) }
 }
