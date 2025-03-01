@@ -109,6 +109,7 @@ impl LockedTxInode<'_, '_, false> {
         }
 
         self.data_mut().size = 0;
+        self.update();
     }
 
     /// Copies a modified in-memory inode to disk.
