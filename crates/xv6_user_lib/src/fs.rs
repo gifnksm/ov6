@@ -6,12 +6,12 @@ use crate::{
     error::Error,
     io::{Read, Write},
     os::{
-        fd::{AsFd as _, OwnedFd},
-        xv6::syscall,
+        fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
+        xv6::syscall::{self, OpenFlags},
     },
 };
 
-pub use syscall::{OpenFlags, StatType};
+pub use syscall::StatType;
 
 pub struct Metadata {
     dev: u32,
@@ -55,14 +55,80 @@ impl Metadata {
     }
 }
 
+#[derive(Default, Debug, Clone)]
+pub struct OpenOptions {
+    read: bool,
+    write: bool,
+    create: bool,
+    truncate: bool,
+}
+
+impl OpenOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn read(&mut self, read: bool) -> &mut Self {
+        self.read = read;
+        self
+    }
+
+    pub fn write(&mut self, write: bool) -> &mut Self {
+        self.write = write;
+        self
+    }
+
+    pub fn create(&mut self, create: bool) -> &mut Self {
+        self.create = create;
+        self
+    }
+
+    pub fn truncate(&mut self, truncate: bool) -> &mut Self {
+        self.truncate = truncate;
+        self
+    }
+
+    pub fn open(&self, path: &CStr) -> Result<File, Error> {
+        let Self {
+            read,
+            write,
+            create,
+            truncate,
+        } = self;
+        let mut flags = OpenFlags::empty();
+        match (read, write) {
+            (true, true) => flags |= OpenFlags::READ_WRITE,
+            (true, false) => flags |= OpenFlags::READ_ONLY,
+            (false, true) => flags |= OpenFlags::WRITE_ONLY,
+            (false, false) => return Err(Error::Unknown),
+        };
+        flags.set(OpenFlags::CREATE, *create);
+        flags.set(OpenFlags::TRUNC, *truncate);
+        let fd = syscall::open(path, flags)?;
+        Ok(File { fd })
+    }
+}
+
+#[derive(Debug)]
 pub struct File {
     fd: OwnedFd,
 }
 
 impl File {
-    pub fn open(path: &CStr, flags: OpenFlags) -> Result<Self, Error> {
-        let fd = syscall::open(path, flags)?;
-        Ok(Self { fd })
+    pub fn options() -> OpenOptions {
+        OpenOptions::new()
+    }
+
+    pub fn open(path: &CStr) -> Result<Self, Error> {
+        OpenOptions::new().read(true).open(path)
+    }
+
+    pub fn create(path: &CStr) -> Result<Self, Error> {
+        OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)
     }
 
     pub fn try_clone(&self) -> Result<Self, Error> {
@@ -79,6 +145,32 @@ impl File {
             nlink: stat.nlink.cast_unsigned(),
             size: stat.size,
         })
+    }
+}
+
+impl AsFd for File {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.fd.as_fd()
+    }
+}
+
+impl AsRawFd for File {
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd.as_raw_fd()
+    }
+}
+
+impl FromRawFd for File {
+    unsafe fn from_raw_fd(fd: RawFd) -> Self {
+        Self {
+            fd: unsafe { OwnedFd::from_raw_fd(fd) },
+        }
+    }
+}
+
+impl IntoRawFd for File {
+    fn into_raw_fd(self) -> RawFd {
+        self.fd.into_raw_fd()
     }
 }
 

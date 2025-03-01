@@ -5,7 +5,7 @@ use core::ffi::CStr;
 use user::try_or_exit;
 use xv6_user_lib::{
     env,
-    fs::{File, OpenFlags},
+    fs::File,
     io::{self, Read},
     println, process,
 };
@@ -57,7 +57,7 @@ fn main() {
 
     for path in args {
         let file = try_or_exit!(
-            File::open(path, OpenFlags::READ_ONLY),
+            File::open(path),
             e => "cannot open {}: {e}", path.to_str().unwrap(),
         );
         wc(&file, path);

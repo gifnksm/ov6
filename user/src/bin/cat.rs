@@ -3,7 +3,7 @@
 use user::try_or_exit;
 use xv6_user_lib::{
     env,
-    fs::{File, OpenFlags},
+    fs::File,
     io::{self, Read, Write},
     process,
 };
@@ -38,7 +38,7 @@ fn main() {
 
     for arg in args {
         let file = try_or_exit!(
-            File::open(arg, OpenFlags::READ_ONLY),
+            File::open(arg),
             e => "cannot open file {file}: {e}", file = arg.to_str().unwrap(),
         );
         cat(&file);

@@ -8,7 +8,7 @@ use core::{
 use user::try_or_exit;
 use xv6_user_lib::{
     env,
-    fs::{self, File, OpenFlags},
+    fs::{self, File},
     io::{Read as _, STDIN_FD, STDOUT_FD, Write as _},
     os::{fd::AsRawFd, xv6::syscall},
     pipe, print,
@@ -64,13 +64,18 @@ fn go(name: char) {
         match rand() % 23 {
             0 => {}
             1 => {
-                let _ = File::open(c"grindir/../a", OpenFlags::CREATE | OpenFlags::READ_WRITE);
+                let _ = File::options()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .open(c"grindir/../a");
             }
             2 => {
-                let _ = File::open(
-                    c"grindir/../grindir/../b",
-                    OpenFlags::CREATE | OpenFlags::READ_WRITE,
-                );
+                let _ = File::options()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .open(c"grindir/../grindir/../b");
             }
             3 => {
                 let _ = fs::remove_file(c"grindir/../a");
@@ -82,15 +87,21 @@ fn go(name: char) {
             }
             5 => {
                 let _ = file.take();
-                file = File::open(c"/grindir/../a", OpenFlags::CREATE | OpenFlags::READ_WRITE).ok();
+                file = File::options()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .open(c"/grindir/../a")
+                    .ok();
             }
             6 => {
                 let _ = file.take();
-                file = File::open(
-                    c"/./grindir/./../b",
-                    OpenFlags::CREATE | OpenFlags::READ_WRITE,
-                )
-                .ok();
+                file = File::options()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .open(c"/./grindir/./../b")
+                    .ok();
             }
             7 => {
                 if let Some(file) = &mut file {
@@ -104,12 +115,20 @@ fn go(name: char) {
             }
             9 => {
                 let _ = fs::create_dir(c"grindir/../a");
-                let _ = File::open(c"a/../a/./a", OpenFlags::CREATE | OpenFlags::READ_WRITE);
+                let _ = File::options()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .open(c"a/../a/./a");
                 let _ = fs::remove_file(c"a/a");
             }
             10 => {
                 let _ = fs::create_dir(c"/../b");
-                let _ = File::open(c"grindir/../b/b", OpenFlags::CREATE | OpenFlags::READ_WRITE);
+                let _ = File::options()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .open(c"grindir/../b/b");
                 let _ = fs::remove_file(c"b/b");
             }
             11 => {
@@ -150,7 +169,11 @@ fn go(name: char) {
             17 => {
                 match process::fork().unwrap() {
                     ForkResult::Child => {
-                        let _ = File::open(c"a", OpenFlags::CREATE | OpenFlags::READ_WRITE);
+                        let _ = File::options()
+                            .read(true)
+                            .write(true)
+                            .create(true)
+                            .open(c"a");
                         process::exit(0);
                     }
                     ForkResult::Parent { child: pid } => {
@@ -191,7 +214,11 @@ fn go(name: char) {
                     let _ = fs::remove_file(c"a");
                     let _ = fs::create_dir(c"a");
                     let _ = env::set_current_directory(c"a");
-                    let _file = File::open(c"x", OpenFlags::CREATE | OpenFlags::READ_WRITE);
+                    let _file = File::options()
+                        .read(true)
+                        .write(true)
+                        .create(true)
+                        .open(c"x");
                     let _ = fs::remove_file(c"x");
                     process::exit(0);
                 }
@@ -203,7 +230,12 @@ fn go(name: char) {
                 let _ = fs::remove_file(c"c");
                 // should always succeed. check that there are free i-nodes,
                 // file descriptors, blocks.
-                let mut fd1 = File::open(c"c", OpenFlags::CREATE | OpenFlags::READ_WRITE).unwrap();
+                let mut fd1 = File::options()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .open(c"c")
+                    .unwrap();
                 fd1.write_all(b"x").unwrap();
                 let st = fd1.metadata().unwrap();
                 assert_eq!(st.size(), 1);

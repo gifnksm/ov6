@@ -6,7 +6,7 @@ use core::ffi::CStr;
 
 use user::{message, try_or_exit};
 use xv6_user_lib::{
-    fs::{File, OpenFlags},
+    fs::File,
     io::{Read as _, Write as _},
     process,
 };
@@ -36,7 +36,7 @@ fn main() {
     message!("write {idx}");
 
     let mut file = try_or_exit!(
-        File::open(path, OpenFlags::CREATE | OpenFlags::READ_WRITE),
+        File::options().read(true).write(true).create(true).open(path),
         e => "open {} error: {e}", path.to_str().unwrap(),
     );
 
@@ -52,7 +52,7 @@ fn main() {
 
     message!("read {idx}");
     let mut file = try_or_exit!(
-        File::open(path, OpenFlags::READ_ONLY),
+        File::open(path),
         e => "open {} error: {e}", path.to_str().unwrap(),
     );
     for _i in 0..20 {

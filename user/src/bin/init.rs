@@ -4,19 +4,23 @@ use core::ptr;
 
 use user::{message, try_or_panic};
 use xv6_user_lib::{
-    fs::{self, File, OpenFlags},
+    fs::{self, File},
     process::{self, ForkResult},
 };
 
 const CONSOLE: i16 = 1;
 
 fn main() {
-    let console = match File::open(c"console", OpenFlags::READ_WRITE) {
+    let console = match File::options().read(true).write(true).open(c"console") {
         Ok(console) => console,
         Err(_) => {
             // stdout/stderr are not created here, so we don't output error message here.
             fs::mknod(c"console", CONSOLE, 0).unwrap();
-            File::open(c"console", OpenFlags::READ_WRITE).unwrap()
+            File::options()
+                .read(true)
+                .write(true)
+                .open(c"console")
+                .unwrap()
         }
     };
     let _stdout = console.try_clone().unwrap();

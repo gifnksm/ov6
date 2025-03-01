@@ -9,9 +9,9 @@ use user::{exit, message, try_or, try_or_exit};
 use xv6_user_lib::{
     env, eprint,
     error::Error,
-    fs::OpenFlags,
+    fs::File,
     io::{self},
-    os::{fd::AsRawFd, xv6::syscall},
+    os::fd::AsRawFd,
     process::{self, ForkResult},
 };
 
@@ -31,9 +31,9 @@ fn get_cmd(buf: &mut String) -> Result<Option<&str>, Error> {
 
 fn main() {
     // Ensure that three file descriptors are open.
-    while let Ok(fd) = syscall::open(c"console", OpenFlags::READ_WRITE) {
-        if fd.as_raw_fd() < 3 {
-            mem::forget(fd);
+    while let Ok(file) = File::options().read(true).write(true).open(c"console") {
+        if file.as_raw_fd() < 3 {
+            mem::forget(file);
             continue;
         }
         break;

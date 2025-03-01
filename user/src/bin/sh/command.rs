@@ -3,7 +3,7 @@ use core::{array, ffi::c_char, ptr};
 use alloc::{boxed::Box, ffi::CString, sync::Arc};
 use user::try_or_exit;
 use xv6_user_lib::{
-    fs::{File, OpenFlags},
+    fs::File,
     io::{STDIN_FD, STDOUT_FD},
     pipe,
     process::{self, ForkResult},
@@ -83,17 +83,15 @@ impl Command<'_> {
                     RedirectFd::Stdout => (STDOUT_FD, "stdout"),
                 };
                 let path = CString::new(file).unwrap();
-                let flags = match mode {
-                    RedirectMode::Input => OpenFlags::READ_ONLY,
-                    RedirectMode::OutputTrunc => {
-                        OpenFlags::WRITE_ONLY | OpenFlags::CREATE | OpenFlags::TRUNC
-                    }
-                    RedirectMode::OutputAppend => OpenFlags::WRITE_ONLY | OpenFlags::CREATE,
+                let mut options = File::options();
+                match mode {
+                    RedirectMode::Input => options.read(true),
+                    RedirectMode::OutputTrunc => options.write(true).create(true).truncate(true),
+                    RedirectMode::OutputAppend => options.read(true).write(true).create(true),
                 };
-
                 unsafe { util::close_or_exit(fd, fd_name) }
                 let _file = try_or_exit!(
-                    File::open(&path, flags),
+                    options.open(&path),
                     e => "open {} failed: {e}", file
                 );
                 cmd.run();

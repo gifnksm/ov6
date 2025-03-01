@@ -3,7 +3,7 @@
 use user::{try_or, try_or_exit, usage_and_exit};
 use xv6_user_lib::{
     env,
-    fs::{File, OpenFlags},
+    fs::File,
     io::{self, Read},
     println,
 };
@@ -62,7 +62,7 @@ fn main() {
     } else {
         for arg in args {
             let file = try_or!(
-                File::open(arg, OpenFlags::READ_ONLY),
+                File::open(arg),
                 continue,
                 e => "cannot open {}: {e}", arg.to_str().unwrap(),
             );
