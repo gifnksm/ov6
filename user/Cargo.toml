@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+xv6_fs_types.workspace = true
+xv6_kernel_params.workspace = true
 xv6_user_lib.workspace = true
 
 [dev-dependencies]

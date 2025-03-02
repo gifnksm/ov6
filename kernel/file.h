@@ -1,1 +1,0 @@
-#define CONSOLE 1

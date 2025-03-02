@@ -22,6 +22,7 @@ RUPROGS=\
 	echo\
 	forktest\
 	grep\
+	grind\
 	hello\
 	init\
 	kill\
@@ -33,13 +34,12 @@ RUPROGS=\
 	stressfs\
 	wc\
 	zombie\
-	grind\
+	usertests\
 
 RX_RUPROGS=$(patsubst %,$(RX)/%,$(RUPROGS))
 R_RUPROGS=$(patsubst %,$R/%,$(RUPROGS))
 
 UPROGS=\
-	$U/_usertests\
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin
