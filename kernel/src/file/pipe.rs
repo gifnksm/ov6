@@ -86,7 +86,7 @@ impl PipeFile {
             }
             if pipe.nwrite == pipe.nread + PIPE_SIZE {
                 proc::wakeup((&raw const pipe.nread).cast());
-                proc::sleep((&raw const pipe.nwrite).cast(), &mut pipe);
+                pipe = proc::sleep((&raw const pipe.nwrite).cast(), pipe);
                 continue;
             }
 
@@ -110,7 +110,7 @@ impl PipeFile {
             if p.killed() {
                 return Err(Error::Unknown);
             }
-            proc::sleep((&raw const pipe.nread).cast(), &mut pipe);
+            pipe = proc::sleep((&raw const pipe.nread).cast(), pipe);
         }
         let mut i = 0;
         while i < n {

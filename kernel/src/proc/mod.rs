@@ -23,7 +23,7 @@ use crate::{
     },
     param::{NOFILE, NPROC},
     println,
-    sync::{RawSpinLock, SpinLock, SpinLockGuard},
+    sync::{SpinLock, SpinLockGuard},
 };
 
 pub mod elf;
@@ -53,12 +53,14 @@ impl ProcId {
     }
 }
 
+struct WaitLock {}
+
 /// Helps ensure that wakeups of wait()ing
 /// parents are not lost.
 ///
 /// Helps obey the memory model when using `Proc::parent`.
 /// Must be acquired before any `Proc::lock`.
-static WAIT_LOCK: RawSpinLock = RawSpinLock::new();
+static WAIT_LOCK: SpinLock<WaitLock> = SpinLock::new(WaitLock {});
 
 /// Saved registers for kernel context switches.
 #[repr(C)]
@@ -289,13 +291,11 @@ impl Proc {
         unsafe { *self.trapframe.get() }.map(|mut tf| unsafe { tf.as_mut() })
     }
 
-    fn parent(&self) -> Option<&Self> {
-        assert!(WAIT_LOCK.holding());
+    fn parent(&self, _wait_lock: &mut SpinLockGuard<WaitLock>) -> Option<&Self> {
         unsafe { *self.parent.get() }.map(|p| unsafe { p.as_ref() })
     }
 
-    fn parent_mut(&self) -> Option<&mut Self> {
-        assert!(WAIT_LOCK.holding());
+    fn parent_mut(&self, _wait_lock: &mut SpinLockGuard<WaitLock>) -> Option<&mut Self> {
         unsafe { *self.parent.get() }.map(|mut p| unsafe { p.as_mut() })
     }
 
@@ -615,11 +615,11 @@ pub fn fork(p: &Proc) -> Option<ProcId> {
     let pid = unsafe { *np.pid.get() };
     drop(np_shared);
 
-    WAIT_LOCK.acquire();
+    let wait_lock = WAIT_LOCK.lock();
     unsafe {
         *np.parent.get() = Some(p.into());
     }
-    WAIT_LOCK.release();
+    drop(wait_lock);
 
     np.shared.lock().state = ProcState::Runnable;
 
@@ -629,11 +629,9 @@ pub fn fork(p: &Proc) -> Option<ProcId> {
 /// Pass p's abandoned children to init.
 ///
 /// Caller must hold `WAIT_LOCK`
-fn reparent(p: &Proc) {
-    assert!(WAIT_LOCK.holding());
-
+fn reparent(p: &Proc, wait_lock: &mut SpinLockGuard<WaitLock>) {
     for pp in &PROC {
-        let Some(parent) = pp.parent_mut() else {
+        let Some(parent) = pp.parent_mut(wait_lock) else {
             continue;
         };
         if ptr::eq(p, parent) {
@@ -676,10 +674,10 @@ pub fn exit(p: &Proc, status: i32) -> ! {
             *p.cwd.get() = None;
         }
 
-        WAIT_LOCK.acquire();
+        let mut wait_lock = WAIT_LOCK.lock();
 
         // Give any children to init.
-        reparent(p);
+        reparent(p, &mut wait_lock);
 
         // Parent might be sleeping in wait().
         wakeup(unsafe { *p.parent.get() }.unwrap().as_ptr().cast());
@@ -689,7 +687,7 @@ pub fn exit(p: &Proc, status: i32) -> ! {
             exit_status: status,
         };
 
-        WAIT_LOCK.release();
+        drop(wait_lock);
         shared
     };
 
@@ -703,12 +701,12 @@ pub fn exit(p: &Proc, status: i32) -> ! {
 ///
 /// Returns `Err` if this process has no children.
 pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, Error> {
-    WAIT_LOCK.acquire();
+    let mut wait_lock = WAIT_LOCK.lock();
 
     loop {
         let mut have_kids = false;
         for pp in &PROC {
-            let Some(parent) = pp.parent() else {
+            let Some(parent) = pp.parent(&mut wait_lock) else {
                 continue;
             };
             if !ptr::eq(parent, p) {
@@ -726,12 +724,12 @@ pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, Error> {
                     && vm::copy_out(p.pagetable().unwrap(), addr, &exit_status).is_err()
                 {
                     drop(pp_shared);
-                    WAIT_LOCK.release();
+                    drop(wait_lock);
                     return Err(Error::Unknown);
                 }
                 pp.free(&mut pp_shared);
                 drop(pp_shared);
-                WAIT_LOCK.release();
+                drop(wait_lock);
                 return Ok(pid);
             }
             drop(pp_shared);
@@ -739,13 +737,13 @@ pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, Error> {
 
         // No point waiting if we don't have any children.
         if !have_kids || p.killed() {
-            WAIT_LOCK.release();
+            drop(wait_lock);
             return Err(Error::Unknown);
         }
 
         // Wait for a child to exit.
         let chan = ptr::from_ref(p).cast();
-        sleep_raw(chan, &WAIT_LOCK);
+        wait_lock = sleep(chan, wait_lock);
     }
 }
 
@@ -860,14 +858,7 @@ extern "C" fn forkret() {
 /// Automatically releases `lock` and sleeps on `chan``.
 ///
 /// Reacquires lock when awakened.
-pub fn sleep<T>(chan: *const c_void, lock: &mut SpinLockGuard<T>) {
-    unsafe { sleep_raw(chan, lock.spinlock()) }
-}
-
-/// Automatically releases `lock` and sleeps on `chan``.
-///
-/// Reacquires lock when awakened.
-pub fn sleep_raw(chan: *const c_void, lock: &RawSpinLock) {
+pub fn sleep<T>(chan: *const c_void, guard: SpinLockGuard<'_, T>) -> SpinLockGuard<'_, T> {
     let p = Proc::current();
     // Must acquire `p.lock` in order to change
     // `p.state` and then call `sched()`.
@@ -876,7 +867,7 @@ pub fn sleep_raw(chan: *const c_void, lock: &RawSpinLock) {
     // (wakeup locks `p.lock`),
     // so it's okay to release `lock' here.`
     let mut shared = p.shared.lock();
-    lock.release();
+    let lock = guard.into_lock();
 
     // Go to sleep.
     shared.state = ProcState::Sleeping { chan };
@@ -885,7 +876,7 @@ pub fn sleep_raw(chan: *const c_void, lock: &RawSpinLock) {
 
     // Reacquire original lock.
     drop(shared);
-    lock.acquire();
+    lock.lock()
 }
 
 /// Wakes up all processes sleeping on `chan`.

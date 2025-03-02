@@ -47,7 +47,7 @@ pub fn sys_sleep(p: &Proc) -> Result<usize, Error> {
         if p.killed() {
             return Err(Error::Unknown);
         }
-        proc::sleep((&raw const TICKS).cast(), &mut ticks);
+        ticks = proc::sleep((&raw const TICKS).cast(), ticks);
     }
     drop(ticks);
     Ok(0)

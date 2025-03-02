@@ -94,7 +94,7 @@ fn read(p: &Proc, user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize,
                 drop(cons);
                 return Err(Error::Unknown);
             }
-            proc::sleep((&raw const cons.r).cast(), &mut cons);
+            cons = proc::sleep((&raw const cons.r).cast(), cons);
         }
 
         let c = cons.buf[cons.r % cons.buf.len()];

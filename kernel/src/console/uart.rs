@@ -133,7 +133,7 @@ pub fn putc(c: char) {
     while buffer.is_full() {
         // buffer is full
         // wait for start() to open up space in the buffer.
-        proc::sleep((&raw const buffer.tx_r).cast(), &mut buffer);
+        buffer = proc::sleep((&raw const buffer.tx_r).cast(), buffer);
     }
     buffer.put(c as u8);
     start(&mut buffer);

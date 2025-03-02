@@ -274,7 +274,7 @@ impl<const READ_ONLY: bool> Drop for TxInode<'_, READ_ONLY> {
             return;
         }
 
-        table.unlock();
+        drop(table);
 
         // remove inode on disk
         if let Some(tx) = lip.tx.to_writable() {

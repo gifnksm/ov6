@@ -10,7 +10,7 @@ use mutex_api::Mutex;
 use crate::{cpu::Cpu, error::Error, interrupt, proc};
 
 #[derive(Default)]
-pub struct RawSpinLock {
+struct RawSpinLock {
     locked: AtomicBool,
     cpu: UnsafeCell<Option<&'static Cpu>>,
 }
@@ -18,14 +18,14 @@ pub struct RawSpinLock {
 unsafe impl Sync for RawSpinLock {}
 
 impl RawSpinLock {
-    pub const fn new() -> Self {
+    const fn new() -> Self {
         Self {
             locked: AtomicBool::new(false),
             cpu: UnsafeCell::new(None),
         }
     }
 
-    pub fn try_acquire(&self) -> Result<(), Error> {
+    fn try_acquire(&self) -> Result<(), Error> {
         // disable interrupts to avoid deadlock.
         interrupt::push_disabled().forget(); // drop re-enables interrupts, so we must forget it here.
 
@@ -50,7 +50,7 @@ impl RawSpinLock {
     /// Acquires the lock.
     ///
     /// Loops (spins) until the lock is acquired.
-    pub fn acquire(&self) {
+    fn acquire(&self) {
         // disable interrupts to avoid deadlock.
         interrupt::push_disabled().forget(); // drop re-enables interrupts, so we must forget it here.
 
@@ -69,7 +69,7 @@ impl RawSpinLock {
     }
 
     /// Releases the lock.
-    pub fn release(&self) {
+    fn release(&self) {
         assert!(self.holding());
 
         unsafe {
@@ -92,7 +92,7 @@ impl RawSpinLock {
     /// Checks whether this cpu is holding the lock.
     ///
     /// Interrupts must be off.
-    pub fn holding(&self) -> bool {
+    fn holding(&self) -> bool {
         assert!(!interrupt::is_enabled());
         self.locked.load(Ordering::Relaxed)
             && unsafe { *self.cpu.get() }
@@ -117,13 +117,13 @@ impl<T> SpinLock<T> {
         }
     }
 
-    // /// Acquires the lock.
-    // ///
-    // /// Loops (spins) until the lock is acquired.
-    // pub fn try_lock(&self) -> Result<SpinLockGuard<T>, Error> {
-    //     self.lock.try_acquire()?;
-    //     Ok(SpinLockGuard { lock: self })
-    // }
+    /// Acquires the lock.
+    ///
+    /// Loops (spins) until the lock is acquired.
+    pub fn try_lock(&self) -> Result<SpinLockGuard<T>, Error> {
+        self.lock.try_acquire()?;
+        Ok(SpinLockGuard { lock: self })
+    }
 
     /// Acquires the lock.
     ///
@@ -182,13 +182,9 @@ impl<T> DerefMut for SpinLockGuard<'_, T> {
     }
 }
 
-impl<T> SpinLockGuard<'_, T> {
-    pub unsafe fn spinlock(&self) -> &RawSpinLock {
-        &self.lock.lock
-    }
-
-    pub fn unlock(self) {
-        // drop
+impl<'a, T> SpinLockGuard<'a, T> {
+    pub fn into_lock(self) -> &'a SpinLock<T> {
+        self.lock
     }
 }
 
@@ -206,7 +202,7 @@ impl SpinLockCondVar {
     pub fn wait<'a, T>(&self, mut guard: SpinLockGuard<'a, T>) -> SpinLockGuard<'a, T> {
         let counter = self.counter.load(Ordering::Relaxed);
         loop {
-            proc::sleep(ptr::from_ref(&self.counter).cast(), &mut guard);
+            guard = proc::sleep(ptr::from_ref(&self.counter).cast(), guard);
             if counter != self.counter.load(Ordering::Relaxed) {
                 break;
             }

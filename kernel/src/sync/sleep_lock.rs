@@ -2,7 +2,6 @@ use core::{
     cell::UnsafeCell,
     ops::{Deref, DerefMut},
     ptr,
-    sync::atomic::{AtomicBool, Ordering},
 };
 
 use mutex_api::Mutex;
@@ -10,16 +9,12 @@ use mutex_api::Mutex;
 use crate::{
     error::Error,
     proc::{self, Proc, ProcId},
-    sync::RawSpinLock,
 };
 
-pub struct RawSleepLock {
-    /// Is the lock held?
-    locked: AtomicBool,
-    /// Spinlock protecting this sleep lock
-    lk: RawSpinLock,
+use super::SpinLock;
 
-    pid: UnsafeCell<ProcId>,
+struct RawSleepLock {
+    locked: SpinLock<(bool, ProcId)>,
 }
 
 impl Default for RawSleepLock {
@@ -29,55 +24,43 @@ impl Default for RawSleepLock {
 }
 
 impl RawSleepLock {
-    pub const fn new() -> Self {
+    const fn new() -> Self {
         Self {
-            locked: AtomicBool::new(false),
-            lk: RawSpinLock::new(),
-            pid: UnsafeCell::new(ProcId::new(0)),
+            locked: SpinLock::new((false, ProcId::new(0))),
         }
     }
 
-    pub fn try_acquire(&self) -> Result<(), Error> {
-        self.lk.try_acquire()?;
-        if self.locked.load(Ordering::Acquire) {
-            self.lk.release();
+    fn try_acquire(&self) -> Result<(), Error> {
+        let mut locked = self.locked.try_lock()?;
+        if locked.0 {
             return Err(Error::Unknown);
         }
-        self.locked.store(true, Ordering::Relaxed);
-        unsafe {
-            *self.pid.get() = Proc::current().pid();
-        }
-        self.lk.release();
+
+        locked.0 = true;
+        locked.1 = Proc::current().pid();
         Ok(())
     }
 
-    pub fn acquire(&self) {
-        self.lk.acquire();
-        while self.locked.load(Ordering::Acquire) {
-            proc::sleep_raw(ptr::from_ref(self).cast(), &self.lk);
+    fn acquire(&self) {
+        let mut locked = self.locked.lock();
+        while locked.0 {
+            locked = proc::sleep(ptr::from_ref(self).cast(), locked);
         }
-        self.locked.store(true, Ordering::Relaxed);
-        unsafe {
-            *self.pid.get() = Proc::current().pid();
-        }
-        self.lk.release();
+        locked.0 = true;
+        locked.1 = Proc::current().pid();
     }
 
-    pub fn release(&self) {
-        self.lk.acquire();
-        self.locked.store(false, Ordering::Release);
-        unsafe {
-            *self.pid.get() = ProcId::new(0);
-        }
+    fn release(&self) {
+        let mut locked = self.locked.lock();
+        locked.0 = false;
+        locked.1 = ProcId::new(0);
         proc::wakeup(ptr::from_ref(self).cast());
-        self.lk.release();
+        drop(locked);
     }
 
-    // pub fn holding(&self) -> bool {
-    //     self.lk.acquire();
-    //     let holding = self.locked.load(Ordering::Relaxed)
-    //         && unsafe { *self.pid.get() } == Proc::current().pid();
-    //     self.lk.release();
+    // fn holding(&self) -> bool {
+    //     let mut locked = self.locked.lock();
+    //     let holding = locked.0 && locked.1 == Proc::current().pid();
     //     holding
     // }
 }
