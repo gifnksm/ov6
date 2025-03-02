@@ -10,8 +10,8 @@ use crate::{
 use super::{File, FileData, FileDataArc, SpecificData};
 
 pub struct Device {
-    pub read: fn(user_src: bool, src: VirtAddr, size: usize) -> Result<usize, Error>,
-    pub write: fn(user_dst: bool, dst: VirtAddr, size: usize) -> Result<usize, Error>,
+    pub read: fn(p: &Proc, user_src: bool, src: VirtAddr, size: usize) -> Result<usize, Error>,
+    pub write: fn(p: &Proc, user_dst: bool, dst: VirtAddr, size: usize) -> Result<usize, Error>,
 }
 
 struct DeviceTable {
@@ -68,21 +68,21 @@ impl DeviceFile {
         super::common::stat_inode(&self.inode, p, addr)
     }
 
-    pub(super) fn read(&self, addr: VirtAddr, n: usize) -> Result<usize, Error> {
+    pub(super) fn read(&self, p: &Proc, addr: VirtAddr, n: usize) -> Result<usize, Error> {
         let read = DEVICE_TABLE
             .lock()
             .get_device(self.major)
             .ok_or(Error::Unknown)?
             .read;
-        read(true, addr, n)
+        read(p, true, addr, n)
     }
 
-    pub(super) fn write(&self, addr: VirtAddr, n: usize) -> Result<usize, Error> {
+    pub(super) fn write(&self, p: &Proc, addr: VirtAddr, n: usize) -> Result<usize, Error> {
         let write = DEVICE_TABLE
             .lock()
             .get_device(self.major)
             .ok_or(Error::Unknown)?
             .write;
-        write(true, addr, n)
+        write(p, true, addr, n)
     }
 }

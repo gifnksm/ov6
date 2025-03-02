@@ -75,8 +75,7 @@ impl PipeFile {
         }
     }
 
-    pub(super) fn write(&self, addr: VirtAddr, n: usize) -> Result<usize, Error> {
-        let p = Proc::current();
+    pub(super) fn write(&self, p: &Proc, addr: VirtAddr, n: usize) -> Result<usize, Error> {
         let mut i = 0;
 
         let mut pipe = self.data.lock();
@@ -102,9 +101,7 @@ impl PipeFile {
         Ok(i)
     }
 
-    pub(super) fn read(&self, addr: VirtAddr, n: usize) -> Result<usize, Error> {
-        let p = Proc::current();
-
+    pub(super) fn read(&self, p: &Proc, addr: VirtAddr, n: usize) -> Result<usize, Error> {
         let mut pipe = self.data.lock();
         while pipe.nread == pipe.nwrite && pipe.writeopen {
             if p.killed() {

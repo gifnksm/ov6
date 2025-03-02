@@ -191,7 +191,7 @@ pub fn sys_exec(p: &Proc) -> Result<usize, Error> {
         return Err(Error::Unknown);
     }
 
-    let ret = exec::exec(path, argv.as_ptr().cast());
+    let ret = exec::exec(p, path, argv.as_ptr().cast());
 
     for arg in argv.iter().filter_map(|&a| a) {
         unsafe {

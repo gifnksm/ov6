@@ -7,12 +7,16 @@ use core::{
 
 use mutex_api::Mutex;
 
-use crate::{cpu::Cpu, error::Error, interrupt, proc};
+use crate::{
+    cpu::{self, INVALID_CPUID},
+    error::Error,
+    interrupt, proc,
+};
 
 #[derive(Default)]
 struct RawSpinLock {
     locked: AtomicBool,
-    cpu: UnsafeCell<Option<&'static Cpu>>,
+    cpuid: UnsafeCell<usize>,
 }
 
 unsafe impl Sync for RawSpinLock {}
@@ -21,7 +25,7 @@ impl RawSpinLock {
     const fn new() -> Self {
         Self {
             locked: AtomicBool::new(false),
-            cpu: UnsafeCell::new(None),
+            cpuid: UnsafeCell::new(INVALID_CPUID),
         }
     }
 
@@ -41,7 +45,7 @@ impl RawSpinLock {
 
         // Record info about lock acquisition for holding() and debugging.
         unsafe {
-            *self.cpu.get() = Some(Cpu::current());
+            *self.cpuid.get() = cpu::id();
         }
 
         Ok(())
@@ -64,7 +68,7 @@ impl RawSpinLock {
 
         // Record info about lock acquisition for holding() and debugging.
         unsafe {
-            *self.cpu.get() = Some(Cpu::current());
+            *self.cpuid.get() = cpu::id();
         }
     }
 
@@ -73,7 +77,7 @@ impl RawSpinLock {
         assert!(self.holding());
 
         unsafe {
-            *self.cpu.get() = None;
+            *self.cpuid.get() = INVALID_CPUID;
         }
 
         // `Ordering::Release` tells the compiler and the CPU to not move loads or stores
@@ -94,10 +98,7 @@ impl RawSpinLock {
     /// Interrupts must be off.
     fn holding(&self) -> bool {
         assert!(!interrupt::is_enabled());
-        self.locked.load(Ordering::Relaxed)
-            && unsafe { *self.cpu.get() }
-                .map(|c| ptr::eq(c, Cpu::current()))
-                .unwrap_or(false)
+        self.locked.load(Ordering::Relaxed) && unsafe { *self.cpuid.get() } == cpu::id()
     }
 }
 

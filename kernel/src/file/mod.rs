@@ -95,9 +95,9 @@ impl File {
         }
 
         match &self.data.data {
-            Some(SpecificData::Pipe(pipe)) => pipe.read(addr, n),
+            Some(SpecificData::Pipe(pipe)) => pipe.read(p, addr, n),
             Some(SpecificData::Inode(inode)) => inode.read(p, addr, n),
-            Some(SpecificData::Device(device)) => device.read(addr, n),
+            Some(SpecificData::Device(device)) => device.read(p, addr, n),
             None => unreachable!(),
         }
     }
@@ -111,9 +111,9 @@ impl File {
         }
 
         match &self.data.data {
-            Some(SpecificData::Pipe(pipe)) => pipe.write(addr, n),
+            Some(SpecificData::Pipe(pipe)) => pipe.write(p, addr, n),
             Some(SpecificData::Inode(inode)) => inode.write(p, addr, n),
-            Some(SpecificData::Device(device)) => device.write(addr, n),
+            Some(SpecificData::Device(device)) => device.write(p, addr, n),
             _ => unreachable!(),
         }
     }

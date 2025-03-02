@@ -43,7 +43,6 @@ pub fn sys_sleep(p: &Proc) -> Result<usize, Error> {
     let mut ticks = TICKS.lock();
     let ticks0 = *ticks;
     while *ticks - ticks0 < n {
-        let p = Proc::current();
         if p.killed() {
             return Err(Error::Unknown);
         }

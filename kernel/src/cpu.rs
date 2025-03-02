@@ -18,6 +18,8 @@ pub struct Cpu {
 
 unsafe impl Sync for Cpu {}
 
+pub const INVALID_CPUID: usize = usize::MAX;
+
 /// Returns current CPU's ID.
 ///
 /// Must be called with interrupts disabled,

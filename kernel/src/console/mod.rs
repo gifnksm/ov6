@@ -178,13 +178,11 @@ pub fn handle_interrupt(c: u8) {
     }
 }
 
-fn console_write(user_src: bool, src: VirtAddr, n: usize) -> Result<usize, Error> {
-    let p = Proc::current();
+fn console_write(p: &Proc, user_src: bool, src: VirtAddr, n: usize) -> Result<usize, Error> {
     write(p, user_src, src.addr(), n)
 }
 
-fn console_read(user_dst: bool, dst: VirtAddr, n: usize) -> Result<usize, Error> {
-    let p = Proc::current();
+fn console_read(p: &Proc, user_dst: bool, dst: VirtAddr, n: usize) -> Result<usize, Error> {
     read(p, user_dst, dst.addr(), n)
 }
 

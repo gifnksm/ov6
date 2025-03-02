@@ -22,8 +22,7 @@ fn flags2perm(flags: u32) -> PtEntryFlags {
     perm
 }
 
-pub fn exec(path: &[u8], argv: *const *const u8) -> Result<usize, Error> {
-    let p = Proc::current();
+pub fn exec(p: &Proc, path: &[u8], argv: *const *const u8) -> Result<usize, Error> {
     let tx = fs::begin_tx();
     let mut ip = fs::path::resolve(&tx, p, path)?;
     let mut lip = ip.lock();

@@ -877,14 +877,7 @@ pub fn sleep<T>(chan: *const c_void, guard: SpinLockGuard<'_, T>) -> SpinLockGua
 ///
 /// Must be called without any processes locked.
 pub fn wakeup(chan: *const c_void) {
-    let myproc = Proc::try_current()
-        .map(ptr::from_ref)
-        .unwrap_or(ptr::null());
     for p in &PROC {
-        if ptr::eq(p, myproc) {
-            continue;
-        }
-
         let mut shared = p.shared.lock();
         if let ProcState::Sleeping { chan: ch } = shared.state {
             if ch == chan {
