@@ -132,6 +132,11 @@ impl<T> SpinLock<T> {
         self.lock.acquire();
         SpinLockGuard { lock: self }
     }
+
+    pub unsafe fn remember_locked(&self) -> SpinLockGuard<T> {
+        assert!(self.lock.holding());
+        SpinLockGuard { lock: self }
+    }
 }
 
 impl<T> Mutex for SpinLock<T> {

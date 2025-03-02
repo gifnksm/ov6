@@ -2,7 +2,7 @@ use core::{
     arch::asm,
     cell::UnsafeCell,
     cmp,
-    ffi::{CStr, c_char, c_int, c_void},
+    ffi::{CStr, c_char, c_void},
     fmt, mem,
     ops::Range,
     ptr::{self, NonNull},
@@ -23,7 +23,7 @@ use crate::{
     },
     param::{NOFILE, NPROC},
     println,
-    sync::{RawSpinLock, SpinLockGuard},
+    sync::{RawSpinLock, SpinLock, SpinLockGuard},
 };
 
 pub mod elf;
@@ -152,31 +152,28 @@ pub struct TrapFrame {
     pub t6: u64,  // 280
 }
 
-#[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProcState {
-    Unused = 0,
+    Unused,
     Used,
-    Sleeping,
+    Sleeping { chan: *const c_void },
     Runnable,
     Running,
-    Zombie,
+    Zombie { exit_status: i32 },
+}
+
+/// Per-process state that can be accessed from other processes.
+struct ProcShared {
+    state: ProcState,
+    killed: bool,
 }
 
 /// Per-process state.
 #[repr(C)]
 pub struct Proc {
-    lock: RawSpinLock,
-
-    // lock must be held when using these:
     /// Process state.
-    state: UnsafeCell<ProcState>,
-    /// If non-zero, sleeping on chan
-    chan: UnsafeCell<*const c_void>,
-    /// If non-zero, have been killed
-    killed: UnsafeCell<c_int>,
-    /// Exit status to be returned to parent's wait
-    xstate: UnsafeCell<c_int>,
+    shared: SpinLock<ProcShared>,
+
     /// Process ID
     pid: UnsafeCell<ProcId>,
 
@@ -208,12 +205,11 @@ unsafe impl Sync for Proc {}
 impl Proc {
     const fn new() -> Self {
         Self {
-            lock: RawSpinLock::new(),
-            state: UnsafeCell::new(ProcState::Unused),
-            chan: UnsafeCell::new(ptr::null()),
-            killed: UnsafeCell::new(0),
-            xstate: UnsafeCell::new(0),
             pid: UnsafeCell::new(ProcId(0)),
+            shared: SpinLock::new(ProcShared {
+                state: ProcState::Unused,
+                killed: false,
+            }),
             parent: UnsafeCell::new(None),
             kstack: UnsafeCell::new(0),
             sz: UnsafeCell::new(0),
@@ -341,14 +337,14 @@ impl Proc {
     ///
     /// If there is no UNUSED proc, returns None.
     /// This function also locks the proc.
-    fn lock_unused_proc() -> Option<&'static Self> {
+    fn lock_unused_proc() -> Option<(&'static Self, SpinLockGuard<'static, ProcShared>)> {
         for p in &PROC {
-            p.lock.acquire();
-            if unsafe { *p.state.get() } != ProcState::Unused {
-                p.lock.release();
+            let shared = p.shared.lock();
+            if shared.state != ProcState::Unused {
+                drop(shared);
                 continue;
             }
-            return Some(p);
+            return Some((p, shared));
         }
         None
     }
@@ -359,13 +355,12 @@ impl Proc {
     /// If found, initialize state required to run in the kenrnel,
     /// and return with the lock held.
     /// If there are no free procs, return None.
-    fn allocate() -> Option<&'static Self> {
-        let p = Self::lock_unused_proc()?;
-        assert!(p.lock.holding());
+    fn allocate() -> Option<(&'static Self, SpinLockGuard<'static, ProcShared>)> {
+        let (p, mut shared) = Self::lock_unused_proc()?;
 
         unsafe {
             *p.pid.get() = Self::allocate_pid();
-            *p.state.get() = ProcState::Used;
+            shared.state = ProcState::Used;
         }
 
         let res: Result<(), Error> = (|| {
@@ -384,21 +379,19 @@ impl Proc {
         })();
 
         if res.is_err() {
-            p.free();
-            p.lock.release();
+            p.free(&mut shared);
+            drop(shared);
             return None;
         }
 
-        Some(p)
+        Some((p, shared))
     }
 
     /// Frees a proc structure and the data hangind from it,
     /// including user pages.
     ///
     /// p.lock must be held.
-    fn free(&self) {
-        assert!(self.lock.holding());
-
+    fn free(&self, shared: &mut SpinLockGuard<ProcShared>) {
         if let Some(tf) = unsafe { *self.trapframe.get() }.take() {
             unsafe {
                 page::free_page(tf.cast());
@@ -412,26 +405,17 @@ impl Proc {
             *self.pid.get() = ProcId(0);
             *self.parent.get() = None;
             (*self.name.get()).fill(0);
-            *self.chan.get() = ptr::null();
-            *self.killed.get() = 0;
-            *self.xstate.get() = 0;
-            *self.state.get() = ProcState::Unused;
+            shared.killed = false;
+            shared.state = ProcState::Unused;
         }
     }
 
     pub fn set_killed(&self) {
-        self.lock.acquire();
-        unsafe {
-            *self.killed.get() = 1;
-        }
-        self.lock.release();
+        self.shared.lock().killed = true;
     }
 
     pub fn killed(&self) -> bool {
-        self.lock.acquire();
-        let k = unsafe { *self.killed.get() } != 0;
-        self.lock.release();
-        k
+        self.shared.lock().killed
     }
 
     pub fn is_valid_addr(&self, addr_range: Range<VirtAddr>) -> bool {
@@ -543,7 +527,7 @@ static INIT_CODE: [u8; 52] = [
 
 /// Set up first user process.
 pub fn user_init() {
-    let p = Proc::allocate().unwrap();
+    let (p, mut shared) = Proc::allocate().unwrap();
     INITPROC.store(ptr::from_ref(p).cast_mut(), Ordering::Release);
 
     // allocate one user page and copy initcode's instructions
@@ -563,10 +547,10 @@ pub fn user_init() {
         let tx = fs::begin_readonly_tx();
         *p.cwd.get() = Some(Inode::from_tx(&fs::path::resolve(&tx, p, b"/").unwrap()));
         tx.end();
-        *p.state.get() = ProcState::Runnable;
+        shared.state = ProcState::Runnable;
     }
 
-    p.lock.release();
+    drop(shared);
 }
 
 /// Grows or shrink user memory by nBytes.
@@ -591,7 +575,7 @@ pub fn grow_proc(p: &Proc, n: isize) -> Result<(), Error> {
 /// Sets up child kernel stack to return as if from `fork()` system call.
 pub fn fork(p: &Proc) -> Option<ProcId> {
     // Allocate process.
-    let np = Proc::allocate()?;
+    let (np, mut np_shared) = Proc::allocate()?;
 
     // Copy use memory from parent to child.
     if vm::user::copy(
@@ -601,8 +585,8 @@ pub fn fork(p: &Proc) -> Option<ProcId> {
     )
     .is_err()
     {
-        np.free();
-        np.lock.release();
+        np.free(&mut np_shared);
+        drop(np_shared);
         return None;
     }
     unsafe {
@@ -629,7 +613,7 @@ pub fn fork(p: &Proc) -> Option<ProcId> {
     }
 
     let pid = unsafe { *np.pid.get() };
-    np.lock.release();
+    drop(np_shared);
 
     WAIT_LOCK.acquire();
     unsafe {
@@ -637,11 +621,7 @@ pub fn fork(p: &Proc) -> Option<ProcId> {
     }
     WAIT_LOCK.release();
 
-    np.lock.acquire();
-    unsafe {
-        *np.state.get() = ProcState::Runnable;
-    }
-    np.lock.release();
+    np.shared.lock().state = ProcState::Runnable;
 
     Some(pid)
 }
@@ -670,7 +650,7 @@ fn reparent(p: &Proc) {
 /// until its parent calls `wait()`.
 pub fn exit(p: &Proc, status: i32) -> ! {
     // Ensure all destruction is done before `sched().`
-    {
+    let mut shared = {
         assert!(
             !ptr::eq(p, INITPROC.load(Ordering::Relaxed)),
             "init exiting"
@@ -704,17 +684,17 @@ pub fn exit(p: &Proc, status: i32) -> ! {
         // Parent might be sleeping in wait().
         wakeup(unsafe { *p.parent.get() }.unwrap().as_ptr().cast());
 
-        p.lock.acquire();
-        unsafe {
-            *p.xstate.get() = status;
-            *p.state.get() = ProcState::Zombie;
-        }
+        let mut shared = p.shared.lock();
+        shared.state = ProcState::Zombie {
+            exit_status: status,
+        };
 
         WAIT_LOCK.release();
-    }
+        shared
+    };
 
     // Jump into the scheduler, never to return.
-    sched(p);
+    sched(p, &mut shared);
 
     unreachable!("zombie exit");
 }
@@ -736,26 +716,25 @@ pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, Error> {
             }
 
             // Make sure the child isn't still in `exit()` or `switch()``.
-            pp.lock.acquire();
+            let mut pp_shared = pp.shared.lock();
 
             have_kids = true;
-            if unsafe { *pp.state.get() } == ProcState::Zombie {
+            if let ProcState::Zombie { exit_status } = pp_shared.state {
                 // Found one.
                 let pid = unsafe { *pp.pid.get() };
                 if addr.addr() != 0
-                    && vm::copy_out(p.pagetable().unwrap(), addr, &unsafe { *pp.xstate.get() })
-                        .is_err()
+                    && vm::copy_out(p.pagetable().unwrap(), addr, &exit_status).is_err()
                 {
-                    pp.lock.release();
+                    drop(pp_shared);
                     WAIT_LOCK.release();
                     return Err(Error::Unknown);
                 }
-                pp.free();
-                pp.lock.release();
+                pp.free(&mut pp_shared);
+                drop(pp_shared);
                 WAIT_LOCK.release();
                 return Ok(pid);
             }
-            pp.lock.release();
+            drop(pp_shared);
         }
 
         // No point waiting if we don't have any children.
@@ -796,16 +775,16 @@ pub fn scheduler() -> ! {
 
         let mut found = false;
         for p in &PROC {
-            p.lock.acquire();
-            if unsafe { *p.state.get() } != ProcState::Runnable {
-                p.lock.release();
+            let mut shared = p.shared.lock();
+            if shared.state != ProcState::Runnable {
+                drop(shared);
                 continue;
             }
 
             // Switch to chosen process. It is the process's job
             // to release its lock and then reacquire it
             // before jumping back to us.
-            unsafe { *p.state.get() = ProcState::Running };
+            shared.state = ProcState::Running;
             unsafe {
                 *cpu.proc.get() = Some(p.into());
                 switch::switch(cpu.context.get(), p.context.get());
@@ -817,7 +796,7 @@ pub fn scheduler() -> ! {
                 *cpu.proc.get() = None;
                 found = true;
             }
-            p.lock.release();
+            drop(shared);
         }
 
         if !found {
@@ -837,10 +816,9 @@ pub fn scheduler() -> ! {
 /// Saves and restores `Cpu:intena` because `inteta` is a property of this kernel thread,
 /// not this CPU. It should be `Proc::intena` and `Proc::noff`, but that would break in the
 /// few places where a lock is held but there's no process.
-fn sched(p: &Proc) {
-    assert!(p.lock.holding());
+fn sched(p: &Proc, shared: &mut SpinLockGuard<ProcShared>) {
     assert_eq!(interrupt::disabled_depth(), 1);
-    assert_ne!(unsafe { *p.state.get() }, ProcState::Running);
+    assert_ne!(shared.state, ProcState::Running);
     assert!(!interrupt::is_enabled());
 
     let int_enabled = interrupt::is_enabled_before_push();
@@ -852,10 +830,10 @@ fn sched(p: &Proc) {
 
 /// Gives up the CPU for one shceduling round.
 pub fn yield_(p: &Proc) {
-    p.lock.acquire();
-    unsafe { *p.state.get() = ProcState::Runnable };
-    sched(p);
-    p.lock.release();
+    let mut shared = p.shared.lock();
+    shared.state = ProcState::Runnable;
+    sched(p, &mut shared);
+    drop(shared);
 }
 
 /// A fork child's very first scheduling by `scheduler()`
@@ -863,9 +841,9 @@ pub fn yield_(p: &Proc) {
 extern "C" fn forkret() {
     static FIRST: AtomicBool = AtomicBool::new(true);
 
-    // Still holding `p->lock` from `fork()`.
+    // Still holding `p->shared` from `scheduler()`.
     let p = Proc::current();
-    p.lock.release();
+    let _ = unsafe { p.shared.remember_locked() }; // unlock here
 
     if FIRST.load(Ordering::Acquire) {
         // File system initialization must be run in the context of a
@@ -897,24 +875,16 @@ pub fn sleep_raw(chan: *const c_void, lock: &RawSpinLock) {
     // guaranteed that we won't miss any wakeup
     // (wakeup locks `p.lock`),
     // so it's okay to release `lock' here.`
-    p.lock.acquire();
+    let mut shared = p.shared.lock();
     lock.release();
 
     // Go to sleep.
-    unsafe {
-        *p.chan.get() = chan;
-        *p.state.get() = ProcState::Sleeping;
-    }
+    shared.state = ProcState::Sleeping { chan };
 
-    sched(p);
-
-    // Tidy up.
-    unsafe {
-        *p.chan.get() = ptr::null();
-    }
+    sched(p, &mut shared);
 
     // Reacquire original lock.
-    p.lock.release();
+    drop(shared);
     lock.acquire();
 }
 
@@ -930,13 +900,13 @@ pub fn wakeup(chan: *const c_void) {
             continue;
         }
 
-        p.lock.acquire();
-        if unsafe { *p.state.get() } == ProcState::Sleeping && unsafe { *p.chan.get() } == chan {
-            unsafe {
-                *p.state.get() = ProcState::Runnable;
+        let mut shared = p.shared.lock();
+        if let ProcState::Sleeping { chan: ch } = shared.state {
+            if ch == chan {
+                shared.state = ProcState::Runnable;
             }
         }
-        p.lock.release();
+        drop(shared);
     }
 }
 
@@ -946,19 +916,19 @@ pub fn wakeup(chan: *const c_void) {
 /// to user spaec (see `usertrap()`).
 pub fn kill(pid: ProcId) -> Result<(), Error> {
     for p in &PROC {
-        p.lock.acquire();
+        let mut shared = p.shared.lock();
         unsafe {
             if *p.pid.get() == pid {
-                *p.killed.get() = 1;
-                if *p.state.get() == ProcState::Sleeping {
+                shared.killed = true;
+                if let ProcState::Sleeping { .. } = shared.state {
                     // Wake process from sleep().
-                    *p.state.get() = ProcState::Runnable;
+                    shared.state = ProcState::Runnable;
                 }
-                p.lock.release();
+                drop(shared);
                 return Ok(());
             }
         }
-        p.lock.release();
+        drop(shared);
     }
     Err(Error::Unknown)
 }
@@ -1006,22 +976,21 @@ pub fn either_copy_in_bytes(
 ///
 /// For debugging.
 /// Runs when user type ^P on console
-///
-/// No lock to avoid wedging a stuck machine further.
 pub fn dump() {
     println!();
     for p in &PROC {
-        if unsafe { *p.state.get() } == ProcState::Unused {
+        let state = p.shared.lock().state;
+        if state == ProcState::Unused {
             continue;
         }
 
-        let state = match unsafe { *p.state.get() } {
+        let state = match state {
             ProcState::Unused => "unused",
             ProcState::Used => "used",
-            ProcState::Sleeping => "sleep",
+            ProcState::Sleeping { .. } => "sleep",
             ProcState::Runnable => "runble",
             ProcState::Running => "run",
-            ProcState::Zombie => "zombie",
+            ProcState::Zombie { .. } => "zombie",
         };
         let name = CStr::from_bytes_until_nul(unsafe { &*p.name.get() })
             .unwrap()
