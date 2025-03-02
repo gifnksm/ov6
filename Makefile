@@ -39,7 +39,6 @@ RUPROGS=\
 RX_RUPROGS=$(patsubst %,$(RX)/%,$(RUPROGS))
 R_RUPROGS=$(patsubst %,$R/%,$(RUPROGS))
 
-UPROGS=\
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin
@@ -94,7 +93,6 @@ endif
 LDFLAGS = -z max-page-size=4096 --gc-sections
 
 all: $R/kernel $R/kernel.asm $R/kernel.sym fs.img $U/initcode
-all: $(UPROGS)
 all: $(R_RUPROGS) $(addsuffix .sym,$(R_RUPROGS)) $(addsuffix .asm,$(R_RUPROGS))
 
 %.asm: %
@@ -108,19 +106,6 @@ $U/initcode: $U/initcode.S
 	$(LD) $(LDFLAGS) -N -e start -Ttext 0 -o $U/initcode.out $U/initcode.o
 	$(OBJCOPY) -S -O binary $U/initcode.out $U/initcode
 	$(OBJDUMP) -SC $U/initcode.o > $U/initcode.asm
-
-ULIB = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o
-
-_%: %.o $(ULIB) $U/user.ld
-	$(LD) $(LDFLAGS) -T $U/user.ld -e _start -o $@ $< $(ULIB)
-	$(OBJDUMP) -SC $@ > $*.asm
-	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' | c++filt > $*.sym
-
-$U/usys.S : $U/usys.pl
-	perl $U/usys.pl > $U/usys.S
-
-$U/usys.o : $U/usys.S
-	$(CC) $(CFLAGS) -c -o $U/usys.o $U/usys.S
 
 $(RX)/kernel:
 	cargo build -p kernel $(CARGO_PROFILE_FLAG) --target $(RUST_CROSS_TARGET)
@@ -147,8 +132,8 @@ $R/%.debug: $(RX)/% | $$(dir $$@)
 $R/%: $(RX)/% $(R)/%.debug | $$(dir $$@)
 	$(OBJCOPY) --strip-debug --strip-unneeded --remove-section=".gnu_debuglink" --add-gnu-debuglink="$@.debug" $< $@
 
-fs.img: $(RN)/mkfs README $(UPROGS) $(R_RUPROGS)
-	$(RN)/mkfs $@ README $(UPROGS) $(R_RUPROGS)
+fs.img: $(RN)/mkfs README $(R_RUPROGS)
+	$(RN)/mkfs $@ README $(R_RUPROGS)
 
 # convert Cargo's .d file (absolute path -> relative path)
 target/%.rel.d: target/%.d
@@ -160,12 +145,10 @@ target/%.rel.d: target/%.d
 -include user/*.d
 
 clean:
-	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
+	rm -f \
 	*/*.o */*.d */*.asm */*.sym \
 	$U/initcode $U/initcode.out fs.img \
-	.gdbinit \
-	$U/usys.S \
-	$(UPROGS)
+	.gdbinit
 	cargo clean
 
 check: cargo-clippy typos doc
