@@ -31,7 +31,7 @@ impl RawSpinLock {
 
     fn try_acquire(&self) -> Result<(), Error> {
         // disable interrupts to avoid deadlock.
-        interrupt::push_disabled().forget(); // drop re-enables interrupts, so we must forget it here.
+        let int_guard = interrupt::push_disabled();
 
         assert!(!self.holding());
 
@@ -48,6 +48,8 @@ impl RawSpinLock {
             *self.cpuid.get() = cpu::id();
         }
 
+        int_guard.forget(); // drop re-enables interrupts, so we must forget it here.
+
         Ok(())
     }
 
@@ -56,7 +58,7 @@ impl RawSpinLock {
     /// Loops (spins) until the lock is acquired.
     fn acquire(&self) {
         // disable interrupts to avoid deadlock.
-        interrupt::push_disabled().forget(); // drop re-enables interrupts, so we must forget it here.
+        let int_guard = interrupt::push_disabled();
 
         assert!(!self.holding());
 
@@ -70,6 +72,8 @@ impl RawSpinLock {
         unsafe {
             *self.cpuid.get() = cpu::id();
         }
+
+        int_guard.forget(); // drop re-enables interrupts, so we must forget it here.
     }
 
     /// Releases the lock.
