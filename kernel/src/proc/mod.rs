@@ -117,8 +117,12 @@ enum ProcState {
 }
 
 /// Per-process state that can be accessed from other processes.
-struct ProcSharedData {
+pub struct ProcSharedData {
+    /// Process ID
+    pid: ProcId,
+    /// Process State
     state: ProcState,
+    /// Process is killed
     killed: bool,
     /// Process context.
     ///
@@ -126,11 +130,18 @@ struct ProcSharedData {
     context: Context,
 }
 
+impl ProcSharedData {
+    pub fn pid(&self) -> ProcId {
+        self.pid
+    }
+}
+
 pub struct ProcShared(SpinLock<ProcSharedData>);
 
 impl ProcShared {
     const fn new() -> Self {
         Self(SpinLock::new(ProcSharedData {
+            pid: ProcId::INVALID,
             state: ProcState::Unused,
             killed: false,
             context: Context::zeroed(),
@@ -146,11 +157,11 @@ impl ProcShared {
         Some(&p.shared)
     }
 
-    fn lock(&self) -> SpinLockGuard<ProcSharedData> {
+    pub fn lock(&self) -> SpinLockGuard<ProcSharedData> {
         self.0.lock()
     }
 
-    fn try_lock(&self) -> Result<SpinLockGuard<ProcSharedData>, Error> {
+    pub fn try_lock(&self) -> Result<SpinLockGuard<ProcSharedData>, Error> {
         self.0.try_lock()
     }
 
@@ -160,13 +171,9 @@ impl ProcShared {
 }
 
 /// Per-process state.
-#[repr(C)]
 pub struct Proc {
     /// Process state.
     shared: ProcShared,
-
-    /// Process ID
-    pid: UnsafeCell<ProcId>,
 
     /// Parent process
     parent: Parent,
@@ -193,7 +200,6 @@ unsafe impl Sync for Proc {}
 impl Proc {
     const fn new() -> Self {
         Self {
-            pid: UnsafeCell::new(ProcId(0)),
             shared: ProcShared::new(),
             parent: Parent::new(),
             kstack: UnsafeCell::new(0),
@@ -217,8 +223,8 @@ impl Proc {
         Some(unsafe { p.as_ref() })
     }
 
-    pub fn pid(&self) -> ProcId {
-        unsafe { *self.pid.get() }
+    pub fn shared(&self) -> &ProcShared {
+        &self.shared
     }
 
     pub fn name(&self) -> &str {
@@ -339,10 +345,8 @@ impl Proc {
     fn allocate() -> Option<(&'static Self, SpinLockGuard<'static, ProcSharedData>)> {
         let (p, mut shared) = Self::lock_unused_proc()?;
 
-        unsafe {
-            *p.pid.get() = Self::allocate_pid();
-            shared.state = ProcState::Used;
-        }
+        shared.pid = Self::allocate_pid();
+        shared.state = ProcState::Used;
 
         let res: Result<(), Error> = (|| {
             unsafe {
@@ -383,9 +387,9 @@ impl Proc {
         }
         unsafe {
             *self.sz.get() = 0;
-            *self.pid.get() = ProcId(0);
             self.parent.reset();
             (*self.name.get()).fill(0);
+            shared.pid = ProcId::INVALID;
             shared.killed = false;
             shared.state = ProcState::Unused;
         }
@@ -593,7 +597,7 @@ pub fn fork(p: &Proc) -> Option<ProcId> {
         *np.name.get() = *p.name.get();
     }
 
-    let pid = unsafe { *np.pid.get() };
+    let pid = np_shared.pid;
     drop(np_shared);
 
     let mut wait_lock = wait_lock::lock();
@@ -698,7 +702,7 @@ pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, Error> {
             have_kids = true;
             if let ProcState::Zombie { exit_status } = pp_shared.state {
                 // Found one.
-                let pid = unsafe { *pp.pid.get() };
+                let pid = pp_shared.pid;
                 if addr.addr() != 0
                     && vm::copy_out(p.pagetable().unwrap(), addr, &exit_status).is_err()
                 {
@@ -801,16 +805,14 @@ pub fn wakeup(chan: *const c_void) {
 pub fn kill(pid: ProcId) -> Result<(), Error> {
     for p in &PROC {
         let mut shared = p.shared.lock();
-        unsafe {
-            if *p.pid.get() == pid {
-                shared.killed = true;
-                if let ProcState::Sleeping { .. } = shared.state {
-                    // Wake process from sleep().
-                    shared.state = ProcState::Runnable;
-                }
-                drop(shared);
-                return Ok(());
+        if shared.pid == pid {
+            shared.killed = true;
+            if let ProcState::Sleeping { .. } = shared.state {
+                // Wake process from sleep().
+                shared.state = ProcState::Runnable;
             }
+            drop(shared);
+            return Ok(());
         }
         drop(shared);
     }
@@ -863,7 +865,10 @@ pub fn either_copy_in_bytes(
 pub fn dump() {
     println!();
     for p in &PROC {
-        let state = p.shared.lock().state;
+        let shared = p.shared.lock();
+        let pid = shared.pid;
+        let state = shared.state;
+        drop(shared);
         if state == ProcState::Unused {
             continue;
         }
@@ -881,11 +886,6 @@ pub fn dump() {
             .to_str()
             .unwrap();
 
-        println!(
-            "{pid} {state:<10} {name}",
-            pid = unsafe { *p.pid.get() }.0,
-            state = state,
-            name = name
-        );
+        println!("{pid:5} {state:<10} {name}");
     }
 }

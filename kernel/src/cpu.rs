@@ -56,11 +56,13 @@ impl Cpu {
         &CPUS[id]
     }
 
-    pub fn set_proc(&self, p: Option<&Proc>) {
+    pub fn set_proc(&self, p: Option<(ProcId, &Proc)>) {
         assert!(!interrupt::is_enabled());
 
-        let pid = p.map(|p| p.pid()).unwrap_or(ProcId::INVALID);
-        *self.proc.try_lock().unwrap() = (pid, p.map(NonNull::from));
+        *self.proc.try_lock().unwrap() = match p {
+            Some((pid, p)) => (pid, Some(NonNull::from(p))),
+            None => (ProcId::INVALID, None),
+        };
     }
 
     pub fn pid(&self) -> ProcId {

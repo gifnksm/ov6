@@ -28,7 +28,8 @@ pub fn sys_kill(p: &Proc) -> Result<usize, Error> {
 }
 
 pub fn sys_getpid(p: &Proc) -> Result<usize, Error> {
-    Ok(p.pid().get() as usize)
+    let pid = p.shared().lock().pid();
+    Ok(pid.get() as usize)
 }
 
 pub fn sys_sbrk(p: &Proc) -> Result<usize, Error> {

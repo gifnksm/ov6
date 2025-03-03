@@ -72,16 +72,12 @@ extern "C" fn trap_user() {
     } else {
         which_dev = handle_dev_interrupt();
         if which_dev == IntrKind::NotRecognized {
-            println!(
-                "usertrap: unexpected scause {:#x} pid={}\n",
-                scause::read().bits(),
-                p.pid(),
-            );
-            println!(
-                "         sepc={:#x} stval={:#x}",
-                sepc::read(),
-                stval::read(),
-            );
+            let pid = p.shared().lock().pid();
+            let scause = scause::read().bits();
+            let sepc = sepc::read();
+            let stval = stval::read();
+            println!("usertrap: unexpected scause {scause:#x} pid={pid}\n");
+            println!("          sepc={sepc:#x} stval={stval:#x}");
             p.set_killed();
         }
     }
