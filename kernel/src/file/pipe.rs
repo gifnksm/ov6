@@ -80,7 +80,7 @@ impl PipeFile {
 
         let mut pipe = self.data.lock();
         while i < n {
-            if !pipe.readopen || p.killed() {
+            if !pipe.readopen || p.shared().lock().killed() {
                 return Err(Error::Unknown);
             }
             if pipe.nwrite == pipe.nread + PIPE_SIZE {
@@ -104,7 +104,7 @@ impl PipeFile {
     pub(super) fn read(&self, p: &Proc, addr: VirtAddr, n: usize) -> Result<usize, Error> {
         let mut pipe = self.data.lock();
         while pipe.nread == pipe.nwrite && pipe.writeopen {
-            if p.killed() {
+            if p.shared().lock().killed() {
                 return Err(Error::Unknown);
             }
             pipe = proc::sleep((&raw const pipe.nread).cast(), pipe);

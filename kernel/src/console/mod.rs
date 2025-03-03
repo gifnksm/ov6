@@ -90,7 +90,7 @@ fn read(p: &Proc, user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize,
         // wait until interrupt handler has put some
         // input into cons.buffer.
         while cons.r == cons.w {
-            if p.killed() {
+            if p.shared().lock().killed() {
                 drop(cons);
                 return Err(Error::Unknown);
             }

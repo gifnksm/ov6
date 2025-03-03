@@ -58,7 +58,7 @@ extern "C" fn trap_user() {
     match scause {
         Trap::Exception(Exception::UserEnvCall) => {
             // system call
-            if p.killed() {
+            if p.shared().lock().killed() {
                 proc::exit(p, -1);
             }
 
@@ -73,33 +73,31 @@ extern "C" fn trap_user() {
             syscall::syscall(p);
         }
         Trap::Exception(e) => {
-            let shared = p.shared().lock();
+            let mut shared = p.shared().lock();
             let pid = shared.pid();
             let name = shared.name();
             let sepc = sepc::read();
             let stval = stval::read();
             println!("usertrap: exception {e:?} pid={pid} name={name}");
             println!("          sepc={sepc:#x} stval={stval:#x}");
-            drop(shared);
-            p.set_killed();
+            shared.kill();
         }
         Trap::Interrupt(int) => {
             which_dev = handle_dev_interrupt(int);
             if which_dev == IntrKind::NotRecognized {
-                let shared = p.shared().lock();
+                let mut shared = p.shared().lock();
                 let pid = shared.pid();
                 let name = shared.name();
                 let sepc = sepc::read();
                 let stval = stval::read();
                 println!("usertrap: unexpected interrupt {int:?} pid={pid} name={name}");
                 println!("          sepc={sepc:#x} stval={stval:#x}");
-                drop(shared);
-                p.set_killed();
+                shared.kill();
             }
         }
     }
 
-    if p.killed() {
+    if p.shared().lock().killed() {
         proc::exit(p, -1);
     }
 

@@ -158,6 +158,14 @@ impl ProcSharedData {
             }
         }
     }
+
+    pub fn kill(&mut self) {
+        self.killed = true;
+    }
+
+    pub fn killed(&mut self) -> bool {
+        self.killed
+    }
 }
 
 pub struct ProcShared(SpinLock<ProcSharedData>);
@@ -403,14 +411,6 @@ impl Proc {
             shared.killed = false;
             shared.state = ProcState::Unused;
         }
-    }
-
-    pub fn set_killed(&self) {
-        self.shared.lock().killed = true;
-    }
-
-    pub fn killed(&self) -> bool {
-        self.shared.lock().killed
     }
 
     pub fn is_valid_addr(&self, addr_range: Range<VirtAddr>) -> bool {
@@ -731,7 +731,7 @@ pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, Error> {
         }
 
         // No point waiting if we don't have any children.
-        if !have_kids || p.killed() {
+        if !have_kids || p.shared.lock().killed() {
             drop(wait_lock);
             return Err(Error::Unknown);
         }
