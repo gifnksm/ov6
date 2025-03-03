@@ -87,7 +87,10 @@ pub fn schedule() -> ! {
 
         let mut found = false;
         for p in &PROC {
-            let mut shared = p.shared.lock();
+            let Ok(mut shared) = p.shared.try_lock() else {
+                // The process is running on another CPU.
+                continue;
+            };
             if shared.state != ProcState::Runnable {
                 drop(shared);
                 continue;

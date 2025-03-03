@@ -150,6 +150,10 @@ impl ProcShared {
         self.0.lock()
     }
 
+    fn try_lock(&self) -> Result<SpinLockGuard<ProcSharedData>, Error> {
+        self.0.try_lock()
+    }
+
     unsafe fn remember_locked(&self) -> SpinLockGuard<ProcSharedData> {
         unsafe { self.0.remember_locked() }
     }
