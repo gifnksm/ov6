@@ -14,7 +14,7 @@ use crate::{
     file::{self, Device},
     fs::DeviceNo,
     memory::vm::VirtAddr,
-    proc::{self, Proc},
+    proc::{self, Proc, ProcPrivateData},
     sync::SpinLock,
 };
 
@@ -66,10 +66,10 @@ static CONS: SpinLock<Cons> = SpinLock::new(Cons {
 /// Writes the bytes to the console.
 ///
 /// User write()s to the console go here.
-fn write(p: &Proc, user_src: bool, src: usize, n: usize) -> Result<usize, Error> {
+fn write(private: &ProcPrivateData, user_src: bool, src: usize, n: usize) -> Result<usize, Error> {
     for i in 0..n {
         let mut c: [u8; 1] = [0];
-        if proc::either_copy_in_bytes(p, &mut c, user_src, src + i).is_err() {
+        if proc::either_copy_in_bytes(private, &mut c, user_src, src + i).is_err() {
             return Ok(i);
         }
         uart::putc(c[0] as char);
@@ -83,7 +83,13 @@ fn write(p: &Proc, user_src: bool, src: usize, n: usize) -> Result<usize, Error>
 /// Copy (up to) a whole input line to `dst`.
 /// `user_dst` indicates whether `dst` is a user
 /// or kernel address.
-fn read(p: &Proc, user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize, Error> {
+fn read(
+    p: &Proc,
+    private: &ProcPrivateData,
+    user_dst: bool,
+    mut dst: usize,
+    mut n: usize,
+) -> Result<usize, Error> {
     let target = n;
     let mut cons = CONS.lock();
     while n > 0 {
@@ -112,7 +118,7 @@ fn read(p: &Proc, user_dst: bool, mut dst: usize, mut n: usize) -> Result<usize,
 
         // copy the input byte to the user-space buffer.
         let cbuf = &[c];
-        if proc::either_copy_out_bytes(p, user_dst, dst, cbuf).is_err() {
+        if proc::either_copy_out_bytes(private, user_dst, dst, cbuf).is_err() {
             break;
         }
 
@@ -178,12 +184,24 @@ pub fn handle_interrupt(c: u8) {
     }
 }
 
-fn console_write(p: &Proc, user_src: bool, src: VirtAddr, n: usize) -> Result<usize, Error> {
-    write(p, user_src, src.addr(), n)
+fn console_write(
+    _p: &Proc,
+    private: &mut ProcPrivateData,
+    user_src: bool,
+    src: VirtAddr,
+    n: usize,
+) -> Result<usize, Error> {
+    write(private, user_src, src.addr(), n)
 }
 
-fn console_read(p: &Proc, user_dst: bool, dst: VirtAddr, n: usize) -> Result<usize, Error> {
-    read(p, user_dst, dst.addr(), n)
+fn console_read(
+    p: &Proc,
+    private: &mut ProcPrivateData,
+    user_dst: bool,
+    dst: VirtAddr,
+    n: usize,
+) -> Result<usize, Error> {
+    read(p, private, user_dst, dst.addr(), n)
 }
 
 pub fn init() {

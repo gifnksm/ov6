@@ -8,7 +8,7 @@ use crate::{
         DeviceNo, InodeNo,
         repr::{self, T_DIR},
     },
-    proc::Proc,
+    proc::ProcPrivateData,
 };
 
 use super::{LockedTxInode, TxInode};
@@ -50,12 +50,12 @@ impl<'tx, 'i, 'l, const READ_ONLY: bool> DirInode<'tx, 'i, 'l, READ_ONLY> {
 
 impl<const READ_ONLY: bool> DirInode<'_, '_, '_, READ_ONLY> {
     /// Returns `true` if the directory is empty except for `"."` and `".."`.
-    pub fn is_empty(&mut self, p: &Proc) -> bool {
+    pub fn is_empty(&mut self, private: &ProcPrivateData) -> bool {
         let de_size = size_of::<repr::DirEntry>();
         let size = self.0.data().size as usize;
         // skip first two entry ("." and "..").
         for off in (2 * de_size..size).step_by(de_size) {
-            let de = self.0.read_as::<repr::DirEntry>(p, off).unwrap();
+            let de = self.0.read_as::<repr::DirEntry>(private, off).unwrap();
             if de.ino().is_some() {
                 return false;
             }
@@ -68,9 +68,13 @@ impl<'tx, const READ_ONLY: bool> DirInode<'tx, '_, '_, READ_ONLY> {
     /// Looks up for a directory entry by given `name`.
     ///
     /// Returns a inode that contains the entry and its offset from inode data head.
-    pub fn lookup(&mut self, p: &Proc, name: &[u8]) -> Option<(TxInode<'tx, READ_ONLY>, usize)> {
+    pub fn lookup(
+        &mut self,
+        private: &ProcPrivateData,
+        name: &[u8],
+    ) -> Option<(TxInode<'tx, READ_ONLY>, usize)> {
         for off in (0..self.0.data().size as usize).step_by(size_of::<repr::DirEntry>()) {
-            let de = self.0.read_as::<repr::DirEntry>(p, off).unwrap();
+            let de = self.0.read_as::<repr::DirEntry>(private, off).unwrap();
             let Some(ino) = de.ino() else { continue };
             if !de.is_same_name(name) {
                 continue;
@@ -84,9 +88,14 @@ impl<'tx, const READ_ONLY: bool> DirInode<'tx, '_, '_, READ_ONLY> {
 
 impl DirInode<'_, '_, '_, false> {
     /// Writes a new directory entry (`name` and `ino`) into the directory.
-    pub fn link(&mut self, p: &Proc, name: &[u8], ino: InodeNo) -> Result<(), Error> {
+    pub fn link(
+        &mut self,
+        private: &ProcPrivateData,
+        name: &[u8],
+        ino: InodeNo,
+    ) -> Result<(), Error> {
         // Check that name is not present.
-        if self.lookup(p, name).is_some() {
+        if self.lookup(private, name).is_some() {
             return Err(Error::Unknown);
         }
 
@@ -97,7 +106,7 @@ impl DirInode<'_, '_, '_, false> {
         let (mut de, off) = (0..size)
             .step_by(size_of::<repr::DirEntry>())
             .map(|off| {
-                let de = self.0.read_as::<repr::DirEntry>(p, off).unwrap();
+                let de = self.0.read_as::<repr::DirEntry>(private, off).unwrap();
                 (de, off)
             })
             .find(|(de, _)| de.ino().is_none())
@@ -105,7 +114,7 @@ impl DirInode<'_, '_, '_, false> {
 
         de.set_name(name);
         de.set_ino(Some(ino));
-        self.0.write_data(p, off, &de)?;
+        self.0.write_data(private, off, &de)?;
         // write_inode_data(tx, p, NonNull::new(dp).unwrap(), off, de)?;
         Ok(())
     }

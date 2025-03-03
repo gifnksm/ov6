@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     fs::{DeviceNo, Inode},
     memory::vm::VirtAddr,
-    proc::Proc,
+    proc::{Proc, ProcPrivateData},
 };
 
 use self::{alloc::FileDataArc, device::DeviceFile, inode::InodeFile, pipe::PipeFile};
@@ -78,10 +78,10 @@ impl File {
     /// Gets metadata about file `f`.
     ///
     /// `addr` is a user virtual address, pointing to a struct stat.
-    pub fn stat(&self, p: &Proc, addr: VirtAddr) -> Result<(), Error> {
+    pub fn stat(&self, private: &ProcPrivateData, addr: VirtAddr) -> Result<(), Error> {
         match &self.data.data {
-            Some(SpecificData::Inode(inode)) => inode.stat(p, addr),
-            Some(SpecificData::Device(device)) => device.stat(p, addr),
+            Some(SpecificData::Inode(inode)) => inode.stat(private, addr),
+            Some(SpecificData::Device(device)) => device.stat(private, addr),
             _ => Err(Error::Unknown),
         }
     }
@@ -89,15 +89,21 @@ impl File {
     /// Reads from file `f`.
     ///
     /// `addr` is a user virtual address.
-    pub fn read(&self, p: &Proc, addr: VirtAddr, n: usize) -> Result<usize, Error> {
+    pub fn read(
+        &self,
+        p: &Proc,
+        private: &mut ProcPrivateData,
+        addr: VirtAddr,
+        n: usize,
+    ) -> Result<usize, Error> {
         if !self.data.readable {
             return Err(Error::Unknown);
         }
 
         match &self.data.data {
-            Some(SpecificData::Pipe(pipe)) => pipe.read(p, addr, n),
-            Some(SpecificData::Inode(inode)) => inode.read(p, addr, n),
-            Some(SpecificData::Device(device)) => device.read(p, addr, n),
+            Some(SpecificData::Pipe(pipe)) => pipe.read(p, private, addr, n),
+            Some(SpecificData::Inode(inode)) => inode.read(private, addr, n),
+            Some(SpecificData::Device(device)) => device.read(p, private, addr, n),
             None => unreachable!(),
         }
     }
@@ -105,15 +111,21 @@ impl File {
     /// Writes to file `f`.
     ///
     /// `addr` is a user virtual address.
-    pub fn write(&self, p: &Proc, addr: VirtAddr, n: usize) -> Result<usize, Error> {
+    pub fn write(
+        &self,
+        p: &Proc,
+        private: &mut ProcPrivateData,
+        addr: VirtAddr,
+        n: usize,
+    ) -> Result<usize, Error> {
         if !self.data.writable {
             return Err(Error::Unknown);
         }
 
         match &self.data.data {
-            Some(SpecificData::Pipe(pipe)) => pipe.write(p, addr, n),
-            Some(SpecificData::Inode(inode)) => inode.write(p, addr, n),
-            Some(SpecificData::Device(device)) => device.write(p, addr, n),
+            Some(SpecificData::Pipe(pipe)) => pipe.write(p, private, addr, n),
+            Some(SpecificData::Inode(inode)) => inode.write(private, addr, n),
+            Some(SpecificData::Device(device)) => device.write(p, private, addr, n),
             _ => unreachable!(),
         }
     }

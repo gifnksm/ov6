@@ -3,15 +3,27 @@ use crate::{
     fs::{DeviceNo, Inode},
     memory::vm::VirtAddr,
     param::NDEV,
-    proc::Proc,
+    proc::{Proc, ProcPrivateData},
     sync::SpinLock,
 };
 
 use super::{File, FileData, FileDataArc, SpecificData};
 
 pub struct Device {
-    pub read: fn(p: &Proc, user_src: bool, src: VirtAddr, size: usize) -> Result<usize, Error>,
-    pub write: fn(p: &Proc, user_dst: bool, dst: VirtAddr, size: usize) -> Result<usize, Error>,
+    pub read: fn(
+        p: &Proc,
+        private: &mut ProcPrivateData,
+        user_src: bool,
+        src: VirtAddr,
+        size: usize,
+    ) -> Result<usize, Error>,
+    pub write: fn(
+        p: &Proc,
+        private: &mut ProcPrivateData,
+        user_dst: bool,
+        dst: VirtAddr,
+        size: usize,
+    ) -> Result<usize, Error>,
 }
 
 struct DeviceTable {
@@ -64,25 +76,37 @@ impl DeviceFile {
         super::common::close_inode(self.inode);
     }
 
-    pub(super) fn stat(&self, p: &Proc, addr: VirtAddr) -> Result<(), Error> {
-        super::common::stat_inode(&self.inode, p, addr)
+    pub(super) fn stat(&self, private: &ProcPrivateData, addr: VirtAddr) -> Result<(), Error> {
+        super::common::stat_inode(&self.inode, private, addr)
     }
 
-    pub(super) fn read(&self, p: &Proc, addr: VirtAddr, n: usize) -> Result<usize, Error> {
+    pub(super) fn read(
+        &self,
+        p: &Proc,
+        private: &mut ProcPrivateData,
+        addr: VirtAddr,
+        n: usize,
+    ) -> Result<usize, Error> {
         let read = DEVICE_TABLE
             .lock()
             .get_device(self.major)
             .ok_or(Error::Unknown)?
             .read;
-        read(p, true, addr, n)
+        read(p, private, true, addr, n)
     }
 
-    pub(super) fn write(&self, p: &Proc, addr: VirtAddr, n: usize) -> Result<usize, Error> {
+    pub(super) fn write(
+        &self,
+        p: &Proc,
+        private: &mut ProcPrivateData,
+        addr: VirtAddr,
+        n: usize,
+    ) -> Result<usize, Error> {
         let write = DEVICE_TABLE
             .lock()
             .get_device(self.major)
             .ok_or(Error::Unknown)?
             .write;
-        write(p, true, addr, n)
+        write(p, private, true, addr, n)
     }
 }

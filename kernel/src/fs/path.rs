@@ -1,4 +1,4 @@
-use crate::{error::Error, proc::Proc};
+use crate::{error::Error, proc::ProcPrivateData};
 
 use super::{DIR_SIZE, DeviceNo, InodeNo, Tx, inode::TxInode};
 
@@ -36,7 +36,7 @@ fn skip_elem(path: &[u8]) -> Option<(&[u8], &[u8])> {
 /// Must be called inside a transaction since it calls `inode_put()`.
 fn resolve_impl<'a, const READ_ONLY: bool>(
     tx: &'a Tx<READ_ONLY>,
-    p: &Proc,
+    private: &ProcPrivateData,
     path: &[u8],
     parent: bool,
     mut name_out: Option<&mut [u8; DIR_SIZE]>,
@@ -44,7 +44,7 @@ fn resolve_impl<'a, const READ_ONLY: bool>(
     let mut ip: TxInode<'_, READ_ONLY> = if path.first() == Some(&b'/') {
         TxInode::get(tx, DeviceNo::ROOT, InodeNo::ROOT)
     } else {
-        p.cwd().unwrap().clone().into_tx(tx)
+        private.cwd().unwrap().clone().into_tx(tx)
     };
 
     let mut path = path;
@@ -68,7 +68,7 @@ fn resolve_impl<'a, const READ_ONLY: bool>(
             return Ok(ip);
         }
 
-        let Some((next, _off)) = dip.lookup(p, name) else {
+        let Some((next, _off)) = dip.lookup(private, name) else {
             return Err(Error::Unknown);
         };
 
@@ -84,19 +84,19 @@ fn resolve_impl<'a, const READ_ONLY: bool>(
 
 pub fn resolve<'a, const READ_ONLY: bool>(
     tx: &'a Tx<READ_ONLY>,
-    p: &Proc,
+    private: &ProcPrivateData,
     path: &[u8],
 ) -> Result<TxInode<'a, READ_ONLY>, Error> {
-    resolve_impl(tx, p, path, false, None)
+    resolve_impl(tx, private, path, false, None)
 }
 
 pub fn resolve_parent<'a, 'b, const READ_ONLY: bool>(
     tx: &'a Tx<READ_ONLY>,
-    p: &Proc,
+    private: &ProcPrivateData,
     path: &[u8],
     name: &'b mut [u8; DIR_SIZE],
 ) -> Result<(TxInode<'a, READ_ONLY>, &'b [u8]), Error> {
-    let ip = resolve_impl(tx, p, path, true, Some(name))?;
+    let ip = resolve_impl(tx, private, path, true, Some(name))?;
     let len = name.iter().position(|b| *b == 0).unwrap_or(name.len());
     let name = &name[..len];
     Ok((ip, name))

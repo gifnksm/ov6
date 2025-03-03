@@ -6,7 +6,7 @@ use crate::{
         page::PageFrameAllocator,
         vm::{self, VirtAddr},
     },
-    proc::{self, Proc},
+    proc::{self, Proc, ProcPrivateData},
     sync::SpinLock,
 };
 
@@ -75,7 +75,13 @@ impl PipeFile {
         }
     }
 
-    pub(super) fn write(&self, p: &Proc, addr: VirtAddr, n: usize) -> Result<usize, Error> {
+    pub(super) fn write(
+        &self,
+        p: &Proc,
+        private: &ProcPrivateData,
+        addr: VirtAddr,
+        n: usize,
+    ) -> Result<usize, Error> {
         let mut i = 0;
 
         let mut pipe = self.data.lock();
@@ -89,7 +95,7 @@ impl PipeFile {
                 continue;
             }
 
-            let Ok(byte) = vm::copy_in(p.pagetable().unwrap(), addr.byte_add(i)) else {
+            let Ok(byte) = vm::copy_in(private.pagetable().unwrap(), addr.byte_add(i)) else {
                 break;
             };
             let idx = pipe.nwrite % PIPE_SIZE;
@@ -101,7 +107,13 @@ impl PipeFile {
         Ok(i)
     }
 
-    pub(super) fn read(&self, p: &Proc, addr: VirtAddr, n: usize) -> Result<usize, Error> {
+    pub(super) fn read(
+        &self,
+        p: &Proc,
+        private: &ProcPrivateData,
+        addr: VirtAddr,
+        n: usize,
+    ) -> Result<usize, Error> {
         let mut pipe = self.data.lock();
         while pipe.nread == pipe.nwrite && pipe.writeopen {
             if p.shared().lock().killed() {
@@ -116,7 +128,7 @@ impl PipeFile {
             }
             let ch = pipe.data[pipe.nread % PIPE_SIZE];
             pipe.nread += 1;
-            if vm::copy_out(p.pagetable().unwrap(), addr.byte_add(i), &ch).is_err() {
+            if vm::copy_out(private.pagetable().unwrap(), addr.byte_add(i), &ch).is_err() {
                 break;
             }
             i += 1;

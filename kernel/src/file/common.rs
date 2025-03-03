@@ -5,7 +5,7 @@ use crate::{
     error::Error,
     fs::{self, Inode},
     memory::vm::{self, VirtAddr},
-    proc::Proc,
+    proc::ProcPrivateData,
 };
 
 pub(super) fn close_inode(inode: Inode) {
@@ -13,7 +13,11 @@ pub(super) fn close_inode(inode: Inode) {
     inode.into_tx(&tx).put();
 }
 
-pub(super) fn stat_inode(inode: &Inode, p: &Proc, addr: VirtAddr) -> Result<(), Error> {
+pub(super) fn stat_inode(
+    inode: &Inode,
+    private: &ProcPrivateData,
+    addr: VirtAddr,
+) -> Result<(), Error> {
     let tx = fs::begin_readonly_tx();
     let mut ip = inode.clone().into_tx(&tx);
     let lip = ip.lock();
@@ -32,6 +36,6 @@ pub(super) fn stat_inode(inode: &Inode, p: &Proc, addr: VirtAddr) -> Result<(), 
     };
     drop(lip);
     drop(ip);
-    vm::copy_out(p.pagetable().unwrap(), addr, &st)?;
+    vm::copy_out(private.pagetable().unwrap(), addr, &st)?;
     Ok(())
 }

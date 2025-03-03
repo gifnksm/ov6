@@ -5,7 +5,7 @@ use crate::{
     fs::{self, FS_BLOCK_SIZE, Inode},
     memory::vm::VirtAddr,
     param::MAX_OP_BLOCKS,
-    proc::Proc,
+    proc::ProcPrivateData,
 };
 
 use super::{File, FileData, FileDataArc, SpecificData};
@@ -32,22 +32,32 @@ impl InodeFile {
         super::common::close_inode(self.inode);
     }
 
-    pub(super) fn stat(&self, p: &Proc, addr: VirtAddr) -> Result<(), Error> {
-        super::common::stat_inode(&self.inode, p, addr)
+    pub(super) fn stat(&self, private: &ProcPrivateData, addr: VirtAddr) -> Result<(), Error> {
+        super::common::stat_inode(&self.inode, private, addr)
     }
 
-    pub(super) fn read(&self, p: &Proc, addr: VirtAddr, n: usize) -> Result<usize, Error> {
+    pub(super) fn read(
+        &self,
+        private: &ProcPrivateData,
+        addr: VirtAddr,
+        n: usize,
+    ) -> Result<usize, Error> {
         let tx = fs::begin_readonly_tx();
         let mut ip = self.inode.clone().into_tx(&tx);
         let mut lip = ip.lock();
-        let res = lip.read(p, true, addr, self.off.load(Ordering::Relaxed), n);
+        let res = lip.read(private, true, addr, self.off.load(Ordering::Relaxed), n);
         if let Ok(sz) = res {
             self.off.fetch_add(sz, Ordering::Relaxed);
         }
         res
     }
 
-    pub(super) fn write(&self, p: &Proc, addr: VirtAddr, n: usize) -> Result<usize, Error> {
+    pub(super) fn write(
+        &self,
+        private: &ProcPrivateData,
+        addr: VirtAddr,
+        n: usize,
+    ) -> Result<usize, Error> {
         // write a few blocks at a time to avoid exceeding
         // the maximum log transaction size, including
         // i-node, indirect block, allocation blocks,
@@ -66,7 +76,7 @@ impl InodeFile {
             let mut ip = self.inode.clone().into_tx(&tx);
             let mut lip = ip.lock();
             let res = lip.write(
-                p,
+                private,
                 true,
                 addr.byte_add(i),
                 self.off.load(Ordering::Relaxed),

@@ -203,27 +203,111 @@ impl ProcShared {
     }
 }
 
+pub struct ProcPrivateData {
+    /// Virtual address of kernel stack.
+    kstack: usize,
+    /// Size of process memory (bytes).
+    sz: usize,
+    /// User page table,
+    pagetable: Option<NonNull<PageTable>>,
+    /// Data page for trampoline.S
+    trapframe: Option<NonNull<TrapFrame>>,
+    /// Open files
+    ofile: [Option<File>; NOFILE],
+    /// Current directory
+    cwd: Option<Inode>,
+}
+
+impl ProcPrivateData {
+    const fn new() -> Self {
+        Self {
+            kstack: 0,
+            sz: 0,
+            pagetable: None,
+            trapframe: None,
+            ofile: [const { None }; NOFILE],
+            cwd: None,
+        }
+    }
+
+    pub fn kstack(&self) -> usize {
+        self.kstack
+    }
+
+    pub fn size(&self) -> usize {
+        self.sz
+    }
+
+    pub fn pagetable(&self) -> Option<&PageTable> {
+        self.pagetable.map(|p| unsafe { p.as_ref() })
+    }
+
+    pub fn pagetable_mut(&mut self) -> Option<&mut PageTable> {
+        self.pagetable.map(|mut p| unsafe { p.as_mut() })
+    }
+
+    pub fn update_pagetable(&mut self, pagetable: NonNull<PageTable>, sz: usize) {
+        let old_pt = mem::replace(&mut self.pagetable, Some(pagetable));
+        let old_sz = mem::replace(&mut self.sz, sz);
+        if let Some(old) = old_pt {
+            free_pagetable(old, old_sz);
+        }
+    }
+
+    pub fn trapframe(&self) -> Option<&TrapFrame> {
+        self.trapframe.map(|p| unsafe { p.as_ref() })
+    }
+
+    pub fn trapframe_mut(&mut self) -> Option<&mut TrapFrame> {
+        self.trapframe.map(|mut p| unsafe { p.as_mut() })
+    }
+
+    pub fn ofile(&self, fd: usize) -> Option<&File> {
+        self.ofile.get(fd).and_then(|p| p.as_ref())
+    }
+
+    pub fn add_ofile(&mut self, file: File) -> Result<usize, Error> {
+        let (fd, slot) = self
+            .ofile
+            .iter_mut()
+            .enumerate()
+            .find(|(_, slot)| slot.is_none())
+            .ok_or(Error::Unknown)?;
+        assert!(slot.replace(file).is_none());
+        Ok(fd)
+    }
+
+    pub fn unset_ofile(&mut self, fd: usize) -> Option<File> {
+        self.ofile.get_mut(fd)?.take()
+    }
+
+    pub fn cwd(&self) -> Option<&Inode> {
+        self.cwd.as_ref()
+    }
+
+    pub fn update_cwd(&mut self, cwd: Inode) -> Inode {
+        self.cwd.replace(cwd).unwrap()
+    }
+
+    pub fn validate_addr(&self, addr_range: Range<VirtAddr>) -> Result<(), Error> {
+        let end = VirtAddr::new(self.sz);
+        // both tests needed, in case of overflow
+        if addr_range.start < end && addr_range.end <= end {
+            Ok(())
+        } else {
+            Err(Error::Unknown)
+        }
+    }
+}
+
 /// Per-process state.
 pub struct Proc {
-    /// Process state.
+    /// Process sharead data
     shared: ProcShared,
-
     /// Parent process
     parent: Parent,
-
-    // these are private to the process, so lock need not be held.
-    /// Virtual address of kernel stack.
-    kstack: UnsafeCell<usize>,
-    /// Size of process memory (bytes).
-    sz: UnsafeCell<usize>,
-    /// User page table,
-    pagetable: UnsafeCell<Option<NonNull<PageTable>>>,
-    /// Data page for trampoline.S
-    trapframe: UnsafeCell<Option<NonNull<TrapFrame>>>,
-    /// Open files
-    ofile: [UnsafeCell<Option<File>>; NOFILE],
-    /// Current directory
-    cwd: UnsafeCell<Option<Inode>>,
+    /// Process private data.
+    private: UnsafeCell<ProcPrivateData>,
 }
 
 unsafe impl Sync for Proc {}
@@ -233,12 +317,7 @@ impl Proc {
         Self {
             shared: ProcShared::new(),
             parent: Parent::new(),
-            kstack: UnsafeCell::new(0),
-            sz: UnsafeCell::new(0),
-            pagetable: UnsafeCell::new(None),
-            trapframe: UnsafeCell::new(None),
-            ofile: [const { UnsafeCell::new(None) }; NOFILE],
-            cwd: UnsafeCell::new(None),
+            private: UnsafeCell::new(ProcPrivateData::new()),
         }
     }
 
@@ -257,40 +336,9 @@ impl Proc {
         &self.shared
     }
 
-    pub fn cwd(&self) -> Option<&Inode> {
-        unsafe { &*self.cwd.get() }.as_ref()
-    }
-
-    pub fn size(&self) -> usize {
-        unsafe { *self.sz.get() }
-    }
-
-    pub fn kstack(&self) -> usize {
-        unsafe { *self.kstack.get() }
-    }
-
-    pub fn pagetable(&self) -> Option<&PageTable> {
-        unsafe { *self.pagetable.get() }.map(|pt| unsafe { pt.as_ref() })
-    }
-
-    fn pagetable_mut(&self) -> Option<&mut PageTable> {
-        unsafe { *self.pagetable.get() }.map(|mut pt| unsafe { pt.as_mut() })
-    }
-
-    pub fn update_pagetable(&self, pagetable: NonNull<PageTable>, sz: usize) {
-        let old_pt = unsafe { ptr::replace(self.pagetable.get(), Some(pagetable)) };
-        let old_sz = unsafe { ptr::replace(self.sz.get(), sz) };
-        if let Some(old) = old_pt {
-            free_pagetable(old, old_sz);
-        }
-    }
-
-    pub fn trapframe(&self) -> Option<&TrapFrame> {
-        unsafe { *self.trapframe.get() }.map(|tf| unsafe { tf.as_ref() })
-    }
-
-    pub fn trapframe_mut(&self) -> Option<&mut TrapFrame> {
-        unsafe { *self.trapframe.get() }.map(|mut tf| unsafe { tf.as_mut() })
+    #[allow(clippy::mut_from_ref)]
+    pub unsafe fn private_mut(&self) -> &mut ProcPrivateData {
+        unsafe { self.private.get().as_mut() }.unwrap()
     }
 
     fn is_child_of(&self, parent: &Self, wait_lock: &mut SpinLockGuard<WaitLock>) -> bool {
@@ -302,34 +350,6 @@ impl Proc {
 
     fn set_parent(&self, parent: Option<NonNull<Self>>, _wait_lock: &mut SpinLockGuard<WaitLock>) {
         self.parent.set(parent, _wait_lock);
-    }
-
-    pub fn ofile(&self, fd: usize) -> Option<File> {
-        let cell = self.ofile.get(fd)?;
-        let f = unsafe { cell.get().as_ref().unwrap().as_ref() }?;
-        Some(f.clone())
-    }
-
-    pub fn add_ofile(&self, file: File) -> Option<usize> {
-        for (i, of) in self.ofile.iter().enumerate() {
-            if unsafe { of.get().as_ref().unwrap() }.is_none() {
-                unsafe {
-                    *of.get() = Some(file);
-                }
-                return Some(i);
-            }
-        }
-        None
-    }
-
-    pub fn unset_ofile(&self, fd: usize) {
-        unsafe {
-            *self.ofile.get(fd).unwrap().get() = None;
-        }
-    }
-
-    pub fn update_cwd(&self, cwd: Inode) -> Inode {
-        unsafe { mem::replace(&mut *self.cwd.get(), Some(cwd)) }.unwrap()
     }
 
     fn allocate_pid() -> ProcId {
@@ -360,62 +380,58 @@ impl Proc {
     /// If found, initialize state required to run in the kenrnel,
     /// and return with the lock held.
     /// If there are no free procs, return None.
-    fn allocate() -> Option<(&'static Self, SpinLockGuard<'static, ProcSharedData>)> {
+    fn allocate() -> Option<(
+        &'static Self,
+        SpinLockGuard<'static, ProcSharedData>,
+        &'static mut ProcPrivateData,
+    )> {
         let (p, mut shared) = Self::lock_unused_proc()?;
 
         shared.pid = Self::allocate_pid();
         shared.state = ProcState::Used;
+        let private = unsafe { p.private.get().as_mut().unwrap() };
 
         let res: Result<(), Error> = (|| {
-            unsafe {
-                // Allocate a trapframe page.
-                *p.trapframe.get() = Some(page::alloc_page().ok_or(Error::Unknown)?.cast());
-                // An empty user page table.
-                *p.pagetable.get() = Some(create_pagetable(p).ok_or(Error::Unknown)?);
-                // Set up new context to start executing ad forkret,
-                // which returns to user space.
-                shared.context.clear();
-                shared.context.ra = forkret as usize as u64;
-                shared.context.sp = ((*p.kstack.get()) + PAGE_SIZE) as u64;
-            }
+            // Allocate a trapframe page.
+            private.trapframe = Some(page::alloc_page().ok_or(Error::Unknown)?.cast());
+            // An empty user page table.
+            private.pagetable = Some(create_pagetable(private).ok_or(Error::Unknown)?);
+            // Set up new context to start executing ad forkret,
+            // which returns to user space.
+            shared.context.clear();
+            shared.context.ra = forkret as usize as u64;
+            shared.context.sp = (private.kstack + PAGE_SIZE) as u64;
             Ok(())
         })();
 
         if res.is_err() {
-            p.free(&mut shared);
+            p.free(private, &mut shared);
             drop(shared);
             return None;
         }
 
-        Some((p, shared))
+        Some((p, shared, private))
     }
 
     /// Frees a proc structure and the data hangind from it,
     /// including user pages.
     ///
     /// p.lock must be held.
-    fn free(&self, shared: &mut SpinLockGuard<ProcSharedData>) {
-        if let Some(tf) = unsafe { *self.trapframe.get() }.take() {
+    fn free(&self, private: &mut ProcPrivateData, shared: &mut SpinLockGuard<ProcSharedData>) {
+        if let Some(tf) = private.trapframe.take() {
             unsafe {
                 page::free_page(tf.cast());
             }
         }
-        if let Some(pt) = unsafe { *self.pagetable.get() }.take() {
-            free_pagetable(pt, unsafe { *self.sz.get() });
+        if let Some(pt) = private.pagetable.take() {
+            free_pagetable(pt, private.sz);
         }
-        unsafe {
-            *self.sz.get() = 0;
-            self.parent.reset();
-            shared.pid = ProcId::INVALID;
-            shared.name.clear();
-            shared.killed = false;
-            shared.state = ProcState::Unused;
-        }
-    }
-
-    pub fn is_valid_addr(&self, addr_range: Range<VirtAddr>) -> bool {
-        let end = VirtAddr::new(unsafe { *self.sz.get() });
-        addr_range.start < end && addr_range.end <= end // both tests needed, in case of overflow
+        private.sz = 0;
+        unsafe { self.parent.reset() };
+        shared.pid = ProcId::INVALID;
+        shared.name.clear();
+        shared.killed = false;
+        shared.state = ProcState::Unused;
     }
 }
 
@@ -439,16 +455,14 @@ pub fn map_stacks(kpgtbl: &mut PageTable) {
 
 /// Initialize the proc table.
 pub fn init() {
-    unsafe {
-        for (i, p) in PROC.iter().enumerate() {
-            *p.kstack.get() = kstack(i);
-        }
+    for (i, p) in PROC.iter().enumerate() {
+        unsafe { p.private_mut() }.kstack = kstack(i);
     }
 }
 
 /// Creates a user page table for a given process, with no user memory,
 /// but with trampoline and trapframe pages.
-pub fn create_pagetable(p: &Proc) -> Option<NonNull<PageTable>> {
+pub fn create_pagetable(private: &mut ProcPrivateData) -> Option<NonNull<PageTable>> {
     // An empty page table.
     let mut pagetable_ptr = vm::user::create().ok()?;
     let pagetable = unsafe { pagetable_ptr.as_mut() };
@@ -477,11 +491,7 @@ pub fn create_pagetable(p: &Proc) -> Option<NonNull<PageTable>> {
     if pagetable
         .map_page(
             TRAPFRAME,
-            PhysAddr::new(
-                unsafe { *p.trapframe.get() }
-                    .map(|tf| tf.addr().get())
-                    .unwrap_or(0),
-            ),
+            PhysAddr::new(private.trapframe.map(|tf| tf.addr().get()).unwrap_or(0)),
             PtEntryFlags::RW,
         )
         .is_err()
@@ -522,44 +532,40 @@ static INIT_CODE: [u8; 52] = [
 
 /// Set up first user process.
 pub fn user_init() {
-    let (p, mut shared) = Proc::allocate().unwrap();
+    let (p, mut shared, private) = Proc::allocate().unwrap();
     INITPROC.store(ptr::from_ref(p).cast_mut(), Ordering::Release);
 
     // allocate one user page and copy initcode's instructions
     // and data into it.
-    vm::user::map_first(p.pagetable_mut().unwrap(), &INIT_CODE);
-    unsafe {
-        *p.sz.get() = PAGE_SIZE;
-    }
+    vm::user::map_first(private.pagetable_mut().unwrap(), &INIT_CODE);
+    private.sz = PAGE_SIZE;
 
     // prepare for the very first `return` from kernel to user.
-    let trapframe = p.trapframe_mut().unwrap();
+    let trapframe = private.trapframe_mut().unwrap();
     trapframe.epc = 0; // user program counter
     trapframe.sp = PAGE_SIZE as u64; // user stack pointer
 
-    unsafe {
-        let tx = fs::begin_readonly_tx();
-        *p.cwd.get() = Some(Inode::from_tx(&fs::path::resolve(&tx, p, b"/").unwrap()));
-        tx.end();
-        shared.name = "initcode".try_into().unwrap();
-        shared.state = ProcState::Runnable;
-    }
+    let tx = fs::begin_readonly_tx();
+    private.cwd = Some(Inode::from_tx(
+        &fs::path::resolve(&tx, private, b"/").unwrap(),
+    ));
+    tx.end();
+    shared.name = "initcode".try_into().unwrap();
+    shared.state = ProcState::Runnable;
 
     drop(shared);
 }
 
 /// Grows or shrink user memory by nBytes.
-pub fn grow_proc(p: &Proc, n: isize) -> Result<(), Error> {
-    let old_sz = unsafe { *p.sz.get() };
+pub fn grow_proc(private: &mut ProcPrivateData, n: isize) -> Result<(), Error> {
+    let old_sz = private.sz;
     let new_sz = (old_sz as isize + n) as usize;
-    let pagetable = p.pagetable_mut().unwrap();
+    let pagetable = private.pagetable_mut().unwrap();
 
-    unsafe {
-        *p.sz.get() = match new_sz.cmp(&old_sz) {
-            cmp::Ordering::Equal => old_sz,
-            cmp::Ordering::Less => vm::user::dealloc(pagetable, old_sz, new_sz),
-            cmp::Ordering::Greater => vm::user::alloc(pagetable, old_sz, new_sz, PtEntryFlags::W)?,
-        }
+    private.sz = match new_sz.cmp(&old_sz) {
+        cmp::Ordering::Equal => old_sz,
+        cmp::Ordering::Less => vm::user::dealloc(pagetable, old_sz, new_sz),
+        cmp::Ordering::Greater => vm::user::alloc(pagetable, old_sz, new_sz, PtEntryFlags::W)?,
     };
 
     Ok(())
@@ -568,45 +574,39 @@ pub fn grow_proc(p: &Proc, n: isize) -> Result<(), Error> {
 /// Creates a new process, copying the parent.
 ///
 /// Sets up child kernel stack to return as if from `fork()` system call.
-pub fn fork(p: &Proc) -> Option<ProcId> {
+pub fn fork(p: &Proc, p_private: &ProcPrivateData) -> Option<ProcId> {
     let parent_name = p.shared().lock().name;
 
     // Allocate process.
-    let (np, mut np_shared) = Proc::allocate()?;
+    let (np, mut np_shared, np_private) = Proc::allocate()?;
 
     // Copy use memory from parent to child.
     if vm::user::copy(
-        p.pagetable().unwrap(),
-        np.pagetable_mut().unwrap(),
-        unsafe { *p.sz.get() },
+        p_private.pagetable().unwrap(),
+        np_private.pagetable_mut().unwrap(),
+        p_private.sz,
     )
     .is_err()
     {
-        np.free(&mut np_shared);
+        np.free(np_private, &mut np_shared);
         drop(np_shared);
         return None;
     }
-    unsafe {
-        *np.sz.get() = *p.sz.get();
-    }
+    np_private.sz = p_private.sz;
 
     // Copy saved user registers.
-    *np.trapframe_mut().unwrap() = *p.trapframe().unwrap();
+    *np_private.trapframe_mut().unwrap() = *p_private.trapframe().unwrap();
 
     // Cause fork to return 0 in the child.
-    np.trapframe_mut().unwrap().a0 = 0;
+    np_private.trapframe_mut().unwrap().a0 = 0;
 
     // increment refereence counts on open file descriptors.
-    for (of, nof) in p.ofile.iter().zip(&np.ofile) {
-        if let Some(of) = unsafe { of.get().as_ref().unwrap().as_ref() } {
-            unsafe {
-                *nof.get() = Some(of.dup());
-            }
+    for (of, nof) in p_private.ofile.iter().zip(&mut np_private.ofile) {
+        if let Some(of) = of {
+            *nof = Some(of.dup());
         }
     }
-    unsafe {
-        *np.cwd.get() = p.cwd().cloned();
-    }
+    np_private.cwd = p_private.cwd.clone();
     np_shared.name = parent_name;
 
     let pid = np_shared.pid;
@@ -638,7 +638,7 @@ fn reparent(p: &Proc, wait_lock: &mut SpinLockGuard<WaitLock>) {
 /// Does not return.
 /// An exited process remains in the zombie state
 /// until its parent calls `wait()`.
-pub fn exit(p: &Proc, status: i32) -> ! {
+pub fn exit(p: &Proc, p_private: &mut ProcPrivateData, status: i32) -> ! {
     // Ensure all destruction is done before `sched().`
     let mut shared = {
         assert!(
@@ -647,24 +647,15 @@ pub fn exit(p: &Proc, status: i32) -> ! {
         );
 
         // Close all open files.
-        for of in &p.ofile {
-            if let Some(of) = unsafe { &mut *of.get() }.take() {
+        for of in &mut p_private.ofile {
+            if let Some(of) = of.take() {
                 of.close();
             }
-            assert!(unsafe { of.get().as_ref().unwrap() }.is_none());
         }
 
         let tx = fs::begin_tx();
-        unsafe { &mut *p.cwd.get() }
-            .take()
-            .unwrap()
-            .into_tx(&tx)
-            .put();
+        p_private.cwd.take().unwrap().into_tx(&tx).put();
         tx.end();
-
-        unsafe {
-            *p.cwd.get() = None;
-        }
 
         let mut wait_lock = wait_lock::lock();
 
@@ -685,6 +676,7 @@ pub fn exit(p: &Proc, status: i32) -> ! {
             exit_status: status,
         };
 
+        let _ = p_private; // drop mutable reference
         drop(wait_lock);
         shared
     };
@@ -698,7 +690,7 @@ pub fn exit(p: &Proc, status: i32) -> ! {
 /// Waits for a child process to exit and return its pid.
 ///
 /// Returns `Err` if this process has no children.
-pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, Error> {
+pub fn wait(p: &Proc, p_private: &ProcPrivateData, addr: VirtAddr) -> Result<ProcId, Error> {
     let mut wait_lock = wait_lock::lock();
 
     loop {
@@ -714,15 +706,18 @@ pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, Error> {
             have_kids = true;
             if let ProcState::Zombie { exit_status } = pp_shared.state {
                 // Found one.
+                // SAFETY: When in Zombie state, no other routines refer private data.
+                let pp_private = unsafe { pp.private_mut() };
+
                 let pid = pp_shared.pid;
                 if addr.addr() != 0
-                    && vm::copy_out(p.pagetable().unwrap(), addr, &exit_status).is_err()
+                    && vm::copy_out(p_private.pagetable().unwrap(), addr, &exit_status).is_err()
                 {
                     drop(pp_shared);
                     drop(wait_lock);
                     return Err(Error::Unknown);
                 }
-                pp.free(&mut pp_shared);
+                pp.free(pp_private, &mut pp_shared);
                 drop(pp_shared);
                 drop(wait_lock);
                 return Ok(pid);
@@ -757,6 +752,7 @@ extern "C" fn forkret() {
 
     // Still holding `p->shared` from `scheduler()`.
     let p = Proc::current();
+    let private = unsafe { p.private_mut() };
     let _ = unsafe { p.shared.remember_locked() }; // unlock here
 
     if FIRST.load(Ordering::Acquire) {
@@ -768,7 +764,7 @@ extern "C" fn forkret() {
         FIRST.store(false, Ordering::Release);
     }
 
-    trap::trap_user_ret(p);
+    trap::trap_user_ret(private);
 }
 
 /// Automatically releases `lock` and sleeps on `chan``.
@@ -834,13 +830,13 @@ pub fn kill(pid: ProcId) -> Result<(), Error> {
 /// Copies to either a user address, or kernel address,
 /// depending on `user_dst`.
 pub fn either_copy_out_bytes(
-    p: &Proc,
+    p_private: &ProcPrivateData,
     user_dst: bool,
     dst: usize,
     src: &[u8],
 ) -> Result<(), Error> {
     if user_dst {
-        return vm::copy_out_bytes(p.pagetable().unwrap(), VirtAddr::new(dst), src);
+        return vm::copy_out_bytes(p_private.pagetable().unwrap(), VirtAddr::new(dst), src);
     }
 
     unsafe {
@@ -854,13 +850,13 @@ pub fn either_copy_out_bytes(
 /// Copies from either a user address, or kernel address,
 /// depending on `user_src`.
 pub fn either_copy_in_bytes(
-    p: &Proc,
+    p_private: &ProcPrivateData,
     dst: &mut [u8],
     user_src: bool,
     src: usize,
 ) -> Result<(), Error> {
     if user_src {
-        return vm::copy_in_bytes(p.pagetable().unwrap(), dst, VirtAddr::new(src));
+        return vm::copy_in_bytes(p_private.pagetable().unwrap(), dst, VirtAddr::new(src));
     }
     unsafe {
         let src = ptr::with_exposed_provenance::<u8>(src);

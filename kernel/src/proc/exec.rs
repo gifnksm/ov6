@@ -11,6 +11,8 @@ use crate::{
     },
 };
 
+use super::ProcPrivateData;
+
 fn flags2perm(flags: u32) -> PtEntryFlags {
     let mut perm = PtEntryFlags::empty();
     if flags & 0x1 != 0 {
@@ -22,16 +24,21 @@ fn flags2perm(flags: u32) -> PtEntryFlags {
     perm
 }
 
-pub fn exec(p: &Proc, path: &[u8], argv: *const *const u8) -> Result<usize, Error> {
+pub fn exec(
+    p: &Proc,
+    private: &mut ProcPrivateData,
+    path: &[u8],
+    argv: *const *const u8,
+) -> Result<usize, Error> {
     let tx = fs::begin_tx();
-    let mut ip = fs::path::resolve(&tx, p, path)?;
+    let mut ip = fs::path::resolve(&tx, private, path)?;
     let mut lip = ip.lock();
 
     // Check ELF header
     let mut elf = ElfHeader::zero();
 
     let nread = lip.read(
-        p,
+        private,
         false,
         VirtAddr::new((&raw mut elf).addr()),
         0,
@@ -44,13 +51,17 @@ pub fn exec(p: &Proc, path: &[u8], argv: *const *const u8) -> Result<usize, Erro
         return Err(Error::Unknown);
     }
 
-    let mut pagetable = proc::create_pagetable(p).ok_or(Error::Unknown)?;
+    let mut pagetable = proc::create_pagetable(private).ok_or(Error::Unknown)?;
 
     // Load program into memory.
     let mut sz = 0;
-    if let Err(Error::Unknown) =
-        load_segments(p, &mut lip, unsafe { pagetable.as_mut() }, &mut sz, &elf)
-    {
+    if let Err(Error::Unknown) = load_segments(
+        private,
+        &mut lip,
+        unsafe { pagetable.as_mut() },
+        &mut sz,
+        &elf,
+    ) {
         proc::free_pagetable(pagetable, sz);
         return Err(Error::Unknown);
     }
@@ -76,7 +87,7 @@ pub fn exec(p: &Proc, path: &[u8], argv: *const *const u8) -> Result<usize, Erro
     // arguments to user main(argc, argv).
     // argc is returned via the system call return
     // value, which goes in a0.
-    p.trapframe_mut().unwrap().a1 = sp as u64;
+    private.trapframe_mut().unwrap().a1 = sp as u64;
 
     // Save program name for debugging.
     let name = path
@@ -87,15 +98,15 @@ pub fn exec(p: &Proc, path: &[u8], argv: *const *const u8) -> Result<usize, Erro
     p.shared().lock().set_name(name);
 
     // Commit to the user image.
-    p.update_pagetable(pagetable, sz);
-    p.trapframe_mut().unwrap().epc = elf.entry; // initial pogram counter = main
-    p.trapframe_mut().unwrap().sp = sp as u64; // initial stack pointer
+    private.update_pagetable(pagetable, sz);
+    private.trapframe_mut().unwrap().epc = elf.entry; // initial pogram counter = main
+    private.trapframe_mut().unwrap().sp = sp as u64; // initial stack pointer
 
     Ok(argc)
 }
 
 fn load_segments<const READ_ONLY: bool>(
-    p: &Proc,
+    private: &ProcPrivateData,
     lip: &mut LockedTxInode<READ_ONLY>,
     pagetable: &mut PageTable,
     sz: &mut usize,
@@ -105,7 +116,7 @@ fn load_segments<const READ_ONLY: bool>(
         let off = elf.phoff as usize + usize::from(i) * size_of::<ProgramHeader>();
         let mut ph = ProgramHeader::zero();
         lip.read(
-            p,
+            private,
             false,
             VirtAddr::new((&raw mut ph).addr()),
             off,
@@ -130,7 +141,7 @@ fn load_segments<const READ_ONLY: bool>(
             flags2perm(ph.flags),
         )?;
         load_segment(
-            p,
+            private,
             pagetable,
             VirtAddr::new(ph.vaddr as usize),
             lip,
@@ -146,7 +157,7 @@ fn load_segments<const READ_ONLY: bool>(
 ///
 /// `va` must be page-aligned.
 fn load_segment<const READ_ONLY: bool>(
-    p: &Proc,
+    private: &ProcPrivateData,
     pagetable: &PageTable,
     va: VirtAddr,
     lip: &mut LockedTxInode<READ_ONLY>,
@@ -166,7 +177,7 @@ fn load_segment<const READ_ONLY: bool>(
             PAGE_SIZE
         };
 
-        let nread = lip.read(p, false, VirtAddr::new(pa.addr()), offset + i, n)?;
+        let nread = lip.read(private, false, VirtAddr::new(pa.addr()), offset + i, n)?;
         if nread != n {
             return Err(Error::Unknown);
         }

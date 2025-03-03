@@ -16,7 +16,7 @@ use crate::{
         repr::{self, FS_BLOCK_SIZE, MAX_FILE, NUM_DIRECT_REFS, NUM_INDIRECT_REFS},
     },
     memory::vm::VirtAddr,
-    proc::{self, Proc},
+    proc::{self, ProcPrivateData},
 };
 
 use super::LockedTxInode;
@@ -141,7 +141,7 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
     /// there was an error of some kind.
     pub fn read(
         &mut self,
-        p: &Proc,
+        private: &ProcPrivateData,
         user_dst: bool,
         dst: VirtAddr,
         off: usize,
@@ -169,7 +169,7 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
             // TODO: check if this is correct
             // if tot > 0, return Ok(tot)?
             proc::either_copy_out_bytes(
-                p,
+                private,
                 user_dst,
                 dst.addr(),
                 &bg.bytes()[off % FS_BLOCK_SIZE..][..m],
@@ -180,13 +180,13 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
     }
 
     /// Reads the inode's data as `T`.
-    pub fn read_as<T>(&mut self, p: &Proc, off: usize) -> Result<T, Error>
+    pub fn read_as<T>(&mut self, private: &ProcPrivateData, off: usize) -> Result<T, Error>
     where
         T: Pod,
     {
         let mut dst = MaybeUninit::<T>::uninit();
         let read = self.read(
-            p,
+            private,
             false,
             VirtAddr::new(dst.as_mut_ptr().addr()),
             off,
@@ -209,7 +209,7 @@ impl LockedTxInode<'_, '_, false> {
     /// there was an error of some kind.
     pub fn write(
         &mut self,
-        p: &Proc,
+        private: &ProcPrivateData,
         user_src: bool,
         src: VirtAddr,
         off: usize,
@@ -237,7 +237,7 @@ impl LockedTxInode<'_, '_, false> {
             // TODO: check if this is correct.
             // if tot > 0, return Ok(tot)?
             proc::either_copy_in_bytes(
-                p,
+                private,
                 &mut bg.bytes_mut()[off % FS_BLOCK_SIZE..][..m],
                 user_src,
                 src.addr(),
@@ -259,12 +259,17 @@ impl LockedTxInode<'_, '_, false> {
     }
 
     /// Writes `data` to inode.
-    pub fn write_data<T>(&mut self, p: &Proc, off: usize, data: &T) -> Result<(), Error>
+    pub fn write_data<T>(
+        &mut self,
+        private: &ProcPrivateData,
+        off: usize,
+        data: &T,
+    ) -> Result<(), Error>
     where
         T: Pod,
     {
         let written = self.write(
-            p,
+            private,
             false,
             VirtAddr::new(ptr::from_ref(data).addr()),
             off,

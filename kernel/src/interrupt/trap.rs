@@ -21,7 +21,7 @@ use crate::{
         vm::PAGE_SIZE,
     },
     println,
-    proc::{self, Proc},
+    proc::{self, Proc, ProcPrivateData},
     sync::SpinLock,
     syscall,
 };
@@ -49,9 +49,10 @@ extern "C" fn trap_user() {
     }
 
     let p = Proc::current();
+    let private = unsafe { p.private_mut() };
 
     // save user program counter.
-    p.trapframe_mut().unwrap().epc = sepc::read() as u64;
+    private.trapframe_mut().unwrap().epc = sepc::read() as u64;
 
     let scause: Trap<Interrupt, Exception> = scause::read().cause().try_into().unwrap();
     let mut which_dev = IntrKind::NotRecognized;
@@ -59,18 +60,18 @@ extern "C" fn trap_user() {
         Trap::Exception(Exception::UserEnvCall) => {
             // system call
             if p.shared().lock().killed() {
-                proc::exit(p, -1);
+                proc::exit(p, private, -1);
             }
 
             // sepc points to the ecall instruction,
             // but we want to return to the next instruction.
-            p.trapframe_mut().unwrap().epc += 4;
+            private.trapframe_mut().unwrap().epc += 4;
 
             // an interrupt will change sepc, scause, and sstatus,
             // so enable only now that we're done with those registers.
             interrupt::enable();
 
-            syscall::syscall(p);
+            syscall::syscall(p, private);
         }
         Trap::Exception(e) => {
             let mut shared = p.shared().lock();
@@ -98,7 +99,7 @@ extern "C" fn trap_user() {
     }
 
     if p.shared().lock().killed() {
-        proc::exit(p, -1);
+        proc::exit(p, private, -1);
     }
 
     // gibe up the CPU if this is a timer interrupt.
@@ -106,11 +107,11 @@ extern "C" fn trap_user() {
         proc::yield_(p);
     }
 
-    trap_user_ret(p);
+    trap_user_ret(private);
 }
 
 /// Returns to user space
-pub fn trap_user_ret(p: &Proc) {
+pub fn trap_user_ret(private: &mut ProcPrivateData) {
     // we're about to switch destination of traps from
     // kerneltrap() to usertrap(), so turn off interrupts until
     // we're back in user space, where usertrap() is correct.
@@ -124,8 +125,8 @@ pub fn trap_user_ret(p: &Proc) {
 
     // set up trapframe values that uservec will need when
     // the process next traps into the kernel.
-    let kstack = p.kstack();
-    let tf = p.trapframe_mut().unwrap();
+    let kstack = private.kstack();
+    let tf = private.trapframe_mut().unwrap();
     tf.kernel_satp = satp::read().bits() as u64; // kernel page table
     tf.kernel_sp = (kstack + PAGE_SIZE) as u64; // process's kernel stack
     tf.kernel_trap = (trap_user as usize) as u64;
@@ -143,10 +144,10 @@ pub fn trap_user_ret(p: &Proc) {
     }
 
     // set S Exception Program Counter to the saved user pc.
-    sepc::write(p.trapframe().unwrap().epc as usize);
+    sepc::write(private.trapframe().unwrap().epc as usize);
 
     // tell trampoline.S the user page table to switch to.
-    let satp = (8 << 60) | (ptr::from_ref(p.pagetable().unwrap()).addr() >> 12);
+    let satp = (8 << 60) | (ptr::from_ref(private.pagetable().unwrap()).addr() >> 12);
 
     // jump to userret in trampoline.S at the top of memory, which
     // switches to the user page table, restores user registers,
