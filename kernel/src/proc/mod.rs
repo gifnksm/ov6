@@ -251,12 +251,8 @@ impl Proc {
 
     /// Returns the current process.
     pub fn try_current() -> Option<&'static Self> {
-        let p = interrupt::with_push_disabled(|| {
-            let c = Cpu::current();
-            unsafe { c.proc() }
-        });
-
-        p.map(|p| unsafe { p.as_ref() })
+        let p = interrupt::with_push_disabled(|| Cpu::current().proc())?;
+        Some(unsafe { p.as_ref() })
     }
 
     pub fn pid(&self) -> ProcId {
@@ -781,10 +777,7 @@ pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, Error> {
 ///   via switch back to the scheduler.
 pub fn scheduler() -> ! {
     let cpu = Cpu::current();
-
-    unsafe {
-        cpu.set_proc(None);
-    }
+    cpu.set_proc(None);
 
     loop {
         // The most recent process to run may have had interrupts
@@ -804,17 +797,13 @@ pub fn scheduler() -> ! {
             // to release its lock and then reacquire it
             // before jumping back to us.
             shared.state = ProcState::Running;
-            unsafe {
-                cpu.set_proc(Some(p.into()));
-                switch::switch(cpu.context.get(), &shared.context);
-            }
+            cpu.set_proc(Some(p));
+            switch::switch(cpu.context.get(), &shared.context);
 
             // Process is done running for now.
             // It should have changed its p->state before coming back.
-            unsafe {
-                cpu.set_proc(None);
-                found = true;
-            }
+            cpu.set_proc(None);
+            found = true;
             drop(shared);
         }
 

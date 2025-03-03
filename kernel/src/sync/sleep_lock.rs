@@ -38,7 +38,7 @@ impl RawSleepLock {
         }
 
         locked.0 = true;
-        locked.1 = unsafe { Cpu::current().pid() };
+        locked.1 = Cpu::current().pid();
         Ok(())
     }
 
@@ -48,7 +48,7 @@ impl RawSleepLock {
             locked = proc::sleep(ptr::from_ref(self).cast(), locked);
         }
         locked.0 = true;
-        locked.1 = unsafe { Cpu::current().pid() };
+        locked.1 = Cpu::current().pid();
     }
 
     fn release(&self) {

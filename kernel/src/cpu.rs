@@ -4,16 +4,15 @@ use crate::{
     interrupt,
     param::NCPU,
     proc::{Context, Proc, ProcId},
+    sync::SpinLock,
 };
 
 static CPUS: [Cpu; NCPU] = [const { Cpu::new() }; NCPU];
 
 /// Per-CPU state.
 pub struct Cpu {
-    /// The id of process running on this Cpu.
-    pid: UnsafeCell<ProcId>,
-    /// The process running on this Cpu, or None.
-    proc: UnsafeCell<Option<NonNull<Proc>>>,
+    /// The process running on this Cpu.
+    proc: SpinLock<(ProcId, Option<NonNull<Proc>>)>,
     /// switch() here to enter scheduler()
     pub context: UnsafeCell<Context>,
 }
@@ -45,8 +44,7 @@ pub unsafe fn set_id(id: usize) {
 impl Cpu {
     const fn new() -> Self {
         Self {
-            pid: UnsafeCell::new(ProcId::INVALID),
-            proc: UnsafeCell::new(None),
+            proc: SpinLock::new((ProcId::INVALID, None)),
             context: UnsafeCell::new(Context::zeroed()),
         }
     }
@@ -61,18 +59,22 @@ impl Cpu {
         &CPUS[id]
     }
 
-    pub unsafe fn set_proc(&self, p: Option<NonNull<Proc>>) {
-        unsafe {
-            *self.pid.get() = p.map(|p| (*p.as_ptr()).pid()).unwrap_or(ProcId::INVALID);
-            *self.proc.get() = p;
-        }
+    pub fn set_proc(&self, p: Option<&Proc>) {
+        assert!(!interrupt::is_enabled());
+
+        let pid = p.map(|p| p.pid()).unwrap_or(ProcId::INVALID);
+        *self.proc.try_lock().unwrap() = (pid, p.map(NonNull::from));
     }
 
-    pub unsafe fn pid(&self) -> ProcId {
-        unsafe { *self.pid.get() }
+    pub fn pid(&self) -> ProcId {
+        assert!(!interrupt::is_enabled());
+
+        self.proc.try_lock().unwrap().0
     }
 
-    pub unsafe fn proc(&self) -> Option<NonNull<Proc>> {
-        unsafe { *self.proc.get() }
+    pub fn proc(&self) -> Option<NonNull<Proc>> {
+        assert!(!interrupt::is_enabled());
+
+        self.proc.try_lock().unwrap().1
     }
 }
