@@ -9,7 +9,7 @@ use riscv::register::sstatus;
 
 use crate::{cpu, param::NCPU};
 
-pub mod kernel_vec;
+mod kernel_vec;
 pub mod plic;
 pub mod trampoline;
 pub mod trap;

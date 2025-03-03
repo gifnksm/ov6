@@ -1,7 +1,10 @@
 use core::{arch::asm, mem, ptr};
 
 use riscv::{
-    interrupt::Trap,
+    interrupt::{
+        Trap,
+        supervisor::{Exception, Interrupt},
+    },
     register::{
         satp, scause, sepc,
         sstatus::{self, SPP},
@@ -37,8 +40,6 @@ pub fn init_hart() {
 ///
 /// Called from trampoline.S
 extern "C" fn trap_user() {
-    let mut which_dev = IntrKind::NotRecognized;
-
     assert_eq!(sstatus::read().spp(), SPP::User, "from user mode");
 
     // send interrupts and exceptions to kerneltrap(),
@@ -52,33 +53,43 @@ extern "C" fn trap_user() {
     // save user program counter.
     p.trapframe_mut().unwrap().epc = sepc::read() as u64;
 
-    let cause = scause::read().cause();
-    if cause == Trap::Exception(8) {
-        // system call
+    let scause: Trap<Interrupt, Exception> = scause::read().cause().try_into().unwrap();
+    let mut which_dev = IntrKind::NotRecognized;
+    match scause {
+        Trap::Exception(Exception::UserEnvCall) => {
+            // system call
+            if p.killed() {
+                proc::exit(p, -1);
+            }
 
-        if p.killed() {
-            proc::exit(p, -1);
+            // sepc points to the ecall instruction,
+            // but we want to return to the next instruction.
+            p.trapframe_mut().unwrap().epc += 4;
+
+            // an interrupt will change sepc, scause, and sstatus,
+            // so enable only now that we're done with those registers.
+            interrupt::enable();
+
+            syscall::syscall(p);
         }
-
-        // sepc points to the ecall instruction,
-        // but we want to return to the next instruction.
-        p.trapframe_mut().unwrap().epc += 4;
-
-        // an interrupt will change sepc, scause, and sstatus,
-        // so enable only now that we're done with those registers.
-        interrupt::enable();
-
-        syscall::syscall(p);
-    } else {
-        which_dev = handle_dev_interrupt();
-        if which_dev == IntrKind::NotRecognized {
+        Trap::Exception(e) => {
             let pid = p.shared().lock().pid();
-            let scause = scause::read().bits();
             let sepc = sepc::read();
             let stval = stval::read();
-            println!("usertrap: unexpected scause {scause:#x} pid={pid}\n");
+            println!("usertrap: exception {e:?} pid={pid}");
             println!("          sepc={sepc:#x} stval={stval:#x}");
             p.set_killed();
+        }
+        Trap::Interrupt(int) => {
+            which_dev = handle_dev_interrupt(int);
+            if which_dev == IntrKind::NotRecognized {
+                let pid = p.shared().lock().pid();
+                let sepc = sepc::read();
+                let stval = stval::read();
+                println!("usertrap: unexpected interrupt {int:?} pid={pid}");
+                println!("          sepc={sepc:#x} stval={stval:#x}");
+                p.set_killed();
+            }
         }
     }
 
@@ -152,26 +163,34 @@ pub extern "C" fn trap_kernel() {
     unsafe {
         asm!("csrr {}, sstatus", out(reg) sstatus_bits);
     }
-    let scause = scause::read();
+    let scause: Trap<Interrupt, Exception> = scause::read().cause().try_into().unwrap();
 
     assert_eq!(sstatus.spp(), SPP::Supervisor, "from supervisor mode");
     assert!(!interrupt::is_enabled());
 
-    let which_dev = handle_dev_interrupt();
-    if which_dev == IntrKind::NotRecognized {
-        println!(
-            "scause={:#x} sepc={:#x} stval={:#x}",
-            scause.bits(),
-            sepc,
-            stval::read()
-        );
-        panic!("unexpected trap");
-    }
+    let (int, which_dev) = match scause {
+        Trap::Exception(e) => {
+            let stval = stval::read();
+            println!("kernel trap: exception {e:#?}");
+            println!("             sepc={sepc:#x} stval={stval:#x}");
+            panic!("unexpected trap (exception)");
+        }
+        Trap::Interrupt(int) => (int, handle_dev_interrupt(int)),
+    };
 
-    // give up the CPU if this is a timer interrupt.
-    if which_dev == IntrKind::Timer {
-        if let Some(p) = Proc::try_current() {
-            proc::yield_(p)
+    match which_dev {
+        IntrKind::Timer => {
+            // give up the CPU if this is a timer interrupt.
+            if let Some(p) = Proc::try_current() {
+                proc::yield_(p)
+            }
+        }
+        IntrKind::Other => {}
+        IntrKind::NotRecognized => {
+            let stval = stval::read();
+            println!("kernel trap: interrupt {int:?}");
+            println!("             sepc={sepc:#x} stval={stval:#x}");
+            panic!("unexpected trap (interrupt)");
         }
     }
 
@@ -214,37 +233,34 @@ enum IntrKind {
 /// return 2 if timer interrupt,
 /// 1 if other device,
 /// 0 if not recognized
-fn handle_dev_interrupt() -> IntrKind {
-    let scause = scause::read();
-
-    if scause.cause() == Trap::Interrupt(9) {
-        // this is a supervisor external interrupt, via PLIC.
-
-        // irq indicates which device interrupted.
-        let irq = plic::claim();
-
-        if irq == UART0_IRQ {
-            uart::handle_interrupt();
-        } else if irq == VIRTIO0_IRQ {
-            fs::virtio_disk::handle_interrupt();
-        } else if irq > 0 {
-            println!("unexpected interrupt irq={irq}");
+fn handle_dev_interrupt(int: Interrupt) -> IntrKind {
+    match int {
+        Interrupt::SupervisorSoft => IntrKind::NotRecognized,
+        Interrupt::SupervisorTimer => {
+            handle_clock_interrupt();
+            IntrKind::Timer
         }
+        Interrupt::SupervisorExternal => {
+            // this is a supervisor external interrupt, via PLIC.
 
-        // the PLIC allows each device to raise at most one
-        // interrupt at a time; tell the PLIC the device is
-        // now allowed to interrupt again.
-        if irq > 0 {
-            plic::complete(irq);
+            // irq indicates which device interrupted.
+            let irq = plic::claim();
+
+            if irq == UART0_IRQ {
+                uart::handle_interrupt();
+            } else if irq == VIRTIO0_IRQ {
+                fs::virtio_disk::handle_interrupt();
+            } else if irq > 0 {
+                println!("unexpected interrupt irq={irq}");
+            }
+
+            // the PLIC allows each device to raise at most one
+            // interrupt at a time; tell the PLIC the device is
+            // now allowed to interrupt again.
+            if irq > 0 {
+                plic::complete(irq);
+            }
+            IntrKind::Other
         }
-        return IntrKind::Other;
     }
-
-    if scause.cause() == Trap::Interrupt(5) {
-        // timer interrupt
-        handle_clock_interrupt();
-        return IntrKind::Timer;
-    }
-
-    IntrKind::NotRecognized
 }
