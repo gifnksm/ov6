@@ -1,9 +1,9 @@
-use core::{arch::asm, cell::UnsafeCell, ptr::NonNull};
+use core::{arch::asm, ptr::NonNull};
 
 use crate::{
     interrupt,
     param::NCPU,
-    proc::{Context, Proc, ProcId},
+    proc::{Proc, ProcId},
     sync::SpinLock,
 };
 
@@ -13,8 +13,6 @@ static CPUS: [Cpu; NCPU] = [const { Cpu::new() }; NCPU];
 pub struct Cpu {
     /// The process running on this Cpu.
     proc: SpinLock<(ProcId, Option<NonNull<Proc>>)>,
-    /// switch() here to enter scheduler()
-    pub context: UnsafeCell<Context>,
 }
 
 unsafe impl Sync for Cpu {}
@@ -45,7 +43,6 @@ impl Cpu {
     const fn new() -> Self {
         Self {
             proc: SpinLock::new((ProcId::INVALID, None)),
-            context: UnsafeCell::new(Context::zeroed()),
         }
     }
 

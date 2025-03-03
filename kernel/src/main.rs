@@ -64,5 +64,5 @@ extern "C" fn main() -> ! {
         interrupt::plic::init_hart(); // ask PLIC for device interrupts
     }
 
-    proc::scheduler();
+    proc::scheduler::schedule();
 }

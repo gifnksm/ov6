@@ -1,5 +1,4 @@
 use core::{
-    arch::asm,
     cell::UnsafeCell,
     cmp,
     ffi::{CStr, c_char, c_void},
@@ -26,11 +25,14 @@ use crate::{
     sync::{SpinLock, SpinLockGuard},
 };
 
-use self::wait_lock::{Parent, WaitLock};
+use self::{
+    scheduler::Context,
+    wait_lock::{Parent, WaitLock},
+};
 
 mod elf;
 pub mod exec;
-mod switch;
+pub mod scheduler;
 mod wait_lock;
 
 static PROC: [Proc; NPROC] = [const { Proc::new() }; NPROC];
@@ -55,52 +57,6 @@ impl ProcId {
 
     pub fn get(&self) -> i32 {
         self.0
-    }
-}
-
-/// Saved registers for kernel context switches.
-#[repr(C)]
-pub struct Context {
-    pub ra: u64,
-    pub sp: u64,
-
-    // callee-saved
-    pub s0: u64,
-    pub s1: u64,
-    pub s2: u64,
-    pub s3: u64,
-    pub s4: u64,
-    pub s5: u64,
-    pub s6: u64,
-    pub s7: u64,
-    pub s8: u64,
-    pub s9: u64,
-    pub s10: u64,
-    pub s11: u64,
-}
-
-impl Context {
-    pub const fn zeroed() -> Self {
-        Self {
-            ra: 0,
-            sp: 0,
-            s0: 0,
-            s1: 0,
-            s2: 0,
-            s3: 0,
-            s4: 0,
-            s5: 0,
-            s6: 0,
-            s7: 0,
-            s8: 0,
-            s9: 0,
-            s10: 0,
-            s11: 0,
-        }
-    }
-
-    const fn clear(&mut self) {
-        *self = Self::zeroed();
     }
 }
 
@@ -164,7 +120,9 @@ enum ProcState {
 struct ProcSharedData {
     state: ProcState,
     killed: bool,
-    /// switch() here to run process
+    /// Process context.
+    ///
+    /// Call `switch()` here to enter process.
     context: Context,
 }
 
@@ -712,7 +670,7 @@ pub fn exit(p: &Proc, status: i32) -> ! {
     };
 
     // Jump into the scheduler, never to return.
-    sched(&mut shared);
+    scheduler::sched(&mut shared);
 
     unreachable!("zombie exit");
 }
@@ -764,83 +722,11 @@ pub fn wait(p: &Proc, addr: VirtAddr) -> Result<ProcId, Error> {
     }
 }
 
-/// Per-CPU process scheduler.
-///
-/// Each CPU calls `scheduler()` after setting itself up.
-/// Scheduler never returns.
-///
-/// It loops doing:
-///
-/// - choose a process to run.
-/// - switch to start running that process.
-/// - eventually that process transfers control
-///   via switch back to the scheduler.
-pub fn scheduler() -> ! {
-    let cpu = Cpu::current();
-    cpu.set_proc(None);
-
-    loop {
-        // The most recent process to run may have had interrupts
-        // turned off; enable them to avoid a deadlock if all
-        // processes are waiting.
-        interrupt::enable();
-
-        let mut found = false;
-        for p in &PROC {
-            let mut shared = p.shared.lock();
-            if shared.state != ProcState::Runnable {
-                drop(shared);
-                continue;
-            }
-
-            // Switch to chosen process. It is the process's job
-            // to release its lock and then reacquire it
-            // before jumping back to us.
-            shared.state = ProcState::Running;
-            cpu.set_proc(Some(p));
-            switch::switch(cpu.context.get(), &shared.context);
-
-            // Process is done running for now.
-            // It should have changed its p->state before coming back.
-            cpu.set_proc(None);
-            found = true;
-            drop(shared);
-        }
-
-        if !found {
-            unsafe {
-                // nothing to run, stop running on this core until an interrupt.
-                interrupt::enable();
-                asm!("wfi");
-            }
-        }
-    }
-}
-
-/// Switch to shcduler.
-///
-/// Must hold only `Proc::lock` and  have changed `proc->state`.
-///
-/// Saves and restores `Cpu:intena` because `inteta` is a property of this kernel thread,
-/// not this CPU. It should be `Proc::intena` and `Proc::noff`, but that would break in the
-/// few places where a lock is held but there's no process.
-fn sched(shared: &mut SpinLockGuard<ProcSharedData>) {
-    assert_eq!(interrupt::disabled_depth(), 1);
-    assert_ne!(shared.state, ProcState::Running);
-    assert!(!interrupt::is_enabled());
-
-    let int_enabled = interrupt::is_enabled_before_push();
-    switch::switch(&mut shared.context, Cpu::current().context.get());
-    unsafe {
-        interrupt::force_set_before_push(int_enabled);
-    }
-}
-
 /// Gives up the CPU for one shceduling round.
 pub fn yield_(p: &Proc) {
     let mut shared = p.shared.lock();
     shared.state = ProcState::Runnable;
-    sched(&mut shared);
+    scheduler::sched(&mut shared);
     drop(shared);
 }
 
@@ -882,7 +768,7 @@ pub fn sleep<T>(chan: *const c_void, guard: SpinLockGuard<'_, T>) -> SpinLockGua
     // Go to sleep.
     shared.state = ProcState::Sleeping { chan };
 
-    sched(&mut shared);
+    scheduler::sched(&mut shared);
 
     // Reacquire original lock.
     drop(shared);
