@@ -4,7 +4,7 @@ use crate::proc::Context;
 
 /// Saves current registers in `old`, loads from `new`.
 #[naked]
-pub extern "C" fn switch(old: *mut Context, new: *mut Context) {
+pub extern "C" fn switch(old: *mut Context, new: *const Context) {
     unsafe {
         naked_asm!(
             "sd ra, {c_ra}(a0)",

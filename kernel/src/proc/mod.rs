@@ -159,16 +159,47 @@ enum ProcState {
 }
 
 /// Per-process state that can be accessed from other processes.
-struct ProcShared {
+struct ProcSharedData {
     state: ProcState,
     killed: bool,
+    /// switch() here to run process
+    context: Context,
+}
+
+pub struct ProcShared(SpinLock<ProcSharedData>);
+
+impl ProcShared {
+    const fn new() -> Self {
+        Self(SpinLock::new(ProcSharedData {
+            state: ProcState::Unused,
+            killed: false,
+            context: Context::zeroed(),
+        }))
+    }
+
+    pub fn current() -> &'static Self {
+        Self::try_current().unwrap()
+    }
+
+    pub fn try_current() -> Option<&'static Self> {
+        let p = Proc::try_current()?;
+        Some(&p.shared)
+    }
+
+    fn lock(&self) -> SpinLockGuard<ProcSharedData> {
+        self.0.lock()
+    }
+
+    unsafe fn remember_locked(&self) -> SpinLockGuard<ProcSharedData> {
+        unsafe { self.0.remember_locked() }
+    }
 }
 
 /// Per-process state.
 #[repr(C)]
 pub struct Proc {
     /// Process state.
-    shared: SpinLock<ProcShared>,
+    shared: ProcShared,
 
     /// Process ID
     pid: UnsafeCell<ProcId>,
@@ -185,8 +216,6 @@ pub struct Proc {
     pagetable: UnsafeCell<Option<NonNull<PageTable>>>,
     /// Data page for trampoline.S
     trapframe: UnsafeCell<Option<NonNull<TrapFrame>>>,
-    /// switch() here to run process
-    context: UnsafeCell<Context>,
     /// Open files
     ofile: [UnsafeCell<Option<File>>; NOFILE],
     /// Current directory
@@ -201,16 +230,12 @@ impl Proc {
     const fn new() -> Self {
         Self {
             pid: UnsafeCell::new(ProcId(0)),
-            shared: SpinLock::new(ProcShared {
-                state: ProcState::Unused,
-                killed: false,
-            }),
+            shared: ProcShared::new(),
             parent: Parent::new(),
             kstack: UnsafeCell::new(0),
             sz: UnsafeCell::new(0),
             pagetable: UnsafeCell::new(None),
             trapframe: UnsafeCell::new(None),
-            context: UnsafeCell::new(Context::zeroed()),
             ofile: [const { UnsafeCell::new(None) }; NOFILE],
             cwd: UnsafeCell::new(None),
             name: UnsafeCell::new([0; 16]),
@@ -333,7 +358,7 @@ impl Proc {
     ///
     /// If there is no UNUSED proc, returns None.
     /// This function also locks the proc.
-    fn lock_unused_proc() -> Option<(&'static Self, SpinLockGuard<'static, ProcShared>)> {
+    fn lock_unused_proc() -> Option<(&'static Self, SpinLockGuard<'static, ProcSharedData>)> {
         for p in &PROC {
             let shared = p.shared.lock();
             if shared.state != ProcState::Unused {
@@ -351,7 +376,7 @@ impl Proc {
     /// If found, initialize state required to run in the kenrnel,
     /// and return with the lock held.
     /// If there are no free procs, return None.
-    fn allocate() -> Option<(&'static Self, SpinLockGuard<'static, ProcShared>)> {
+    fn allocate() -> Option<(&'static Self, SpinLockGuard<'static, ProcSharedData>)> {
         let (p, mut shared) = Self::lock_unused_proc()?;
 
         unsafe {
@@ -367,9 +392,9 @@ impl Proc {
                 *p.pagetable.get() = Some(create_pagetable(p).ok_or(Error::Unknown)?);
                 // Set up new context to start executing ad forkret,
                 // which returns to user space.
-                (*p.context.get()).clear();
-                (*p.context.get()).ra = forkret as usize as u64;
-                (*p.context.get()).sp = ((*p.kstack.get()) + PAGE_SIZE) as u64;
+                shared.context.clear();
+                shared.context.ra = forkret as usize as u64;
+                shared.context.sp = ((*p.kstack.get()) + PAGE_SIZE) as u64;
             }
             Ok(())
         })();
@@ -387,7 +412,7 @@ impl Proc {
     /// including user pages.
     ///
     /// p.lock must be held.
-    fn free(&self, shared: &mut SpinLockGuard<ProcShared>) {
+    fn free(&self, shared: &mut SpinLockGuard<ProcSharedData>) {
         if let Some(tf) = unsafe { *self.trapframe.get() }.take() {
             unsafe {
                 page::free_page(tf.cast());
@@ -689,7 +714,7 @@ pub fn exit(p: &Proc, status: i32) -> ! {
     };
 
     // Jump into the scheduler, never to return.
-    sched(p, &mut shared);
+    sched(&mut shared);
 
     unreachable!("zombie exit");
 }
@@ -779,7 +804,7 @@ pub fn scheduler() -> ! {
             shared.state = ProcState::Running;
             unsafe {
                 *cpu.proc.get() = Some(p.into());
-                switch::switch(cpu.context.get(), p.context.get());
+                switch::switch(cpu.context.get(), &shared.context);
             }
 
             // Process is done running for now.
@@ -808,13 +833,13 @@ pub fn scheduler() -> ! {
 /// Saves and restores `Cpu:intena` because `inteta` is a property of this kernel thread,
 /// not this CPU. It should be `Proc::intena` and `Proc::noff`, but that would break in the
 /// few places where a lock is held but there's no process.
-fn sched(p: &Proc, shared: &mut SpinLockGuard<ProcShared>) {
+fn sched(shared: &mut SpinLockGuard<ProcSharedData>) {
     assert_eq!(interrupt::disabled_depth(), 1);
     assert_ne!(shared.state, ProcState::Running);
     assert!(!interrupt::is_enabled());
 
     let int_enabled = interrupt::is_enabled_before_push();
-    switch::switch(p.context.get(), Cpu::current().context.get());
+    switch::switch(&mut shared.context, Cpu::current().context.get());
     unsafe {
         interrupt::force_set_before_push(int_enabled);
     }
@@ -824,7 +849,7 @@ fn sched(p: &Proc, shared: &mut SpinLockGuard<ProcShared>) {
 pub fn yield_(p: &Proc) {
     let mut shared = p.shared.lock();
     shared.state = ProcState::Runnable;
-    sched(p, &mut shared);
+    sched(&mut shared);
     drop(shared);
 }
 
@@ -853,20 +878,20 @@ extern "C" fn forkret() {
 ///
 /// Reacquires lock when awakened.
 pub fn sleep<T>(chan: *const c_void, guard: SpinLockGuard<'_, T>) -> SpinLockGuard<'_, T> {
-    let p = Proc::current();
+    let p = ProcShared::current();
     // Must acquire `p.lock` in order to change
     // `p.state` and then call `sched()`.
     // Once we hold `p.lock()`, we can be
     // guaranteed that we won't miss any wakeup
     // (wakeup locks `p.lock`),
     // so it's okay to release `lock' here.`
-    let mut shared = p.shared.lock();
+    let mut shared = p.lock();
     let lock = guard.into_lock();
 
     // Go to sleep.
     shared.state = ProcState::Sleeping { chan };
 
-    sched(p, &mut shared);
+    sched(&mut shared);
 
     // Reacquire original lock.
     drop(shared);
