@@ -84,10 +84,7 @@ pub fn exec(p: &Proc, path: &[u8], argv: *const *const u8) -> Result<usize, Erro
         .position(|&c| c == b'/')
         .map(|i| &path[i..])
         .unwrap_or(path);
-    let dst = unsafe { p.name_mut().as_mut() };
-    dst.fill(0);
-    let copy_len = usize::min(dst.len() - 1, name.len());
-    dst[..copy_len].copy_from_slice(&name[..copy_len]);
+    p.shared().lock().set_name(name);
 
     // Commit to the user image.
     p.update_pagetable(pagetable, sz);

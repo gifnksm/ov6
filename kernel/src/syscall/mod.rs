@@ -68,8 +68,10 @@ pub fn arg_str<'a>(p: &Proc, n: usize, buf: &'a mut [u8]) -> Result<&'a [u8], Er
 pub fn syscall(p: &Proc) {
     let n = p.trapframe().unwrap().a7 as usize;
     let Some(ty) = SyscallType::from_repr(n) else {
-        let pid = p.shared().lock().pid();
-        println!("{} {}: unknown sys call {}", pid, p.name(), n);
+        let shared = p.shared().lock();
+        let pid = shared.pid();
+        let name = shared.name();
+        println!("{pid} {name}: unknown sys call {n}");
         p.trapframe_mut().unwrap().a0 = u64::MAX;
         return;
     };

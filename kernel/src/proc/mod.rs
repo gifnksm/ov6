@@ -1,13 +1,15 @@
 use core::{
     cell::UnsafeCell,
-    cmp,
-    ffi::{CStr, c_char, c_void},
+    char, cmp,
+    ffi::c_void,
     fmt, mem,
     ops::Range,
     ptr::{self, NonNull},
     slice,
     sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, Ordering},
 };
+
+use arrayvec::ArrayString;
 
 use crate::{
     cpu::Cpu,
@@ -120,6 +122,8 @@ enum ProcState {
 pub struct ProcSharedData {
     /// Process ID
     pid: ProcId,
+    /// Process name (for debugging)
+    name: ArrayString<16>,
     /// Process State
     state: ProcState,
     /// Process is killed
@@ -134,6 +138,26 @@ impl ProcSharedData {
     pub fn pid(&self) -> ProcId {
         self.pid
     }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn set_name(&mut self, name: &[u8]) {
+        self.name.clear();
+        'outer: for chunk in name.utf8_chunks() {
+            for ch in chunk.valid().chars() {
+                if self.name.try_push(ch).is_err() {
+                    break 'outer;
+                }
+            }
+            if !chunk.invalid().is_empty()
+                && self.name.try_push(char::REPLACEMENT_CHARACTER).is_err()
+            {
+                break 'outer;
+            }
+        }
+    }
 }
 
 pub struct ProcShared(SpinLock<ProcSharedData>);
@@ -142,6 +166,7 @@ impl ProcShared {
     const fn new() -> Self {
         Self(SpinLock::new(ProcSharedData {
             pid: ProcId::INVALID,
+            name: ArrayString::new_const(),
             state: ProcState::Unused,
             killed: false,
             context: Context::zeroed(),
@@ -191,8 +216,6 @@ pub struct Proc {
     ofile: [UnsafeCell<Option<File>>; NOFILE],
     /// Current directory
     cwd: UnsafeCell<Option<Inode>>,
-    // Process name (debugging)
-    name: UnsafeCell<[c_char; 16]>,
 }
 
 unsafe impl Sync for Proc {}
@@ -208,7 +231,6 @@ impl Proc {
             trapframe: UnsafeCell::new(None),
             ofile: [const { UnsafeCell::new(None) }; NOFILE],
             cwd: UnsafeCell::new(None),
-            name: UnsafeCell::new([0; 16]),
         }
     }
 
@@ -227,20 +249,8 @@ impl Proc {
         &self.shared
     }
 
-    pub fn name(&self) -> &str {
-        unsafe {
-            CStr::from_ptr((*self.name.get()).as_ptr())
-                .to_str()
-                .unwrap()
-        }
-    }
-
     pub fn cwd(&self) -> Option<&Inode> {
         unsafe { &*self.cwd.get() }.as_ref()
-    }
-
-    pub fn name_mut(&self) -> NonNull<[u8; 16]> {
-        NonNull::new(self.name.get()).unwrap()
     }
 
     pub fn size(&self) -> usize {
@@ -388,8 +398,8 @@ impl Proc {
         unsafe {
             *self.sz.get() = 0;
             self.parent.reset();
-            (*self.name.get()).fill(0);
             shared.pid = ProcId::INVALID;
+            shared.name.clear();
             shared.killed = false;
             shared.state = ProcState::Unused;
         }
@@ -528,10 +538,10 @@ pub fn user_init() {
     trapframe.sp = PAGE_SIZE as u64; // user stack pointer
 
     unsafe {
-        *p.name.get() = *b"initcode\0\0\0\0\0\0\0\0";
         let tx = fs::begin_readonly_tx();
         *p.cwd.get() = Some(Inode::from_tx(&fs::path::resolve(&tx, p, b"/").unwrap()));
         tx.end();
+        shared.name = "initcode".try_into().unwrap();
         shared.state = ProcState::Runnable;
     }
 
@@ -559,6 +569,8 @@ pub fn grow_proc(p: &Proc, n: isize) -> Result<(), Error> {
 ///
 /// Sets up child kernel stack to return as if from `fork()` system call.
 pub fn fork(p: &Proc) -> Option<ProcId> {
+    let parent_name = p.shared().lock().name;
+
     // Allocate process.
     let (np, mut np_shared) = Proc::allocate()?;
 
@@ -594,8 +606,8 @@ pub fn fork(p: &Proc) -> Option<ProcId> {
     }
     unsafe {
         *np.cwd.get() = p.cwd().cloned();
-        *np.name.get() = *p.name.get();
     }
+    np_shared.name = parent_name;
 
     let pid = np_shared.pid;
     drop(np_shared);
@@ -868,6 +880,7 @@ pub fn dump() {
         let shared = p.shared.lock();
         let pid = shared.pid;
         let state = shared.state;
+        let name = shared.name;
         drop(shared);
         if state == ProcState::Unused {
             continue;
@@ -881,10 +894,6 @@ pub fn dump() {
             ProcState::Running => "run",
             ProcState::Zombie { .. } => "zombie",
         };
-        let name = CStr::from_bytes_until_nul(unsafe { &*p.name.get() })
-            .unwrap()
-            .to_str()
-            .unwrap();
 
         println!("{pid:5} {state:<10} {name}");
     }

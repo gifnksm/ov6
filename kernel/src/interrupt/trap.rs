@@ -73,21 +73,27 @@ extern "C" fn trap_user() {
             syscall::syscall(p);
         }
         Trap::Exception(e) => {
-            let pid = p.shared().lock().pid();
+            let shared = p.shared().lock();
+            let pid = shared.pid();
+            let name = shared.name();
             let sepc = sepc::read();
             let stval = stval::read();
-            println!("usertrap: exception {e:?} pid={pid}");
+            println!("usertrap: exception {e:?} pid={pid} name={name}");
             println!("          sepc={sepc:#x} stval={stval:#x}");
+            drop(shared);
             p.set_killed();
         }
         Trap::Interrupt(int) => {
             which_dev = handle_dev_interrupt(int);
             if which_dev == IntrKind::NotRecognized {
-                let pid = p.shared().lock().pid();
+                let shared = p.shared().lock();
+                let pid = shared.pid();
+                let name = shared.name();
                 let sepc = sepc::read();
                 let stval = stval::read();
-                println!("usertrap: unexpected interrupt {int:?} pid={pid}");
+                println!("usertrap: unexpected interrupt {int:?} pid={pid} name={name}");
                 println!("          sepc={sepc:#x} stval={stval:#x}");
+                drop(shared);
                 p.set_killed();
             }
         }
