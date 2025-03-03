@@ -7,8 +7,9 @@ use core::{
 use mutex_api::Mutex;
 
 use crate::{
+    cpu::Cpu,
     error::Error,
-    proc::{self, Proc, ProcId},
+    proc::{self, ProcId},
 };
 
 use super::SpinLock;
@@ -37,7 +38,7 @@ impl RawSleepLock {
         }
 
         locked.0 = true;
-        locked.1 = Proc::current().pid();
+        locked.1 = unsafe { Cpu::current().pid() };
         Ok(())
     }
 
@@ -47,7 +48,7 @@ impl RawSleepLock {
             locked = proc::sleep(ptr::from_ref(self).cast(), locked);
         }
         locked.0 = true;
-        locked.1 = Proc::current().pid();
+        locked.1 = unsafe { Cpu::current().pid() };
     }
 
     fn release(&self) {
@@ -60,7 +61,7 @@ impl RawSleepLock {
 
     // fn holding(&self) -> bool {
     //     let mut locked = self.locked.lock();
-    //     let holding = locked.0 && locked.1 == Proc::current().pid();
+    //     let holding = locked.0 && locked.1 == unsafe { Cpu::current().pid() };
     //     holding
     // }
 }

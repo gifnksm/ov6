@@ -47,6 +47,8 @@ impl fmt::Display for ProcId {
 }
 
 impl ProcId {
+    pub const INVALID: Self = ProcId(-1);
+
     pub const fn new(pid: i32) -> Self {
         Self(pid)
     }
@@ -251,7 +253,7 @@ impl Proc {
     pub fn try_current() -> Option<&'static Self> {
         let p = interrupt::with_push_disabled(|| {
             let c = Cpu::current();
-            unsafe { *c.proc.get() }
+            unsafe { c.proc() }
         });
 
         p.map(|p| unsafe { p.as_ref() })
@@ -781,7 +783,7 @@ pub fn scheduler() -> ! {
     let cpu = Cpu::current();
 
     unsafe {
-        *cpu.proc.get() = None;
+        cpu.set_proc(None);
     }
 
     loop {
@@ -803,14 +805,14 @@ pub fn scheduler() -> ! {
             // before jumping back to us.
             shared.state = ProcState::Running;
             unsafe {
-                *cpu.proc.get() = Some(p.into());
+                cpu.set_proc(Some(p.into()));
                 switch::switch(cpu.context.get(), &shared.context);
             }
 
             // Process is done running for now.
             // It should have changed its p->state before coming back.
             unsafe {
-                *cpu.proc.get() = None;
+                cpu.set_proc(None);
                 found = true;
             }
             drop(shared);
