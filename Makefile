@@ -10,7 +10,6 @@ else
 CARGO_PROFILE_FLAG=--profile $(PROFILE)
 endif
 
-U=user
 R=target/xv6/$(PROFILE)
 I=target/xv6/initcode
 RN=target/$(PROFILE)
@@ -40,69 +39,11 @@ RUPROGS=\
 RX_RUPROGS=$(patsubst %,$(RX)/%,$(RUPROGS))
 R_RUPROGS=$(patsubst %,$R/%,$(RUPROGS))
 
-
-# riscv64-unknown-elf- or riscv64-linux-gnu-
-# perhaps in /opt/riscv/bin
-#TOOLPREFIX =
-
-# Try to infer the correct TOOLPREFIX if not set
-ifndef TOOLPREFIX
-TOOLPREFIX := $(shell if riscv64-elf-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
-	then echo 'riscv64-elf-'; \
-	elif riscv64-unknown-elf-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
-	then echo 'riscv64-unknown-elf-'; \
-	elif riscv64-linux-gnu-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
-	then echo 'riscv64-linux-gnu-'; \
-	elif riscv64-unknown-linux-gnu-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
-	then echo 'riscv64-unknown-linux-gnu-'; \
-	else echo "***" 1>&2; \
-	echo "*** Error: Couldn't find a riscv64 version of GCC/binutils." 1>&2; \
-	echo "*** To turn off this error, run 'gmake TOOLPREFIX= ...'." 1>&2; \
-	echo "***" 1>&2; exit 1; fi)
-endif
-
 QEMU = qemu-system-riscv64
 
-CC = $(TOOLPREFIX)gcc
-AS = $(TOOLPREFIX)gas
-LD = $(TOOLPREFIX)ld
-OBJCOPY = $(TOOLPREFIX)objcopy
-OBJDUMP = $(TOOLPREFIX)objdump
+OBJCOPY = llvm-objcopy
 
-CFLAGS = -Wall -Werror -O -fno-omit-frame-pointer -ggdb -gdwarf-2
-CFLAGS += -MD
-CFLAGS += -mcmodel=medany
-# CFLAGS += -ffreestanding -fno-common -nostdlib -mno-relax
-CFLAGS += -fno-common -nostdlib
-CFLAGS += -fno-builtin-strncpy -fno-builtin-strncmp -fno-builtin-strlen -fno-builtin-memset
-CFLAGS += -fno-builtin-memmove -fno-builtin-memcmp -fno-builtin-log -fno-builtin-bzero
-CFLAGS += -fno-builtin-strchr -fno-builtin-exit -fno-builtin-malloc -fno-builtin-putc
-CFLAGS += -fno-builtin-free
-CFLAGS += -fno-builtin-memcpy -Wno-main
-CFLAGS += -fno-builtin-printf -fno-builtin-fprintf -fno-builtin-vprintf
-CFLAGS += -I.
-CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
-
-# Disable PIE when possible (for Ubuntu 16.10 toolchain)
-ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]no-pie'),)
-CFLAGS += -fno-pie -no-pie
-endif
-ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]nopie'),)
-CFLAGS += -fno-pie -nopie
-endif
-
-LDFLAGS = -z max-page-size=4096 --gc-sections
-
-all: $R/kernel $R/kernel.asm $R/kernel.sym
-all: $I/initcode $I/initcode.asm $I/initcode.sym
-all: $(R_RUPROGS) $(addsuffix .sym,$(R_RUPROGS)) $(addsuffix .asm,$(R_RUPROGS))
-all: fs.img
-
-%.asm: %
-	$(OBJDUMP) -SC $< > $@
-
-%.sym: %
-	$(OBJDUMP) -t $< | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' | c++filt > $@
+all: $R/kernel $I/initcode $(R_RUPROGS) fs.img
 
 # create separate debuginfo file
 # https://users.rust-lang.org/t/how-to-gdb-with-split-debug-files/102989/3
@@ -149,10 +90,7 @@ target/%.rel.d: target/%.d
 -include user/*.d
 
 clean:
-	rm -f \
-	*/*.o */*.d */*.asm */*.sym \
-	fs.img \
-	.gdbinit
+	rm -f fs.img .gdbinit
 	cargo clean
 
 check: cargo-clippy typos doc
