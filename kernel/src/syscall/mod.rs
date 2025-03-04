@@ -6,7 +6,7 @@ use crate::{
     error::Error,
     memory::vm::{self, VirtAddr},
     println,
-    proc::{Proc, ProcPrivateData},
+    proc::{Proc, ProcPrivateData, ProcPrivateDataGuard},
 };
 
 mod file;
@@ -71,14 +71,15 @@ pub fn arg_str<'a>(
     fetch_str(private, addr, buf)
 }
 
-pub fn syscall(p: &Proc, private: &mut ProcPrivateData) {
-    let n = private.trapframe().unwrap().a7 as usize;
+pub fn syscall(p: &Proc, private: &mut Option<ProcPrivateDataGuard>) {
+    let private_ref = private.as_mut().unwrap();
+    let n = private_ref.trapframe().unwrap().a7 as usize;
     let Some(ty) = SyscallType::from_repr(n) else {
         let shared = p.shared().lock();
         let pid = shared.pid();
         let name = shared.name();
         println!("{pid} {name}: unknown sys call {n}");
-        private.trapframe_mut().unwrap().a0 = u64::MAX;
+        private_ref.trapframe_mut().unwrap().a0 = u64::MAX;
         return;
     };
     let f = match ty {
@@ -104,6 +105,7 @@ pub fn syscall(p: &Proc, private: &mut ProcPrivateData) {
         SyscallType::Mkdir => self::file::sys_mkdir,
         SyscallType::Close => self::file::sys_close,
     };
+    let _ = private_ref;
     let ret = match f(p, private) {
         Ok(ret) => ret.cast_signed(),
         Err(e) => {
@@ -112,5 +114,6 @@ pub fn syscall(p: &Proc, private: &mut ProcPrivateData) {
             v
         }
     };
-    private.trapframe_mut().unwrap().a0 = ret as u64;
+    let private_ref = private.as_mut().unwrap();
+    private_ref.trapframe_mut().unwrap().a0 = ret as u64;
 }

@@ -3,7 +3,7 @@ use core::{
     char, cmp,
     ffi::c_void,
     fmt, mem,
-    ops::Range,
+    ops::{Deref, DerefMut, Range},
     ptr::{self, NonNull},
     slice,
     sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, Ordering},
@@ -300,12 +300,39 @@ impl ProcPrivateData {
     }
 }
 
+pub struct ProcPrivateDataGuard<'p> {
+    private_taken: &'p AtomicBool,
+    private: &'p mut ProcPrivateData,
+}
+
+impl Drop for ProcPrivateDataGuard<'_> {
+    fn drop(&mut self) {
+        self.private_taken.store(false, Ordering::Release);
+    }
+}
+
+impl Deref for ProcPrivateDataGuard<'_> {
+    type Target = ProcPrivateData;
+
+    fn deref(&self) -> &Self::Target {
+        self.private
+    }
+}
+
+impl DerefMut for ProcPrivateDataGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.private
+    }
+}
+
 /// Per-process state.
 pub struct Proc {
     /// Process sharead data
     shared: ProcShared,
     /// Parent process
     parent: Parent,
+    /// `true` if `private` is referenced
+    private_taken: AtomicBool,
     /// Process private data.
     private: UnsafeCell<ProcPrivateData>,
 }
@@ -317,6 +344,7 @@ impl Proc {
         Self {
             shared: ProcShared::new(),
             parent: Parent::new(),
+            private_taken: AtomicBool::new(false),
             private: UnsafeCell::new(ProcPrivateData::new()),
         }
     }
@@ -336,9 +364,16 @@ impl Proc {
         &self.shared
     }
 
-    #[allow(clippy::mut_from_ref)]
-    pub unsafe fn private_mut(&self) -> &mut ProcPrivateData {
-        unsafe { self.private.get().as_mut() }.unwrap()
+    #[track_caller]
+    pub fn private(&self) -> ProcPrivateDataGuard {
+        if self.private_taken.swap(true, Ordering::Acquire) {
+            panic!("ProcPrivateData is already taken");
+        }
+
+        ProcPrivateDataGuard {
+            private_taken: &self.private_taken,
+            private: unsafe { self.private.get().as_mut() }.unwrap(),
+        }
     }
 
     fn is_child_of(&self, parent: &Self, wait_lock: &mut SpinLockGuard<WaitLock>) -> bool {
@@ -383,19 +418,19 @@ impl Proc {
     fn allocate() -> Option<(
         &'static Self,
         SpinLockGuard<'static, ProcSharedData>,
-        &'static mut ProcPrivateData,
+        ProcPrivateDataGuard<'static>,
     )> {
         let (p, mut shared) = Self::lock_unused_proc()?;
 
         shared.pid = Self::allocate_pid();
         shared.state = ProcState::Used;
-        let private = unsafe { p.private.get().as_mut().unwrap() };
+        let mut private = p.private();
 
         let res: Result<(), Error> = (|| {
             // Allocate a trapframe page.
             private.trapframe = Some(page::alloc_page().ok_or(Error::Unknown)?.cast());
             // An empty user page table.
-            private.pagetable = Some(create_pagetable(private).ok_or(Error::Unknown)?);
+            private.pagetable = Some(create_pagetable(&mut private).ok_or(Error::Unknown)?);
             // Set up new context to start executing ad forkret,
             // which returns to user space.
             shared.context.clear();
@@ -417,7 +452,7 @@ impl Proc {
     /// including user pages.
     ///
     /// p.lock must be held.
-    fn free(&self, private: &mut ProcPrivateData, shared: &mut SpinLockGuard<ProcSharedData>) {
+    fn free(&self, mut private: ProcPrivateDataGuard, shared: &mut SpinLockGuard<ProcSharedData>) {
         if let Some(tf) = private.trapframe.take() {
             unsafe {
                 page::free_page(tf.cast());
@@ -431,6 +466,9 @@ impl Proc {
         shared.pid = ProcId::INVALID;
         shared.name.clear();
         shared.killed = false;
+
+        // update state after dropping private
+        drop(private);
         shared.state = ProcState::Unused;
     }
 }
@@ -456,7 +494,7 @@ pub fn map_stacks(kpgtbl: &mut PageTable) {
 /// Initialize the proc table.
 pub fn init() {
     for (i, p) in PROC.iter().enumerate() {
-        unsafe { p.private_mut() }.kstack = kstack(i);
+        p.private().kstack = kstack(i);
     }
 }
 
@@ -529,7 +567,7 @@ const _: () = const { assert!(INIT_CODE.len() < 128) };
 
 /// Set up first user process.
 pub fn user_init() {
-    let (p, mut shared, private) = Proc::allocate().unwrap();
+    let (p, mut shared, mut private) = Proc::allocate().unwrap();
     INITPROC.store(ptr::from_ref(p).cast_mut(), Ordering::Release);
 
     // allocate one user page and copy initcode's instructions
@@ -544,7 +582,7 @@ pub fn user_init() {
 
     let tx = fs::begin_readonly_tx();
     private.cwd = Some(Inode::from_tx(
-        &fs::path::resolve(&tx, private, b"/").unwrap(),
+        &fs::path::resolve(&tx, &private, b"/").unwrap(),
     ));
     tx.end();
     shared.name = "initcode".try_into().unwrap();
@@ -575,7 +613,7 @@ pub fn fork(p: &Proc, p_private: &ProcPrivateData) -> Option<ProcId> {
     let parent_name = p.shared().lock().name;
 
     // Allocate process.
-    let (np, mut np_shared, np_private) = Proc::allocate()?;
+    let (np, mut np_shared, mut np_private) = Proc::allocate()?;
 
     // Copy use memory from parent to child.
     if vm::user::copy(
@@ -635,7 +673,7 @@ fn reparent(p: &Proc, wait_lock: &mut SpinLockGuard<WaitLock>) {
 /// Does not return.
 /// An exited process remains in the zombie state
 /// until its parent calls `wait()`.
-pub fn exit(p: &Proc, p_private: &mut ProcPrivateData, status: i32) -> ! {
+pub fn exit(p: &Proc, mut p_private: ProcPrivateDataGuard, status: i32) -> ! {
     // Ensure all destruction is done before `sched().`
     let mut shared = {
         assert!(
@@ -673,7 +711,7 @@ pub fn exit(p: &Proc, p_private: &mut ProcPrivateData, status: i32) -> ! {
             exit_status: status,
         };
 
-        let _ = p_private; // drop mutable reference
+        drop(p_private); // drop mutable reference
         drop(wait_lock);
         shared
     };
@@ -703,8 +741,7 @@ pub fn wait(p: &Proc, p_private: &ProcPrivateData, addr: VirtAddr) -> Result<Pro
             have_kids = true;
             if let ProcState::Zombie { exit_status } = pp_shared.state {
                 // Found one.
-                // SAFETY: When in Zombie state, no other routines refer private data.
-                let pp_private = unsafe { pp.private_mut() };
+                let pp_private = pp.private();
 
                 let pid = pp_shared.pid;
                 if addr.addr() != 0
@@ -749,7 +786,7 @@ extern "C" fn forkret() {
 
     // Still holding `p->shared` from `scheduler()`.
     let p = Proc::current();
-    let private = unsafe { p.private_mut() };
+    let private = p.private();
     let _ = unsafe { p.shared.remember_locked() }; // unlock here
 
     if FIRST.load(Ordering::Acquire) {

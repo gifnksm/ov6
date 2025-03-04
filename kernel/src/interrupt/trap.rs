@@ -21,7 +21,7 @@ use crate::{
         vm::PAGE_SIZE,
     },
     println,
-    proc::{self, Proc, ProcPrivateData},
+    proc::{self, Proc, ProcPrivateDataGuard},
     sync::SpinLock,
     syscall,
 };
@@ -49,7 +49,7 @@ extern "C" fn trap_user() {
     }
 
     let p = Proc::current();
-    let private = unsafe { p.private_mut() };
+    let mut private = p.private();
 
     // save user program counter.
     private.trapframe_mut().unwrap().epc = sepc::read() as u64;
@@ -71,7 +71,9 @@ extern "C" fn trap_user() {
             // so enable only now that we're done with those registers.
             interrupt::enable();
 
-            syscall::syscall(p, private);
+            let mut private_opt = Some(private);
+            syscall::syscall(p, &mut private_opt);
+            private = private_opt.unwrap();
         }
         Trap::Exception(e) => {
             let mut shared = p.shared().lock();
@@ -111,7 +113,7 @@ extern "C" fn trap_user() {
 }
 
 /// Returns to user space
-pub fn trap_user_ret(private: &mut ProcPrivateData) {
+pub fn trap_user_ret(mut private: ProcPrivateDataGuard) {
     // we're about to switch destination of traps from
     // kerneltrap() to usertrap(), so turn off interrupts until
     // we're back in user space, where usertrap() is correct.
@@ -148,6 +150,7 @@ pub fn trap_user_ret(private: &mut ProcPrivateData) {
 
     // tell trampoline.S the user page table to switch to.
     let satp = (8 << 60) | (ptr::from_ref(private.pagetable().unwrap()).addr() >> 12);
+    drop(private);
 
     // jump to userret in trampoline.S at the top of memory, which
     // switches to the user page table, restores user registers,
