@@ -75,6 +75,9 @@ pub fn read(fd: impl AsRawFd, buf: &mut [u8]) -> Result<usize, Error> {
     Ok(nread)
 }
 
+/// # Safety
+///
+/// This invalidates `OwnedFd` and `BorrowedFd` instances that refer to the closed file descriptor.
 pub unsafe fn close(fd: impl AsRawFd) -> Result<(), Error> {
     to_result_zero(ffi::close(fd.as_raw_fd()))
 }
@@ -136,6 +139,9 @@ pub fn getpid() -> Result<u32, Error> {
     to_result(ffi::getpid())
 }
 
+/// # Safety
+///
+/// This function is unsafe because it may invalidate the region of memory that was previously allocated by the kernel.
 pub unsafe fn sbrk(n: isize) -> Result<*mut u8, Error> {
     let addr: usize = to_result(ffi::sbrk(n))?;
     Ok(ptr::with_exposed_provenance_mut(addr))

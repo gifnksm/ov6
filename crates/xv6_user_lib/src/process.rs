@@ -57,6 +57,9 @@ pub fn grow_break(size: usize) -> Result<*mut u8, Error> {
     unsafe { syscall::sbrk(size.try_into().unwrap()) }
 }
 
+/// # Safety
+///
+/// This function is unsafe because it may invalidate the region of memory that was previously allocated by the kernel.
 pub unsafe fn shrink_break(size: usize) -> Result<*mut u8, Error> {
     unsafe { syscall::sbrk(-isize::try_from(size).unwrap()) }
 }

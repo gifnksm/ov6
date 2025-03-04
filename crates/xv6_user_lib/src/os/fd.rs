@@ -83,6 +83,11 @@ impl AsRawFd for RawFd {
 }
 
 pub trait FromRawFd {
+    /// # Safety
+    ///
+    /// The `fd` passed in must be an [owned file descriptor][io-safety]; in particular, it must be open.
+    ///
+    /// [io-safety]: https://doc.rust-lang.org/std/io/index.html#io-safety
     unsafe fn from_raw_fd(fd: RawFd) -> Self;
 }
 

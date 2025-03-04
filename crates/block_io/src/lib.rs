@@ -255,6 +255,7 @@ where
     }
 
     /// Reads the block from disk if cached data is not valid.
+    #[allow(clippy::type_complexity)]
     pub fn read(
         mut self,
     ) -> Result<
