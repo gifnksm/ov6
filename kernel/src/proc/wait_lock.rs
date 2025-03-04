@@ -1,4 +1,4 @@
-use core::{cell::UnsafeCell, ptr::NonNull};
+use core::cell::UnsafeCell;
 
 use crate::sync::{SpinLock, SpinLockGuard};
 
@@ -18,7 +18,7 @@ pub(super) fn lock() -> SpinLockGuard<'static, WaitLock> {
 }
 
 pub(super) struct Parent {
-    parent: UnsafeCell<Option<NonNull<Proc>>>,
+    parent: UnsafeCell<Option<&'static Proc>>,
 }
 
 impl Parent {
@@ -31,17 +31,13 @@ impl Parent {
     pub(super) fn get<'a>(
         &self,
         _wait_lock: &mut SpinLockGuard<'a, WaitLock>,
-    ) -> &'a Option<NonNull<Proc>> {
-        unsafe { &*self.parent.get() }
+    ) -> Option<&'static Proc> {
+        unsafe { *self.parent.get() }
     }
 
-    pub(super) fn set(
-        &self,
-        parent: Option<NonNull<Proc>>,
-        _wait_lock: &mut SpinLockGuard<WaitLock>,
-    ) {
+    pub(super) fn set(&self, parent: &'static Proc, _wait_lock: &mut SpinLockGuard<WaitLock>) {
         unsafe {
-            *self.parent.get() = parent;
+            *self.parent.get() = Some(parent);
         }
     }
 

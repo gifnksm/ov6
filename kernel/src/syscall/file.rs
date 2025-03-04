@@ -28,7 +28,10 @@ fn fd_alloc(private: &mut ProcPrivateData, file: File) -> Result<usize, Error> {
     private.add_ofile(file)
 }
 
-pub fn sys_dup(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<usize, Error> {
+pub fn sys_dup(
+    _p: &'static Proc,
+    private: &mut Option<ProcPrivateDataGuard>,
+) -> Result<usize, Error> {
     let private = private.as_mut().unwrap();
     let (_fd, f) = arg_fd(private, 0)?;
     let f = f.clone();
@@ -36,7 +39,10 @@ pub fn sys_dup(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<
     Ok(fd)
 }
 
-pub fn sys_read(p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<usize, Error> {
+pub fn sys_read(
+    p: &'static Proc,
+    private: &mut Option<ProcPrivateDataGuard>,
+) -> Result<usize, Error> {
     let private = private.as_mut().unwrap();
     let va = syscall::arg_addr(private, 1);
     let n = syscall::arg_int(private, 2);
@@ -44,7 +50,10 @@ pub fn sys_read(p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<
     f.clone().read(p, private, va, n)
 }
 
-pub fn sys_write(p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<usize, Error> {
+pub fn sys_write(
+    p: &'static Proc,
+    private: &mut Option<ProcPrivateDataGuard>,
+) -> Result<usize, Error> {
     let private = private.as_mut().unwrap();
     let va = syscall::arg_addr(private, 1);
     let n = syscall::arg_int(private, 2);
@@ -52,14 +61,20 @@ pub fn sys_write(p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result
     f.clone().write(p, private, va, n)
 }
 
-pub fn sys_close(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<usize, Error> {
+pub fn sys_close(
+    _p: &'static Proc,
+    private: &mut Option<ProcPrivateDataGuard>,
+) -> Result<usize, Error> {
     let private = private.as_mut().unwrap();
     let (fd, _f) = arg_fd(private, 0)?;
     private.unset_ofile(fd);
     Ok(0)
 }
 
-pub fn sys_fstat(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<usize, Error> {
+pub fn sys_fstat(
+    _p: &'static Proc,
+    private: &mut Option<ProcPrivateDataGuard>,
+) -> Result<usize, Error> {
     let private = private.as_mut().unwrap();
     let va = syscall::arg_addr(private, 1);
     let (_fd, f) = arg_fd(private, 0)?;
@@ -68,7 +83,10 @@ pub fn sys_fstat(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Resul
 }
 
 /// Creates the path `new` as a link to the same inode as `old`.
-pub fn sys_link(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<usize, Error> {
+pub fn sys_link(
+    _p: &'static Proc,
+    private: &mut Option<ProcPrivateDataGuard>,
+) -> Result<usize, Error> {
     let private = private.as_mut().unwrap();
     let mut new = [0; MAX_PATH];
     let mut old = [0; MAX_PATH];
@@ -81,7 +99,10 @@ pub fn sys_link(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result
     Ok(0)
 }
 
-pub fn sys_unlink(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<usize, Error> {
+pub fn sys_unlink(
+    _p: &'static Proc,
+    private: &mut Option<ProcPrivateDataGuard>,
+) -> Result<usize, Error> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
@@ -91,7 +112,10 @@ pub fn sys_unlink(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Resu
     Ok(0)
 }
 
-pub fn sys_open(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<usize, Error> {
+pub fn sys_open(
+    _p: &'static Proc,
+    private: &mut Option<ProcPrivateDataGuard>,
+) -> Result<usize, Error> {
     let private = private.as_mut().unwrap();
     let mode = OpenFlags::from_bits_retain(syscall::arg_int(private, 1));
     let mut path = [0; MAX_PATH];
@@ -129,7 +153,10 @@ pub fn sys_open(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result
     Ok(fd)
 }
 
-pub fn sys_mkdir(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<usize, Error> {
+pub fn sys_mkdir(
+    _p: &'static Proc,
+    private: &mut Option<ProcPrivateDataGuard>,
+) -> Result<usize, Error> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
@@ -140,7 +167,10 @@ pub fn sys_mkdir(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Resul
     Ok(0)
 }
 
-pub fn sys_mknod(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<usize, Error> {
+pub fn sys_mknod(
+    _p: &'static Proc,
+    private: &mut Option<ProcPrivateDataGuard>,
+) -> Result<usize, Error> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
@@ -153,7 +183,10 @@ pub fn sys_mknod(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Resul
     Ok(0)
 }
 
-pub fn sys_chdir(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<usize, Error> {
+pub fn sys_chdir(
+    _p: &'static Proc,
+    private: &mut Option<ProcPrivateDataGuard>,
+) -> Result<usize, Error> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
@@ -169,7 +202,10 @@ pub fn sys_chdir(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Resul
     Ok(0)
 }
 
-pub fn sys_exec(p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<usize, Error> {
+pub fn sys_exec(
+    p: &'static Proc,
+    private: &mut Option<ProcPrivateDataGuard>,
+) -> Result<usize, Error> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
@@ -215,7 +251,10 @@ pub fn sys_exec(p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<
     ret
 }
 
-pub fn sys_pipe(_p: &Proc, private: &mut Option<ProcPrivateDataGuard>) -> Result<usize, Error> {
+pub fn sys_pipe(
+    _p: &'static Proc,
+    private: &mut Option<ProcPrivateDataGuard>,
+) -> Result<usize, Error> {
     let private = private.as_mut().unwrap();
     let fd_array = syscall::arg_addr(private, 0);
 

@@ -71,7 +71,7 @@ pub fn arg_str<'a>(
     fetch_str(private, addr, buf)
 }
 
-pub fn syscall(p: &Proc, private: &mut Option<ProcPrivateDataGuard>) {
+pub fn syscall(p: &'static Proc, private: &mut Option<ProcPrivateDataGuard>) {
     let private_ref = private.as_mut().unwrap();
     let n = private_ref.trapframe().unwrap().a7;
     let Some(ty) = SyscallType::from_repr(n) else {

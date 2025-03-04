@@ -6,12 +6,13 @@ use core::{
     ops::{Deref, DerefMut, Range},
     ptr::{self, NonNull},
     slice,
-    sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, Ordering},
+    sync::atomic::{AtomicBool, AtomicI32, Ordering},
 };
 
 use alloc::{alloc::AllocError, boxed::Box};
 use arrayvec::ArrayString;
 use dataview::{Pod, PodMethods as _};
+use once_init::OnceInit;
 
 use crate::{
     cpu::Cpu,
@@ -40,7 +41,7 @@ pub mod scheduler;
 mod wait_lock;
 
 static PROC: [Proc; NPROC] = [const { Proc::new() }; NPROC];
-static INITPROC: AtomicPtr<Proc> = AtomicPtr::new(ptr::null_mut());
+static INIT_PROC: OnceInit<&'static Proc> = OnceInit::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
@@ -381,11 +382,11 @@ impl Proc {
     fn is_child_of(&self, parent: &Self, wait_lock: &mut SpinLockGuard<WaitLock>) -> bool {
         self.parent
             .get(wait_lock)
-            .map(|pp| NonNull::from(parent).eq(&pp))
+            .map(|pp| ptr::eq(parent, pp))
             .unwrap_or(false)
     }
 
-    fn set_parent(&self, parent: Option<NonNull<Self>>, _wait_lock: &mut SpinLockGuard<WaitLock>) {
+    fn set_parent(&self, parent: &'static Proc, _wait_lock: &mut SpinLockGuard<WaitLock>) {
         self.parent.set(parent, _wait_lock);
     }
 
@@ -577,7 +578,8 @@ const _: () = const { assert!(INIT_CODE.len() < 128) };
 /// Set up first user process.
 pub fn user_init() {
     let (p, mut shared, mut private) = Proc::allocate().unwrap();
-    INITPROC.store(ptr::from_ref(p).cast_mut(), Ordering::Release);
+    assert_eq!(shared.pid.0, 1);
+    INIT_PROC.init(p);
 
     // allocate one user page and copy initcode's instructions
     // and data into it.
@@ -618,7 +620,7 @@ pub fn grow_proc(private: &mut ProcPrivateData, n: isize) -> Result<(), Error> {
 /// Creates a new process, copying the parent.
 ///
 /// Sets up child kernel stack to return as if from `fork()` system call.
-pub fn fork(p: &Proc, p_private: &ProcPrivateData) -> Option<ProcId> {
+pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Option<ProcId> {
     let parent_name = p.shared().lock().name;
 
     // Allocate process.
@@ -657,7 +659,7 @@ pub fn fork(p: &Proc, p_private: &ProcPrivateData) -> Option<ProcId> {
     drop(np_shared);
 
     let mut wait_lock = wait_lock::lock();
-    np.parent.set(Some(p.into()), &mut wait_lock);
+    np.parent.set(p, &mut wait_lock);
     drop(wait_lock);
 
     np.shared.lock().state = ProcState::Runnable;
@@ -668,11 +670,11 @@ pub fn fork(p: &Proc, p_private: &ProcPrivateData) -> Option<ProcId> {
 /// Pass p's abandoned children to init.
 ///
 /// Caller must hold `WAIT_LOCK`
-fn reparent(p: &Proc, wait_lock: &mut SpinLockGuard<WaitLock>) {
+fn reparent(old_parent: &Proc, new_parent: &'static Proc, wait_lock: &mut SpinLockGuard<WaitLock>) {
     for pp in &PROC {
-        if pp.is_child_of(p, wait_lock) {
-            pp.set_parent(NonNull::new(INITPROC.load(Ordering::Relaxed)), wait_lock);
-            wakeup(INITPROC.load(Ordering::Relaxed).cast());
+        if pp.is_child_of(old_parent, wait_lock) {
+            pp.set_parent(new_parent, wait_lock);
+            wakeup(ptr::from_ref(new_parent).cast());
         }
     }
 }
@@ -683,12 +685,11 @@ fn reparent(p: &Proc, wait_lock: &mut SpinLockGuard<WaitLock>) {
 /// An exited process remains in the zombie state
 /// until its parent calls `wait()`.
 pub fn exit(p: &Proc, mut p_private: ProcPrivateDataGuard, status: i32) -> ! {
+    let init_proc = *INIT_PROC.get();
+
     // Ensure all destruction is done before `sched().`
     let mut shared = {
-        assert!(
-            !ptr::eq(p, INITPROC.load(Ordering::Relaxed)),
-            "init exiting"
-        );
+        assert!(!ptr::eq(p, init_proc), "init exiting");
 
         // Close all open files.
         for of in &mut p_private.ofile {
@@ -704,16 +705,12 @@ pub fn exit(p: &Proc, mut p_private: ProcPrivateDataGuard, status: i32) -> ! {
         let mut wait_lock = wait_lock::lock();
 
         // Give any children to init.
-        reparent(p, &mut wait_lock);
+        reparent(p, init_proc, &mut wait_lock);
 
         // Parent might be sleeping in wait().
-        wakeup(
-            p.parent
-                .get(&mut wait_lock)
-                .map(NonNull::as_ptr)
-                .unwrap_or(ptr::null_mut())
-                .cast(),
-        );
+        if let Some(parent) = p.parent.get(&mut wait_lock) {
+            wakeup(ptr::from_ref(parent).cast());
+        }
 
         let mut shared = p.shared.lock();
         shared.state = ProcState::Zombie {
