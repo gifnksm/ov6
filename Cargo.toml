@@ -8,7 +8,7 @@ edition = "2024"
 
 [workspace.dependencies]
 arrayvec = { version = "0.7.6", default-features = false }
-bitflags = "2.8.0"
+bitflags = "2.9.0"
 dataview = "1.0.1"
 memchr = { version = "2.7.4", default-features = false, features = ["alloc"] }
 riscv = "0.12.1"
@@ -20,7 +20,7 @@ once_init = { path = "crates/once_init" }
 page_alloc = { path = "crates/page_alloc" }
 slab_allocator = { path = "crates/slab_allocator" }
 strum = { version = "0.27.1", default-features = false, features = ["derive"] }
-thiserror = { version = "2.0.11", default-features = false }
+thiserror = { version = "2.0.12", default-features = false }
 xv6_fs_types = { path = "crates/xv6_fs_types" }
 xv6_kernel_params = { path = "crates/xv6_kernel_params" }
 xv6_syscall = { path = "crates/xv6_syscall" }
