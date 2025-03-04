@@ -247,7 +247,7 @@ impl ProcPrivateData {
     }
 
     pub fn update_pagetable(&mut self, pagetable: NonNull<PageTable>, sz: usize) {
-        let old_pt = mem::replace(&mut self.pagetable, Some(pagetable));
+        let old_pt = self.pagetable.replace(pagetable);
         let old_sz = mem::replace(&mut self.sz, sz);
         if let Some(old) = old_pt {
             free_pagetable(old, old_sz);
@@ -428,7 +428,7 @@ impl Proc {
 
         let res: Result<(), Error> = (|| {
             // Allocate a trapframe page.
-            private.trapframe = Some(page::alloc_page().ok_or(Error::Unknown)?.cast());
+            private.trapframe = Some(page::alloc_zeroed_page().ok_or(Error::Unknown)?.cast());
             // An empty user page table.
             private.pagetable = Some(create_pagetable(&mut private).ok_or(Error::Unknown)?);
             // Set up new context to start executing ad forkret,
