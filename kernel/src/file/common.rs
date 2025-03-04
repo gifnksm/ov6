@@ -24,7 +24,7 @@ pub(super) fn stat_inode(
     let ty = match lip.ty() {
         T_DIR => StatType::Dir,
         T_FILE => StatType::File,
-        T_DEVICE => StatType::Dir,
+        T_DEVICE => StatType::Dev,
         _ => return Err(Error::Unknown),
     };
     let st = Stat {
