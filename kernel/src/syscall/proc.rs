@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    interrupt::trap::TICKS,
+    interrupt::trap::{TICKS, TICKS_UPDATED},
     proc::{self, Proc, ProcId, ProcPrivateDataGuard},
     syscall,
 };
@@ -74,7 +74,7 @@ pub fn sys_sleep(
         if p.shared().lock().killed() {
             return Err(Error::Unknown);
         }
-        ticks = proc::sleep((&raw const TICKS).cast(), ticks);
+        ticks = TICKS_UPDATED.wait(ticks);
     }
     drop(ticks);
     Ok(0)

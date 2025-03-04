@@ -2,7 +2,11 @@
 
 use core::{hint, ptr, sync::atomic::Ordering};
 
-use crate::{console, interrupt, memory::layout::UART0, proc, sync::SpinLock};
+use crate::{
+    console, interrupt,
+    memory::layout::UART0,
+    sync::{SpinLock, SpinLockCondVar},
+};
 
 use super::print::PANICKED;
 
@@ -87,6 +91,7 @@ static TX_BUFFER: SpinLock<TxBuffer> = SpinLock::new(TxBuffer {
     tx_w: 0,
     tx_r: 0,
 });
+static TX_BUFFER_SPACE_AVAILABLE: SpinLockCondVar = SpinLockCondVar::new();
 
 pub fn init() {
     unsafe {
@@ -133,7 +138,7 @@ pub fn putc(c: char) {
     while buffer.is_full() {
         // buffer is full
         // wait for start() to open up space in the buffer.
-        buffer = proc::sleep((&raw const buffer.tx_r).cast(), buffer);
+        buffer = TX_BUFFER_SPACE_AVAILABLE.wait(buffer);
     }
     buffer.put(c as u8);
     start(&mut buffer);
@@ -193,7 +198,7 @@ fn start(buffer: &mut TxBuffer) {
         let c = buffer.pop();
 
         // maybe putc() is waiting for space in the buffer.
-        proc::wakeup((&raw const buffer.tx_r).cast());
+        TX_BUFFER_SPACE_AVAILABLE.notify();
 
         unsafe {
             write_reg(THR, c);

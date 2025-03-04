@@ -54,7 +54,7 @@ impl RawSleepLock {
     fn release(&self) {
         let mut locked = self.locked.lock();
         locked.0 = false;
-        locked.1 = ProcId::new(0);
+        locked.1 = ProcId::INVALID;
         proc::wakeup(ptr::from_ref(self).cast());
         drop(locked);
     }

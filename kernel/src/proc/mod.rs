@@ -27,7 +27,7 @@ use crate::{
     },
     param::{NOFILE, NPROC},
     println,
-    sync::{SpinLock, SpinLockGuard},
+    sync::{SpinLock, SpinLockCondVar, SpinLockGuard},
 };
 
 use self::{
@@ -334,6 +334,7 @@ pub struct Proc {
     shared: ProcShared,
     /// Parent process
     parent: Parent,
+    child_ended: SpinLockCondVar,
     /// `true` if `private` is referenced
     private_taken: AtomicBool,
     /// Process private data.
@@ -347,6 +348,7 @@ impl Proc {
         Self {
             shared: ProcShared::new(),
             parent: Parent::new(),
+            child_ended: SpinLockCondVar::new(),
             private_taken: AtomicBool::new(false),
             private: UnsafeCell::new(ProcPrivateData::new()),
         }
@@ -674,7 +676,7 @@ fn reparent(old_parent: &Proc, new_parent: &'static Proc, wait_lock: &mut SpinLo
     for pp in &PROC {
         if pp.is_child_of(old_parent, wait_lock) {
             pp.set_parent(new_parent, wait_lock);
-            wakeup(ptr::from_ref(new_parent).cast());
+            new_parent.child_ended.notify();
         }
     }
 }
@@ -709,7 +711,7 @@ pub fn exit(p: &Proc, mut p_private: ProcPrivateDataGuard, status: i32) -> ! {
 
         // Parent might be sleeping in wait().
         if let Some(parent) = p.parent.get(&mut wait_lock) {
-            wakeup(ptr::from_ref(parent).cast());
+            parent.child_ended.notify();
         }
 
         let mut shared = p.shared.lock();
@@ -772,8 +774,7 @@ pub fn wait(p: &Proc, p_private: &ProcPrivateData, addr: VirtAddr) -> Result<Pro
         }
 
         // Wait for a child to exit.
-        let chan = ptr::from_ref(p).cast();
-        wait_lock = sleep(chan, wait_lock);
+        wait_lock = p.child_ended.wait(wait_lock);
     }
 }
 

@@ -15,7 +15,7 @@ use crate::{
     fs::DeviceNo,
     memory::vm::VirtAddr,
     proc::{self, Proc, ProcPrivateData},
-    sync::SpinLock,
+    sync::{SpinLock, SpinLockCondVar},
 };
 
 pub mod print;
@@ -56,12 +56,13 @@ struct Cons {
     e: usize,
 }
 
-static CONS: SpinLock<Cons> = SpinLock::new(Cons {
+static CONSOLE_BUFFER: SpinLock<Cons> = SpinLock::new(Cons {
     buf: [0; 128],
     r: 0,
     w: 0,
     e: 0,
 });
+static CONSOLE_BUFFER_WRITTEN: SpinLockCondVar = SpinLockCondVar::new();
 
 /// Writes the bytes to the console.
 ///
@@ -91,7 +92,7 @@ fn read(
     mut n: usize,
 ) -> Result<usize, Error> {
     let target = n;
-    let mut cons = CONS.lock();
+    let mut cons = CONSOLE_BUFFER.lock();
     while n > 0 {
         // wait until interrupt handler has put some
         // input into cons.buffer.
@@ -100,7 +101,7 @@ fn read(
                 drop(cons);
                 return Err(Error::Unknown);
             }
-            cons = proc::sleep((&raw const cons.r).cast(), cons);
+            cons = CONSOLE_BUFFER_WRITTEN.wait(cons);
         }
 
         let c = cons.buf[cons.r % cons.buf.len()];
@@ -142,7 +143,7 @@ fn read(
 /// Do erase/kill processing, append to `cons.buf`,
 /// wake up `read()` if a whole line has arrived.
 pub fn handle_interrupt(c: u8) {
-    let mut cons = CONS.lock();
+    let mut cons = CONSOLE_BUFFER.lock();
 
     match c {
         // Print process list.
@@ -177,7 +178,7 @@ pub fn handle_interrupt(c: u8) {
                     // wake up `read()` if a whole line (or end-of-file)
                     // has arrived.
                     cons.w = cons.e;
-                    proc::wakeup((&raw const cons.r).cast());
+                    CONSOLE_BUFFER_WRITTEN.notify();
                 }
             }
         }

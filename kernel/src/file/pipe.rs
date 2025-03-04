@@ -6,8 +6,8 @@ use crate::{
         page::PageFrameAllocator,
         vm::{self, VirtAddr},
     },
-    proc::{self, Proc, ProcPrivateData},
-    sync::SpinLock,
+    proc::{Proc, ProcPrivateData},
+    sync::{SpinLock, SpinLockCondVar},
 };
 
 use super::{File, FileData, FileDataArc, SpecificData};
@@ -15,35 +15,41 @@ use super::{File, FileData, FileDataArc, SpecificData};
 const PIPE_SIZE: usize = 512;
 
 #[derive(Clone)]
-pub(super) struct PipeFile {
-    data: Arc<SpinLock<PipeData>, PageFrameAllocator>,
-}
+pub(super) struct PipeFile(Arc<PipeData, PageFrameAllocator>);
 
 struct PipeData {
+    reader_cond: SpinLockCondVar,
+    writer_cond: SpinLockCondVar,
+    data: SpinLock<PipeDataLocked>,
+}
+
+struct PipeDataLocked {
     data: [u8; PIPE_SIZE],
     /// Number of bytes read
     nread: usize,
     /// Number of bytes written
     nwrite: usize,
     /// read fd is still open
-    readopen: bool,
+    read_open: bool,
     /// write fd is still open
-    writeopen: bool,
+    write_open: bool,
 }
 
 pub(super) fn new_file() -> Result<(File, File), Error> {
-    let pipe = PipeFile {
-        data: Arc::new_in(
-            SpinLock::new(PipeData {
+    let pipe = PipeFile(Arc::new_in(
+        PipeData {
+            reader_cond: SpinLockCondVar::new(),
+            writer_cond: SpinLockCondVar::new(),
+            data: SpinLock::new(PipeDataLocked {
                 data: [0; PIPE_SIZE],
                 nread: 0,
                 nwrite: 0,
-                readopen: true,
-                writeopen: true,
+                read_open: true,
+                write_open: true,
             }),
-            PageFrameAllocator,
-        ),
-    };
+        },
+        PageFrameAllocator,
+    ));
 
     let f0 = File {
         data: FileDataArc::try_new(FileData {
@@ -65,13 +71,13 @@ pub(super) fn new_file() -> Result<(File, File), Error> {
 
 impl PipeFile {
     pub(super) fn close(&self, writable: bool) {
-        let mut pi = self.data.lock();
+        let mut pi = self.0.data.lock();
         if writable {
-            pi.writeopen = false;
-            proc::wakeup((&raw const pi.nread).cast());
+            pi.write_open = false;
+            self.0.reader_cond.notify();
         } else {
-            pi.readopen = false;
-            proc::wakeup((&raw const pi.nwrite).cast());
+            pi.read_open = false;
+            self.0.writer_cond.notify();
         }
     }
 
@@ -84,14 +90,14 @@ impl PipeFile {
     ) -> Result<usize, Error> {
         let mut i = 0;
 
-        let mut pipe = self.data.lock();
+        let mut pipe = self.0.data.lock();
         while i < n {
-            if !pipe.readopen || p.shared().lock().killed() {
+            if !pipe.read_open || p.shared().lock().killed() {
                 return Err(Error::Unknown);
             }
             if pipe.nwrite == pipe.nread + PIPE_SIZE {
-                proc::wakeup((&raw const pipe.nread).cast());
-                pipe = proc::sleep((&raw const pipe.nwrite).cast(), pipe);
+                self.0.reader_cond.notify();
+                pipe = self.0.writer_cond.wait(pipe);
                 continue;
             }
 
@@ -103,7 +109,7 @@ impl PipeFile {
             pipe.nwrite += 1;
             i += 1;
         }
-        proc::wakeup((&raw const pipe.nread).cast());
+        self.0.reader_cond.notify();
         Ok(i)
     }
 
@@ -114,12 +120,12 @@ impl PipeFile {
         addr: VirtAddr,
         n: usize,
     ) -> Result<usize, Error> {
-        let mut pipe = self.data.lock();
-        while pipe.nread == pipe.nwrite && pipe.writeopen {
+        let mut pipe = self.0.data.lock();
+        while pipe.nread == pipe.nwrite && pipe.write_open {
             if p.shared().lock().killed() {
                 return Err(Error::Unknown);
             }
-            pipe = proc::sleep((&raw const pipe.nread).cast(), pipe);
+            pipe = self.0.reader_cond.wait(pipe);
         }
         let mut i = 0;
         while i < n {
@@ -133,7 +139,7 @@ impl PipeFile {
             }
             i += 1;
         }
-        proc::wakeup((&raw const pipe.nwrite).cast());
+        self.0.writer_cond.notify();
         Ok(i)
     }
 }

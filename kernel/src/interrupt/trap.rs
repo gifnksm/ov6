@@ -22,13 +22,14 @@ use crate::{
     },
     println,
     proc::{self, Proc, ProcPrivateDataGuard},
-    sync::SpinLock,
+    sync::{SpinLock, SpinLockCondVar},
     syscall,
 };
 
 use super::{kernel_vec, plic, trampoline};
 
 pub static TICKS: SpinLock<u64> = SpinLock::new(0);
+pub static TICKS_UPDATED: SpinLockCondVar = SpinLockCondVar::new();
 
 pub fn init_hart() {
     unsafe {
@@ -214,7 +215,7 @@ fn handle_clock_interrupt() {
     if cpu::id() == 0 {
         let mut ticks = TICKS.lock();
         *ticks += 1;
-        proc::wakeup((&raw const TICKS).cast());
+        TICKS_UPDATED.notify();
         drop(ticks);
     }
 
