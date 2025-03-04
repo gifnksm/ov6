@@ -52,7 +52,7 @@ extern "C" fn trap_user() {
     let mut private = p.private();
 
     // save user program counter.
-    private.trapframe_mut().unwrap().epc = sepc::read() as u64;
+    private.trapframe_mut().unwrap().epc = sepc::read();
 
     let scause: Trap<Interrupt, Exception> = scause::read().cause().try_into().unwrap();
     let mut which_dev = IntrKind::NotRecognized;
@@ -129,10 +129,10 @@ pub fn trap_user_ret(mut private: ProcPrivateDataGuard) {
     // the process next traps into the kernel.
     let kstack = private.kstack();
     let tf = private.trapframe_mut().unwrap();
-    tf.kernel_satp = satp::read().bits() as u64; // kernel page table
-    tf.kernel_sp = (kstack + PAGE_SIZE) as u64; // process's kernel stack
-    tf.kernel_trap = (trap_user as usize) as u64;
-    let hartid: u64;
+    tf.kernel_satp = satp::read().bits(); // kernel page table
+    tf.kernel_sp = kstack + PAGE_SIZE; // process's kernel stack
+    tf.kernel_trap = trap_user as usize;
+    let hartid: usize;
     unsafe { asm!("mv {}, tp", out(reg) hartid) };
     tf.kernel_hartid = hartid;
 
@@ -146,7 +146,7 @@ pub fn trap_user_ret(mut private: ProcPrivateDataGuard) {
     }
 
     // set S Exception Program Counter to the saved user pc.
-    sepc::write(private.trapframe().unwrap().epc as usize);
+    sepc::write(private.trapframe().unwrap().epc);
 
     // tell trampoline.S the user page table to switch to.
     let satp = (8 << 60) | (ptr::from_ref(private.pagetable().unwrap()).addr() >> 12);

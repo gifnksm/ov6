@@ -73,13 +73,13 @@ pub fn arg_str<'a>(
 
 pub fn syscall(p: &Proc, private: &mut Option<ProcPrivateDataGuard>) {
     let private_ref = private.as_mut().unwrap();
-    let n = private_ref.trapframe().unwrap().a7 as usize;
+    let n = private_ref.trapframe().unwrap().a7;
     let Some(ty) = SyscallType::from_repr(n) else {
         let shared = p.shared().lock();
         let pid = shared.pid();
         let name = shared.name();
         println!("{pid} {name}: unknown sys call {n}");
-        private_ref.trapframe_mut().unwrap().a0 = u64::MAX;
+        private_ref.trapframe_mut().unwrap().a0 = usize::MAX;
         return;
     };
     let f = match ty {
@@ -115,5 +115,5 @@ pub fn syscall(p: &Proc, private: &mut Option<ProcPrivateDataGuard>) {
         }
     };
     let private_ref = private.as_mut().unwrap();
-    private_ref.trapframe_mut().unwrap().a0 = ret as u64;
+    private_ref.trapframe_mut().unwrap().a0 = ret.cast_unsigned();
 }

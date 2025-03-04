@@ -66,46 +66,46 @@ impl ProcId {
 #[derive(Debug, Clone, Copy)]
 pub struct TrapFrame {
     /// Kernel page table.
-    pub kernel_satp: u64, // 0
+    pub kernel_satp: usize, // 0
     /// Top of process's kernel stack.
-    pub kernel_sp: u64, // 8
+    pub kernel_sp: usize, // 8
     /// Usertrap().
-    pub kernel_trap: u64, // 16
+    pub kernel_trap: usize, // 16
     /// Saved user program counter.
-    pub epc: u64, // 24
+    pub epc: usize, // 24
     /// saved kernel tp
-    pub kernel_hartid: u64, // 32
-    pub ra: u64,  // 40
-    pub sp: u64,  // 48
-    pub gp: u64,  // 56
-    pub tp: u64,  // 64
-    pub t0: u64,  // 72
-    pub t1: u64,  // 80
-    pub t2: u64,  // 88
-    pub s0: u64,  // 96
-    pub s1: u64,  // 104
-    pub a0: u64,  // 112
-    pub a1: u64,  // 120
-    pub a2: u64,  // 128
-    pub a3: u64,  // 136
-    pub a4: u64,  // 144
-    pub a5: u64,  // 152
-    pub a6: u64,  // 160
-    pub a7: u64,  // 168
-    pub s2: u64,  // 176
-    pub s3: u64,  // 184
-    pub s4: u64,  // 192
-    pub s5: u64,  // 200
-    pub s6: u64,  // 208
-    pub s7: u64,  // 216
-    pub s8: u64,  // 224
-    pub s9: u64,  // 232
-    pub s10: u64, // 240
-    pub s11: u64, // 248
-    pub t3: u64,  // 256
-    pub t4: u64,  // 264
-    pub t5: u64,  // 272
-    pub t6: u64,  // 280
+    pub kernel_hartid: usize, // 32
+    pub ra: usize,  // 40
+    pub sp: usize,  // 48
+    pub gp: usize,  // 56
+    pub tp: usize,  // 64
+    pub t0: usize,  // 72
+    pub t1: usize,  // 80
+    pub t2: usize,  // 88
+    pub s0: usize,  // 96
+    pub s1: usize,  // 104
+    pub a0: usize,  // 112
+    pub a1: usize,  // 120
+    pub a2: usize,  // 128
+    pub a3: usize,  // 136
+    pub a4: usize,  // 144
+    pub a5: usize,  // 152
+    pub a6: usize,  // 160
+    pub a7: usize,  // 168
+    pub s2: usize,  // 176
+    pub s3: usize,  // 184
+    pub s4: usize,  // 192
+    pub s5: usize,  // 200
+    pub s6: usize,  // 208
+    pub s7: usize,  // 216
+    pub s8: usize,  // 224
+    pub s9: usize,  // 232
+    pub s10: usize, // 240
+    pub s11: usize, // 248
+    pub t3: usize,  // 256
+    pub t4: usize,  // 264
+    pub t5: usize,  // 272
+    pub t6: usize,  // 280
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -434,8 +434,8 @@ impl Proc {
             // Set up new context to start executing ad forkret,
             // which returns to user space.
             shared.context.clear();
-            shared.context.ra = forkret as usize as u64;
-            shared.context.sp = (private.kstack + PAGE_SIZE) as u64;
+            shared.context.ra = forkret as usize;
+            shared.context.sp = private.kstack + PAGE_SIZE;
             Ok(())
         })();
 
@@ -578,7 +578,7 @@ pub fn user_init() {
     // prepare for the very first `return` from kernel to user.
     let trapframe = private.trapframe_mut().unwrap();
     trapframe.epc = 0; // user program counter
-    trapframe.sp = PAGE_SIZE as u64; // user stack pointer
+    trapframe.sp = PAGE_SIZE; // user stack pointer
 
     let tx = fs::begin_readonly_tx();
     private.cwd = Some(Inode::from_tx(

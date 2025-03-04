@@ -20,22 +20,22 @@ static mut SCHED_CONTEXT: [Context; NCPU] = [const { Context::zeroed() }; NCPU];
 
 /// Saved registers for kernel context switches.
 pub struct Context {
-    pub(super) ra: u64,
-    pub(super) sp: u64,
+    pub(super) ra: usize,
+    pub(super) sp: usize,
 
     // callee-saved
-    s0: u64,
-    s1: u64,
-    s2: u64,
-    s3: u64,
-    s4: u64,
-    s5: u64,
-    s6: u64,
-    s7: u64,
-    s8: u64,
-    s9: u64,
-    s10: u64,
-    s11: u64,
+    s0: usize,
+    s1: usize,
+    s2: usize,
+    s3: usize,
+    s4: usize,
+    s5: usize,
+    s6: usize,
+    s7: usize,
+    s8: usize,
+    s9: usize,
+    s10: usize,
+    s11: usize,
 }
 
 impl Context {

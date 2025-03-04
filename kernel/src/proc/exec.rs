@@ -87,7 +87,7 @@ pub fn exec(
     // arguments to user main(argc, argv).
     // argc is returned via the system call return
     // value, which goes in a0.
-    private.trapframe_mut().unwrap().a1 = sp as u64;
+    private.trapframe_mut().unwrap().a1 = sp;
 
     // Save program name for debugging.
     let name = path
@@ -99,8 +99,8 @@ pub fn exec(
 
     // Commit to the user image.
     private.update_pagetable(pagetable, sz);
-    private.trapframe_mut().unwrap().epc = elf.entry; // initial pogram counter = main
-    private.trapframe_mut().unwrap().sp = sp as u64; // initial stack pointer
+    private.trapframe_mut().unwrap().epc = elf.entry as usize; // initial pogram counter = main
+    private.trapframe_mut().unwrap().sp = sp; // initial stack pointer
 
     Ok(argc)
 }
