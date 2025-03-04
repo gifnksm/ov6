@@ -520,15 +520,12 @@ pub fn free_pagetable(mut pagetable_ptr: NonNull<PageTable>, sz: usize) {
 }
 
 /// A user program that calls `exec("/init")`.
-///
-/// Assembled from "user/initcode.S".
-/// `od -t xC user/initcode`
-static INIT_CODE: [u8; 52] = [
-    0x17, 0x05, 0x00, 0x00, 0x13, 0x05, 0x45, 0x02, 0x97, 0x05, 0x00, 0x00, 0x93, 0x85, 0x35, 0x02,
-    0x93, 0x08, 0x70, 0x00, 0x73, 0x00, 0x00, 0x00, 0x93, 0x08, 0x20, 0x00, 0x73, 0x00, 0x00, 0x00,
-    0xef, 0xf0, 0x9f, 0xff, 0x2f, 0x69, 0x6e, 0x69, 0x74, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-];
+#[cfg(feature = "initcode_env")]
+static INIT_CODE: &[u8] = const { include_bytes!(env!("INIT_CODE_PATH")) };
+#[cfg(not(feature = "initcode_env"))]
+static INIT_CODE: &[u8] = &[];
+
+const _: () = const { assert!(INIT_CODE.len() < 128) };
 
 /// Set up first user process.
 pub fn user_init() {
@@ -537,7 +534,7 @@ pub fn user_init() {
 
     // allocate one user page and copy initcode's instructions
     // and data into it.
-    vm::user::map_first(private.pagetable_mut().unwrap(), &INIT_CODE);
+    vm::user::map_first(private.pagetable_mut().unwrap(), INIT_CODE);
     private.sz = PAGE_SIZE;
 
     // prepare for the very first `return` from kernel to user.

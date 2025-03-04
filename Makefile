@@ -12,6 +12,7 @@ endif
 
 U=user
 R=target/xv6/$(PROFILE)
+I=target/xv6/initcode
 RN=target/$(PROFILE)
 
 RUST_CROSS_TARGET=riscv64gc-unknown-none-elf
@@ -92,8 +93,10 @@ endif
 
 LDFLAGS = -z max-page-size=4096 --gc-sections
 
-all: $R/kernel $R/kernel.asm $R/kernel.sym fs.img $U/initcode
+all: $R/kernel $R/kernel.asm $R/kernel.sym
+all: $I/initcode $I/initcode.asm $I/initcode.sym
 all: $(R_RUPROGS) $(addsuffix .sym,$(R_RUPROGS)) $(addsuffix .asm,$(R_RUPROGS))
+all: fs.img
 
 %.asm: %
 	$(OBJDUMP) -SC $< > $@
@@ -101,14 +104,23 @@ all: $(R_RUPROGS) $(addsuffix .sym,$(R_RUPROGS)) $(addsuffix .asm,$(R_RUPROGS))
 %.sym: %
 	$(OBJDUMP) -t $< | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' | c++filt > $@
 
-$U/initcode: $U/initcode.S
-	$(CC) $(CFLAGS) -march=rv64g -nostdinc -I. -Ikernel -c $U/initcode.S -o $U/initcode.o
-	$(LD) $(LDFLAGS) -N -e start -Ttext 0 -o $U/initcode.out $U/initcode.o
-	$(OBJCOPY) -S -O binary $U/initcode.out $U/initcode
-	$(OBJDUMP) -SC $U/initcode.o > $U/initcode.asm
+# create separate debuginfo file
+# https://users.rust-lang.org/t/how-to-gdb-with-split-debug-files/102989/3
+target/xv6/%.debug: target/$(RUST_CROSS_TARGET)/% | $$(dir $$@)
+	$(OBJCOPY) --only-keep-debug $< $@
 
-$(RX)/kernel:
-	cargo build -p kernel $(CARGO_PROFILE_FLAG) --target $(RUST_CROSS_TARGET)
+target/xv6/%: target/$(RUST_CROSS_TARGET)/% target/xv6/%.debug | $$(dir $$@)
+	$(OBJCOPY) --strip-debug --strip-unneeded --remove-section=".gnu_debuglink" --add-gnu-debuglink="$@.debug" $< $@
+
+target/$(RUST_CROSS_TARGET)/initcode/initcode:
+	cargo build -p user --bin initcode --profile initcode --target $(RUST_CROSS_TARGET)
+
+$I/initcode.bin: $I/initcode
+	$(OBJCOPY) -S -O binary $< $@
+
+$(RX)/kernel: $I/initcode.bin
+	INIT_CODE_PATH="$(PWD)/$I/initcode.bin" \
+		cargo build -p kernel $(CARGO_PROFILE_FLAG) --target $(RUST_CROSS_TARGET) --features initcode_env
 
 define user_rule
 $$(RX)/$(1):
@@ -123,14 +135,6 @@ $(RN)/mkfs:
 
 %/:
 	mkdir -p $@
-
-# create separate debuginfo file
-# https://users.rust-lang.org/t/how-to-gdb-with-split-debug-files/102989/3
-$R/%.debug: $(RX)/% | $$(dir $$@)
-	$(OBJCOPY) --only-keep-debug $< $@
-
-$R/%: $(RX)/% $(R)/%.debug | $$(dir $$@)
-	$(OBJCOPY) --strip-debug --strip-unneeded --remove-section=".gnu_debuglink" --add-gnu-debuglink="$@.debug" $< $@
 
 fs.img: $(RN)/mkfs README $(R_RUPROGS)
 	$(RN)/mkfs $@ README $(R_RUPROGS)
@@ -147,7 +151,7 @@ target/%.rel.d: target/%.d
 clean:
 	rm -f \
 	*/*.o */*.d */*.asm */*.sym \
-	$U/initcode $U/initcode.out fs.img \
+	fs.img \
 	.gdbinit
 	cargo clean
 

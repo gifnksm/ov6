@@ -33,3 +33,8 @@ panic = "abort"
 [profile.dev]
 debug = "full"
 panic = "abort"
+
+[profile.initcode]
+inherits = "release"
+debug = "full"
+lto = "fat"

@@ -26,3 +26,6 @@ thiserror.workspace = true
 xv6_fs_types.workspace = true
 xv6_kernel_params.workspace = true
 xv6_syscall.workspace = true
+
+[features]
+initcode_env = []
