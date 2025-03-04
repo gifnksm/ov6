@@ -9,7 +9,9 @@ use core::{
     sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, Ordering},
 };
 
+use alloc::{alloc::AllocError, boxed::Box};
 use arrayvec::ArrayString;
+use dataview::{Pod, PodMethods as _};
 
 use crate::{
     cpu::Cpu,
@@ -19,7 +21,7 @@ use crate::{
     interrupt::{self, trampoline, trap},
     memory::{
         layout::{TRAMPOLINE, TRAPFRAME, kstack},
-        page,
+        page::{self, PageFrameAllocator},
         vm::{self, PAGE_SIZE, PageTable, PhysAddr, PtEntryFlags, VirtAddr},
     },
     param::{NOFILE, NPROC},
@@ -63,7 +65,7 @@ impl ProcId {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Pod)]
 pub struct TrapFrame {
     /// Kernel page table.
     pub kernel_satp: usize, // 0
@@ -211,7 +213,7 @@ pub struct ProcPrivateData {
     /// User page table,
     pagetable: Option<NonNull<PageTable>>,
     /// Data page for trampoline.S
-    trapframe: Option<NonNull<TrapFrame>>,
+    trapframe: Option<Box<TrapFrame, PageFrameAllocator>>,
     /// Open files
     ofile: [Option<File>; NOFILE],
     /// Current directory
@@ -255,11 +257,11 @@ impl ProcPrivateData {
     }
 
     pub fn trapframe(&self) -> Option<&TrapFrame> {
-        self.trapframe.map(|p| unsafe { p.as_ref() })
+        self.trapframe.as_deref()
     }
 
     pub fn trapframe_mut(&mut self) -> Option<&mut TrapFrame> {
-        self.trapframe.map(|mut p| unsafe { p.as_mut() })
+        self.trapframe.as_deref_mut()
     }
 
     pub fn ofile(&self, fd: usize) -> Option<&File> {
@@ -428,7 +430,10 @@ impl Proc {
 
         let res: Result<(), Error> = (|| {
             // Allocate a trapframe page.
-            private.trapframe = Some(page::alloc_zeroed_page().ok_or(Error::Unknown)?.cast());
+            private.trapframe = Some(
+                Box::try_new_in(TrapFrame::zeroed(), PageFrameAllocator)
+                    .map_err(|AllocError| Error::Unknown)?,
+            );
             // An empty user page table.
             private.pagetable = Some(create_pagetable(&mut private).ok_or(Error::Unknown)?);
             // Set up new context to start executing ad forkret,
@@ -454,9 +459,7 @@ impl Proc {
     /// p.lock must be held.
     fn free(&self, mut private: ProcPrivateDataGuard, shared: &mut SpinLockGuard<ProcSharedData>) {
         if let Some(tf) = private.trapframe.take() {
-            unsafe {
-                page::free_page(tf.cast());
-            }
+            drop(tf);
         }
         if let Some(pt) = private.pagetable.take() {
             free_pagetable(pt, private.sz);
@@ -529,7 +532,13 @@ pub fn create_pagetable(private: &mut ProcPrivateData) -> Option<NonNull<PageTab
     if pagetable
         .map_page(
             TRAPFRAME,
-            PhysAddr::new(private.trapframe.map(|tf| tf.addr().get()).unwrap_or(0)),
+            PhysAddr::new(
+                private
+                    .trapframe
+                    .as_ref()
+                    .map(|tf| Box::as_ptr(tf).addr())
+                    .unwrap_or(0),
+            ),
             PtEntryFlags::RW,
         )
         .is_err()

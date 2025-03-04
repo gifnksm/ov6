@@ -1,4 +1,5 @@
 #![feature(allocator_api)]
+#![feature(box_as_ptr)]
 #![feature(fn_align)]
 #![feature(naked_functions)]
 #![no_std]
