@@ -210,7 +210,7 @@ impl ProcShared {
 
 pub struct ProcPrivateData {
     /// Virtual address of kernel stack.
-    kstack: usize,
+    kstack: VirtAddr,
     /// Size of process memory (bytes).
     sz: usize,
     /// User page table,
@@ -226,7 +226,7 @@ pub struct ProcPrivateData {
 impl ProcPrivateData {
     const fn new() -> Self {
         Self {
-            kstack: 0,
+            kstack: VirtAddr::new(0),
             sz: 0,
             pagetable: None,
             trapframe: None,
@@ -235,7 +235,7 @@ impl ProcPrivateData {
         }
     }
 
-    pub fn kstack(&self) -> usize {
+    pub fn kstack(&self) -> VirtAddr {
         self.kstack
     }
 
@@ -452,7 +452,7 @@ impl Proc {
             // which returns to user space.
             shared.context.clear();
             shared.context.ra = forkret as usize;
-            shared.context.sp = private.kstack + PAGE_SIZE;
+            shared.context.sp = private.kstack.byte_add(PAGE_SIZE).addr();
             Ok(())
         })();
 
@@ -497,11 +497,7 @@ pub fn map_stacks(kpgtbl: &mut PageTable) {
         let pa = page::alloc_page().unwrap();
         let va = kstack(i);
         kpgtbl
-            .map_page(
-                VirtAddr::new(va),
-                PhysAddr::new(pa.addr().get()),
-                PtEntryFlags::RW,
-            )
+            .map_page(va, PhysAddr::new(pa.addr().get()), PtEntryFlags::RW)
             .unwrap();
     }
 }
@@ -547,7 +543,7 @@ pub fn create_pagetable(
                     .trapframe
                     .as_ref()
                     .map(|tf| Box::as_ptr(tf).addr())
-                    .unwrap_or(0),
+                    .unwrap(),
             ),
             PtEntryFlags::RW,
         )

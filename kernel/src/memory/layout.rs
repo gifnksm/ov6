@@ -22,6 +22,8 @@
 //! PHYSTOP -- end RAM used by the kernel
 //! ```
 
+use core::arch::global_asm;
+
 use crate::memory::{PAGE_SIZE, VirtAddr};
 
 // qemu puts UART registers here in physical memory.
@@ -46,11 +48,38 @@ pub const fn plic_sclaim(hart: usize) -> usize {
     PLIC + 0x20_1004 + hart * 0x2000
 }
 
-// the kernel expects there to be RAM
-// for use by the kernel and user pages
-// from physical address 0x80000000 to PHYSTOP.
-pub const KERN_BASE: usize = 0x8000_0000;
-pub const PHYS_TOP: usize = KERN_BASE + 128 * 1024 * 1024;
+// get linker symbol addresses
+global_asm!(
+    "
+        .global _ov6_kernel_base_addr
+        _ov6_kernel_base_addr: .dword _ov6_kernel_base
+        .global _ov6_text_end_addr
+        _ov6_text_end_addr: .dword _ov6_text_end
+        .global _ov6_kernel_end_addr
+        _ov6_kernel_end_addr: .dword _ov6_kernel_end
+        .global _ov6_phys_top_addr
+        _ov6_phys_top_addr: .dword _ov6_phys_top
+    "
+);
+
+unsafe extern "C" {
+    // the kernel expects there to be RAM
+    // for use by the kernel and user pages
+    // from physical address 0x80000000 to PHYSTOP.
+    #[link_name = "_ov6_kernel_base_addr"]
+    pub(super) static KERN_BASE: usize;
+
+    /// Address of the end of kernel code.
+    #[link_name = "_ov6_text_end_addr"]
+    pub(super) static TEXT_END: usize;
+
+    /// Address of the end of kernel code.
+    #[link_name = "_ov6_kernel_end_addr"]
+    pub(super) static KERNEL_END: usize;
+
+    #[link_name = "_ov6_phys_top_addr"]
+    pub(super) static PHYS_TOP: usize;
+}
 
 // User memory layout.
 // ```text
@@ -66,8 +95,8 @@ pub const PHYS_TOP: usize = KERN_BASE + 128 * 1024 * 1024;
 
 pub const TRAMPOLINE: VirtAddr = VirtAddr::MAX.byte_sub(PAGE_SIZE);
 
-pub const fn kstack(p: usize) -> usize {
-    TRAMPOLINE.addr() - (p + 1) * 2 * PAGE_SIZE
+pub const fn kstack(p: usize) -> VirtAddr {
+    TRAMPOLINE.byte_sub((p + 1) * 2 * PAGE_SIZE)
 }
 
 pub const TRAPFRAME: VirtAddr = TRAMPOLINE.byte_sub(PAGE_SIZE);

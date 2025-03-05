@@ -14,26 +14,17 @@ use once_init::OnceInit;
 
 use crate::{memory::layout::PHYS_TOP, sync::SpinLock};
 
-use super::{PAGE_SIZE, PageRound as _};
+use super::{PAGE_SIZE, PageRound as _, layout::KERNEL_END};
 
 /// First address after kernel.
 fn end() -> NonNull<u8> {
-    unsafe extern "C" {
-        /// First address after kernel.
-        ///
-        /// defined by `kernel.ld`
-        #[link_name = "end"]
-        static mut END: [u8; 0];
-    }
-
-    NonNull::new(ptr::with_exposed_provenance_mut::<u8>(
-        (&raw mut END).expose_provenance(),
-    ))
-    .unwrap()
+    let end = unsafe { KERNEL_END };
+    NonNull::new(ptr::with_exposed_provenance_mut::<u8>(end)).unwrap()
 }
 
 fn top() -> NonNull<u8> {
-    NonNull::new(ptr::with_exposed_provenance_mut(PHYS_TOP)).unwrap()
+    let top = unsafe { PHYS_TOP };
+    NonNull::new(ptr::with_exposed_provenance_mut(top)).unwrap()
 }
 
 static PAGE_FRAME_ALLOCATOR: OnceInit<SpinLock<page_alloc::PageFrameAllocator<PAGE_SIZE>>> =

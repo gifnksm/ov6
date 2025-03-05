@@ -1,112 +1,15 @@
-use core::{
-    ffi::c_void,
-    mem,
-    ptr::{self, NonNull},
-    slice,
-};
+use core::{mem, ptr, slice};
 
 use alloc::boxed::Box;
-use once_init::OnceInit;
-use riscv::{asm, register::satp};
 
 use crate::{
     error::Error,
-    interrupt::trampoline,
     memory::{
         PAGE_SIZE, PageRound as _, PhysAddr, VirtAddr,
-        layout::{KERN_BASE, PHYS_TOP, PLIC, TRAMPOLINE, UART0, VIRTIO0},
         page::{self, PageFrameAllocator},
         page_table::{PageTable, PtEntryFlags},
     },
-    proc,
 };
-
-/// The kernel's page table address.
-static KERNEL_PAGETABLE: OnceInit<Box<PageTable, PageFrameAllocator>> = OnceInit::new();
-
-/// Address of the end of kernel code.
-const ETEXT: NonNull<c_void> = {
-    unsafe extern "C" {
-        #[link_name = "etext"]
-        static mut ETEXT: [u8; 0];
-    }
-    NonNull::new((&raw mut ETEXT).cast()).unwrap()
-};
-
-/// Makes a direct-map page table for the kernel.
-fn make_kernel_pt() -> Box<PageTable, PageFrameAllocator> {
-    use PtEntryFlags as F;
-
-    let etext = ETEXT.addr().into();
-    let phys_trampoline = PhysAddr::new(trampoline::trampoline as usize);
-
-    unsafe fn ident_map(
-        kpgtbl: &mut PageTable,
-        addr: usize,
-        size: usize,
-        perm: PtEntryFlags,
-    ) -> Result<(), Error> {
-        kpgtbl.map_pages(VirtAddr::new(addr), size, PhysAddr::new(addr), perm)
-    }
-
-    let rw = F::RW;
-    let rx = F::RX;
-
-    let mut kpgtbl = PageTable::try_allocate().unwrap();
-
-    unsafe {
-        // uart registers
-        ident_map(&mut kpgtbl, UART0, PAGE_SIZE, rw).unwrap();
-
-        // virtio mmio disk interface
-        ident_map(&mut kpgtbl, VIRTIO0, PAGE_SIZE, rw).unwrap();
-
-        // PLIC
-        ident_map(&mut kpgtbl, PLIC, 0x400_0000, rw).unwrap();
-
-        // map kernel text executable and red-only.
-        ident_map(&mut kpgtbl, KERN_BASE, etext - KERN_BASE, rx).unwrap();
-
-        // map kernel data and the physical RAM we'll make use of.
-        ident_map(&mut kpgtbl, etext, PHYS_TOP - etext, rw).unwrap();
-
-        // map the trampoline for trap entry/exit to
-        // the highest virtual address in the kernel.
-        kpgtbl
-            .map_pages(TRAMPOLINE, PAGE_SIZE, phys_trampoline, rx)
-            .unwrap();
-
-        // allocate and map a kernel stack for each process.
-        proc::map_stacks(&mut kpgtbl);
-    }
-
-    kpgtbl
-}
-
-pub mod kernel {
-    use super::*;
-
-    /// Initialize the one kernel_pagetable
-    pub fn init() {
-        let kpgtbl = make_kernel_pt();
-        KERNEL_PAGETABLE.init(kpgtbl);
-    }
-
-    /// Switch h/w page table register to the kernel's page table,
-    /// and enable paging.
-    pub fn init_hart() {
-        // wait for any previous writes to the page table memory to finish.
-        asm::sfence_vma_all();
-
-        let addr = KERNEL_PAGETABLE.get().phys_addr();
-        unsafe {
-            satp::set(satp::Mode::Sv39, 0, addr.phys_page_num().value());
-        }
-
-        // flush state entries from the TLB.
-        asm::sfence_vma_all();
-    }
-}
 
 pub mod user {
     use core::slice;
