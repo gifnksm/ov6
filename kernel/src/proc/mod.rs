@@ -4,9 +4,10 @@ use core::{
     ffi::c_void,
     fmt, mem,
     ops::{Deref, DerefMut, Range},
+    panic::Location,
     ptr::{self, NonNull},
     slice,
-    sync::atomic::{AtomicBool, AtomicI32, Ordering},
+    sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, Ordering},
 };
 
 use alloc::{alloc::AllocError, boxed::Box};
@@ -337,6 +338,7 @@ pub struct Proc {
     child_ended: SpinLockCondVar,
     /// `true` if `private` is referenced
     private_taken: AtomicBool,
+    taken_location: AtomicPtr<Location<'static>>,
     /// Process private data.
     private: UnsafeCell<ProcPrivateData>,
 }
@@ -350,6 +352,7 @@ impl Proc {
             parent: Parent::new(),
             child_ended: SpinLockCondVar::new(),
             private_taken: AtomicBool::new(false),
+            taken_location: AtomicPtr::new(ptr::from_ref(Location::caller()).cast_mut()),
             private: UnsafeCell::new(ProcPrivateData::new()),
         }
     }
@@ -370,10 +373,15 @@ impl Proc {
     }
 
     #[track_caller]
-    pub fn private(&self) -> ProcPrivateDataGuard {
+    pub fn take_private(&self) -> ProcPrivateDataGuard {
         if self.private_taken.swap(true, Ordering::Acquire) {
-            panic!("ProcPrivateData is already taken");
+            let taker = unsafe { self.taken_location.load(Ordering::Relaxed).as_ref() }.unwrap();
+            panic!("ProcPrivateData is already taken at {taker}");
         }
+        self.taken_location.store(
+            ptr::from_ref(Location::caller()).cast_mut(),
+            Ordering::Relaxed,
+        );
 
         ProcPrivateDataGuard {
             private_taken: &self.private_taken,
@@ -429,7 +437,7 @@ impl Proc {
 
         shared.pid = Self::allocate_pid();
         shared.state = ProcState::Used;
-        let mut private = p.private();
+        let mut private = p.take_private();
 
         let res: Result<(), Error> = (|| {
             // Allocate a trapframe page.
@@ -500,7 +508,7 @@ pub fn map_stacks(kpgtbl: &mut PageTable) {
 /// Initialize the proc table.
 pub fn init() {
     for (i, p) in PROC.iter().enumerate() {
-        p.private().kstack = kstack(i);
+        p.take_private().kstack = kstack(i);
     }
 }
 
@@ -749,7 +757,7 @@ pub fn wait(p: &Proc, p_private: &ProcPrivateData, addr: VirtAddr) -> Result<Pro
             have_kids = true;
             if let ProcState::Zombie { exit_status } = pp_shared.state {
                 // Found one.
-                let pp_private = pp.private();
+                let pp_private = pp.take_private();
 
                 let pid = pp_shared.pid;
                 if addr.addr() != 0
@@ -793,7 +801,7 @@ extern "C" fn forkret() {
 
     // Still holding `p->shared` from `scheduler()`.
     let p = Proc::current();
-    let private = p.private();
+    let private = p.take_private();
     let _ = unsafe { p.shared.remember_locked() }; // unlock here
 
     if FIRST.load(Ordering::Acquire) {

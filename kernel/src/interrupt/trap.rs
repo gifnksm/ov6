@@ -50,7 +50,7 @@ extern "C" fn trap_user() {
     }
 
     let p = Proc::current();
-    let mut private = p.private();
+    let mut private = p.take_private();
 
     // save user program counter.
     private.trapframe_mut().unwrap().epc = sepc::read();
