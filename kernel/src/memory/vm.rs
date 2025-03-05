@@ -5,10 +5,12 @@ use core::{
     ops::Range,
     ptr::{self, NonNull},
     slice,
-    sync::atomic::{AtomicUsize, Ordering},
 };
 
+use alloc::{alloc::AllocError, boxed::Box};
 use bitflags::bitflags;
+use dataview::Pod;
+use once_init::OnceInit;
 use riscv::{asm, register::satp};
 
 use crate::{
@@ -21,13 +23,15 @@ use crate::{
     proc,
 };
 
+use super::page::PageFrameAllocator;
+
 /// Bytes per page
 pub const PAGE_SIZE: usize = 4096;
 /// Bits of offset within a page
 pub const PAGE_SHIFT: usize = 12;
 
 /// The kernel's page table address.
-static KERNEL_PAGETABLE: AtomicUsize = AtomicUsize::new(0);
+static KERNEL_PAGETABLE: OnceInit<Box<PageTable, PageFrameAllocator>> = OnceInit::new();
 
 /// Address of the end of kernel code.
 const ETEXT: NonNull<c_void> = {
@@ -127,7 +131,7 @@ impl PageRound for PhysAddr {
 }
 
 /// Makes a direct-map page table for the kernel.
-fn make_kernel_pt() -> &'static mut PageTable {
+fn make_kernel_pt() -> Box<PageTable, PageFrameAllocator> {
     use PtEntryFlags as F;
 
     let etext = ETEXT.addr().into();
@@ -145,24 +149,23 @@ fn make_kernel_pt() -> &'static mut PageTable {
     let rw = F::RW;
     let rx = F::RX;
 
-    let mut kpgtbl = PageTable::allocate().unwrap();
-    let kpgtbl = unsafe { kpgtbl.as_mut() };
+    let mut kpgtbl = PageTable::try_allocate().unwrap();
 
     unsafe {
         // uart registers
-        ident_map(kpgtbl, UART0, PAGE_SIZE, rw).unwrap();
+        ident_map(&mut kpgtbl, UART0, PAGE_SIZE, rw).unwrap();
 
         // virtio mmio disk interface
-        ident_map(kpgtbl, VIRTIO0, PAGE_SIZE, rw).unwrap();
+        ident_map(&mut kpgtbl, VIRTIO0, PAGE_SIZE, rw).unwrap();
 
         // PLIC
-        ident_map(kpgtbl, PLIC, 0x400_0000, rw).unwrap();
+        ident_map(&mut kpgtbl, PLIC, 0x400_0000, rw).unwrap();
 
         // map kernel text executable and red-only.
-        ident_map(kpgtbl, KERN_BASE, etext - KERN_BASE, rx).unwrap();
+        ident_map(&mut kpgtbl, KERN_BASE, etext - KERN_BASE, rx).unwrap();
 
         // map kernel data and the physical RAM we'll make use of.
-        ident_map(kpgtbl, etext, PHYS_TOP - etext, rw).unwrap();
+        ident_map(&mut kpgtbl, etext, PHYS_TOP - etext, rw).unwrap();
 
         // map the trampoline for trap entry/exit to
         // the highest virtual address in the kernel.
@@ -171,7 +174,7 @@ fn make_kernel_pt() -> &'static mut PageTable {
             .unwrap();
 
         // allocate and map a kernel stack for each process.
-        proc::map_stacks(kpgtbl);
+        proc::map_stacks(&mut kpgtbl);
     }
 
     kpgtbl
@@ -247,15 +250,14 @@ impl PhysAddr {
 }
 
 #[repr(transparent)]
+#[derive(Pod)]
 pub struct PageTable([PtEntry; 512]);
 
 impl PageTable {
     /// Allocates a new empty page table.
-    fn allocate() -> Result<NonNull<Self>, Error> {
-        let pt = page::alloc_zeroed_page()
-            .ok_or(Error::Unknown)?
-            .cast::<Self>();
-        Ok(pt)
+    fn try_allocate() -> Result<Box<Self, PageFrameAllocator>, Error> {
+        let pt = Box::try_new_zeroed_in(PageFrameAllocator).map_err(|AllocError| Error::Unknown)?;
+        Ok(unsafe { pt.assume_init() })
     }
 
     /// Returns the page table index that corresponds to virtual address `va`
@@ -307,7 +309,7 @@ impl PageTable {
                 !pte.is_valid(),
                 "remap on the already mapped address: va={va:?}"
             );
-            *pte = PtEntry::new(pa.phys_page_num(), perm | PtEntryFlags::V);
+            pte.set_phys_addr(pa, perm | PtEntryFlags::V);
         })
     }
 
@@ -376,13 +378,7 @@ impl PageTable {
         let mut pt = self;
         for level in (1..=2).rev() {
             let index = Self::entry_index(level, va);
-            let pte = &pt.0[index];
-            if pte.is_valid() {
-                assert!(pte.is_non_leaf());
-                pt = unsafe { pte.phys_addr().as_ptr::<PageTable>().as_ref().unwrap() };
-                continue;
-            }
-            return None;
+            pt = pt.0[index].get_page_table()?;
         }
 
         let index = Self::entry_index(0, va);
@@ -409,32 +405,25 @@ impl PageTable {
     {
         assert!(va < VirtAddr::MAX);
 
-        unsafe {
-            let mut pt = NonNull::new(&raw mut *self).unwrap();
-            for level in (1..=2).rev() {
-                let index = Self::entry_index(level, va);
-                let pte = &mut pt.as_mut().0[index];
-                if pte.is_valid() {
-                    assert!(pte.is_non_leaf());
-                    pt = (*pte).phys_addr().as_mut_ptr();
-                    continue;
-                }
-
+        let mut pt = self;
+        for level in (1..=2).rev() {
+            let index = Self::entry_index(level, va);
+            if !pt.0[index].is_valid() {
                 if !insert_new_table {
                     return Err(Error::Unknown);
                 }
-
-                pt = Self::allocate()?;
-                *pte = PtEntry::new(pt.as_ref().phys_page_num(), PtEntryFlags::V);
+                let new_pt = Self::try_allocate()?;
+                pt.0[index].set_page_table(new_pt);
             }
-
-            let index = Self::entry_index(0, va);
-            let pte = &mut pt.as_mut().0[index];
-            let res = f(pte);
-            // cannot change PTE to non-leaf (level0 PTE must be invalid or leaf)
-            assert!(!pte.is_non_leaf());
-            Ok(res)
+            pt = pt.0[index].get_page_table_mut().unwrap();
         }
+
+        let index = Self::entry_index(0, va);
+        let pte = &mut pt.0[index];
+        let res = f(pte);
+        // cannot change PTE to non-leaf (level0 PTE must be invalid or leaf)
+        assert!(!pte.is_non_leaf());
+        Ok(res)
     }
 
     /// Looks up a virtual address, returns the physical address,
@@ -465,19 +454,11 @@ impl PageTable {
     /// All leaf mappings must already have been removed.
     fn free_descendant(&mut self) {
         for pte in &mut self.0 {
-            if !pte.is_valid() {
-                continue;
+            assert!(!pte.is_valid() || pte.is_non_leaf());
+            if let Some(mut pt) = pte.take_page_table() {
+                pt.free_descendant();
+                pte.clear();
             }
-            assert!(pte.is_non_leaf());
-            let mut child_ptr = pte.phys_addr().as_mut_ptr::<PageTable>();
-            {
-                let child = unsafe { child_ptr.as_mut() };
-                child.free_descendant();
-            }
-            unsafe {
-                page::free_page(child_ptr.cast());
-            }
-            pte.clear();
         }
     }
 }
@@ -560,6 +541,7 @@ impl Drop for UnmapPages<'_> {
 }
 
 #[repr(transparent)]
+#[derive(Pod)]
 struct PtEntry(usize);
 
 impl PtEntry {
@@ -575,6 +557,52 @@ impl PtEntry {
         Self(bits)
     }
 
+    fn get_page_table(&self) -> Option<&PageTable> {
+        self.is_non_leaf()
+            .then(|| unsafe { self.phys_addr().as_mut_ptr::<PageTable>().as_ref() })
+    }
+
+    fn get_page_table_mut(&mut self) -> Option<&mut PageTable> {
+        self.is_non_leaf()
+            .then(|| unsafe { self.phys_addr().as_mut_ptr::<PageTable>().as_mut() })
+    }
+
+    fn set_page_table(&mut self, pt: Box<PageTable, PageFrameAllocator>) {
+        assert!(!self.is_valid());
+        let ppn = pt.phys_page_num();
+        Box::leak(pt);
+        *self = Self::new(ppn, PtEntryFlags::V);
+    }
+
+    fn take_page_table(&mut self) -> Option<Box<PageTable, PageFrameAllocator>> {
+        self.is_non_leaf().then(|| {
+            let ptr = self.phys_addr().as_mut_ptr();
+            let pt = unsafe { Box::from_raw_in(ptr.as_ptr(), PageFrameAllocator) };
+            self.clear();
+            pt
+        })
+    }
+
+    /// Returns physical page number (PPN)
+    fn phys_page_num(&self) -> PhysPageNum {
+        PhysPageNum(self.0 >> 10)
+    }
+
+    fn set_phys_page_num(&mut self, ppn: PhysPageNum, flags: PtEntryFlags) {
+        assert!(!self.is_valid());
+        assert!(flags.contains(PtEntryFlags::V));
+        *self = Self::new(ppn, flags);
+    }
+
+    /// Returns physical address (PA)
+    fn phys_addr(&self) -> PhysAddr {
+        self.phys_page_num().phys_addr()
+    }
+
+    fn set_phys_addr(&mut self, pa: PhysAddr, flags: PtEntryFlags) {
+        self.set_phys_page_num(pa.phys_page_num(), flags);
+    }
+
     /// Returns `true` if this page is valid
     fn is_valid(&self) -> bool {
         self.flags().contains(PtEntryFlags::V)
@@ -588,16 +616,6 @@ impl PtEntry {
     /// Returns `true` if this page is a valid  non-leaf entry.
     fn is_non_leaf(&self) -> bool {
         self.is_valid() && !self.is_leaf()
-    }
-
-    /// Returns physical page number (PPN)
-    fn phys_page_num(&self) -> PhysPageNum {
-        PhysPageNum(self.0 >> 10)
-    }
-
-    /// Returns physical address (PA)
-    fn phys_addr(&self) -> PhysAddr {
-        self.phys_page_num().phys_addr()
     }
 
     /// Returns page table entry flags
@@ -623,7 +641,7 @@ pub mod kernel {
     /// Initialize the one kernel_pagetable
     pub fn init() {
         let kpgtbl = make_kernel_pt();
-        KERNEL_PAGETABLE.store(ptr::from_mut(kpgtbl).addr(), Ordering::Release);
+        KERNEL_PAGETABLE.init(kpgtbl);
     }
 
     /// Switch h/w page table register to the kernel's page table,
@@ -632,7 +650,7 @@ pub mod kernel {
         // wait for any previous writes to the page table memory to finish.
         asm::sfence_vma_all();
 
-        let addr = PhysAddr(KERNEL_PAGETABLE.load(Ordering::Acquire));
+        let addr = KERNEL_PAGETABLE.get().phys_addr();
         unsafe {
             satp::set(satp::Mode::Sv39, 0, addr.phys_page_num().0);
         }
@@ -666,8 +684,8 @@ pub mod user {
     /// Creates an empty user page table.
     ///
     /// Returns `Err()` if out of memory.
-    pub fn create() -> Result<NonNull<PageTable>, Error> {
-        PageTable::allocate()
+    pub fn create() -> Result<Box<PageTable, PageFrameAllocator>, Error> {
+        PageTable::try_allocate()
     }
 
     /// Loads the user initcode into address 0 of pagetable.
@@ -745,37 +763,17 @@ pub mod user {
         newsz
     }
 
-    /// Recursively free page-table pages.
-    ///
-    /// All leaf mappings must already have been removed.
-    pub(super) unsafe fn free_walk(pagetable_addr: usize) {
-        unsafe {
-            let mut pagetable_ptr = NonNull::new(ptr::with_exposed_provenance_mut::<PageTable>(
-                pagetable_addr,
-            ))
-            .unwrap();
-            pagetable_ptr.as_mut().free_descendant();
-            page::free_page(pagetable_ptr.cast());
-        }
-    }
-
     /// Frees user memory pages, then free page-table pages.
-    pub unsafe fn free(pagetable_addr: usize, sz: usize) {
-        {
-            let pagetable = unsafe {
-                ptr::with_exposed_provenance_mut::<PageTable>(pagetable_addr)
-                    .as_mut()
-                    .unwrap()
-            };
-            if sz > 0 {
-                unmap(pagetable, VirtAddr(0), page_roundup(sz) / PAGE_SIZE, true);
-            }
-            // drop pagetable pointer here
-            let _ = pagetable;
+    pub fn free(mut pagetable: Box<PageTable, PageFrameAllocator>, sz: usize) {
+        if sz > 0 {
+            unmap(
+                &mut pagetable,
+                VirtAddr(0),
+                page_roundup(sz) / PAGE_SIZE,
+                true,
+            );
         }
-        unsafe {
-            free_walk(pagetable_addr);
-        }
+        pagetable.free_descendant();
     }
 
     /// Given a parent process's page table, copies

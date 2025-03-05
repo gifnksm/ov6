@@ -11,11 +11,10 @@ use core::{
 
 use alloc::alloc::{AllocError, Allocator};
 use once_init::OnceInit;
-use page_alloc::RetrievePageFrameAllocator;
 
 use crate::{
     memory::{layout::PHYS_TOP, vm::PAGE_SIZE},
-    sync::{SpinLock, SpinLockGuard},
+    sync::SpinLock,
 };
 
 use super::vm::PageRound as _;
@@ -42,15 +41,6 @@ fn top() -> NonNull<u8> {
 
 static PAGE_FRAME_ALLOCATOR: OnceInit<SpinLock<page_alloc::PageFrameAllocator<PAGE_SIZE>>> =
     OnceInit::new();
-
-pub struct PageFrameAllocatorRetriever;
-impl RetrievePageFrameAllocator<PAGE_SIZE> for PageFrameAllocatorRetriever {
-    type AllocatorRef = SpinLockGuard<'static, page_alloc::PageFrameAllocator<PAGE_SIZE>>;
-
-    fn retrieve_allocator() -> Self::AllocatorRef {
-        PAGE_FRAME_ALLOCATOR.get().lock()
-    }
-}
 
 pub fn init() {
     let pa_start = end().page_roundup();

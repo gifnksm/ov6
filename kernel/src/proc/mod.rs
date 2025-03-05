@@ -5,8 +5,7 @@ use core::{
     fmt, mem,
     ops::{Deref, DerefMut, Range},
     panic::Location,
-    ptr::{self, NonNull},
-    slice,
+    ptr, slice,
     sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, Ordering},
 };
 
@@ -213,7 +212,7 @@ pub struct ProcPrivateData {
     /// Size of process memory (bytes).
     sz: usize,
     /// User page table,
-    pagetable: Option<NonNull<PageTable>>,
+    pagetable: Option<Box<PageTable, PageFrameAllocator>>,
     /// Data page for trampoline.S
     trapframe: Option<Box<TrapFrame, PageFrameAllocator>>,
     /// Open files
@@ -243,14 +242,14 @@ impl ProcPrivateData {
     }
 
     pub fn pagetable(&self) -> Option<&PageTable> {
-        self.pagetable.map(|p| unsafe { p.as_ref() })
+        self.pagetable.as_deref()
     }
 
     pub fn pagetable_mut(&mut self) -> Option<&mut PageTable> {
-        self.pagetable.map(|mut p| unsafe { p.as_mut() })
+        self.pagetable.as_deref_mut()
     }
 
-    pub fn update_pagetable(&mut self, pagetable: NonNull<PageTable>, sz: usize) {
+    pub fn update_pagetable(&mut self, pagetable: Box<PageTable, PageFrameAllocator>, sz: usize) {
         let old_pt = self.pagetable.replace(pagetable);
         let old_sz = mem::replace(&mut self.sz, sz);
         if let Some(old) = old_pt {
@@ -514,10 +513,11 @@ pub fn init() {
 
 /// Creates a user page table for a given process, with no user memory,
 /// but with trampoline and trapframe pages.
-pub fn create_pagetable(private: &mut ProcPrivateData) -> Option<NonNull<PageTable>> {
+pub fn create_pagetable(
+    private: &mut ProcPrivateData,
+) -> Option<Box<PageTable, PageFrameAllocator>> {
     // An empty page table.
-    let mut pagetable_ptr = vm::user::create().ok()?;
-    let pagetable = unsafe { pagetable_ptr.as_mut() };
+    let mut pagetable = vm::user::create().ok()?;
 
     // map the trampoline code (for system call return)
     // at the highest user virtual address.
@@ -531,10 +531,7 @@ pub fn create_pagetable(private: &mut ProcPrivateData) -> Option<NonNull<PageTab
         )
         .is_err()
     {
-        let _ = pagetable; // drop pagetable reference
-        unsafe {
-            vm::user::free(pagetable_ptr.addr().get(), 0);
-        }
+        vm::user::free(pagetable, 0);
         return None;
     }
 
@@ -554,27 +551,20 @@ pub fn create_pagetable(private: &mut ProcPrivateData) -> Option<NonNull<PageTab
         )
         .is_err()
     {
-        vm::user::unmap(pagetable, TRAMPOLINE, 1, false);
-        let _ = pagetable; // drop pagetable reference
-        unsafe {
-            vm::user::free(pagetable_ptr.addr().get(), 0);
-        }
+        vm::user::unmap(&mut pagetable, TRAMPOLINE, 1, false);
+        vm::user::free(pagetable, 0);
         return None;
     }
 
-    Some(pagetable_ptr)
+    Some(pagetable)
 }
 
 /// Frees a process's page table, and free the
 /// physical memory it refers to.
-pub fn free_pagetable(mut pagetable_ptr: NonNull<PageTable>, sz: usize) {
-    let pagetable = unsafe { pagetable_ptr.as_mut() };
-    vm::user::unmap(pagetable, TRAMPOLINE, 1, false);
-    vm::user::unmap(pagetable, TRAPFRAME, 1, false);
-    let _ = pagetable; // drop pagetable reference
-    unsafe {
-        vm::user::free(pagetable_ptr.addr().get(), sz);
-    }
+pub fn free_pagetable(mut pagetable: Box<PageTable, PageFrameAllocator>, sz: usize) {
+    vm::user::unmap(&mut pagetable, TRAMPOLINE, 1, false);
+    vm::user::unmap(&mut pagetable, TRAPFRAME, 1, false);
+    vm::user::free(pagetable, sz);
 }
 
 /// A user program that calls `exec("/init")`.

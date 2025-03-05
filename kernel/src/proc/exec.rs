@@ -55,13 +55,8 @@ pub fn exec(
 
     // Load program into memory.
     let mut sz = 0;
-    if let Err(Error::Unknown) = load_segments(
-        private,
-        &mut lip,
-        unsafe { pagetable.as_mut() },
-        &mut sz,
-        &elf,
-    ) {
+    if let Err(Error::Unknown) = load_segments(private, &mut lip, pagetable.as_mut(), &mut sz, &elf)
+    {
         proc::free_pagetable(pagetable, sz);
         return Err(Error::Unknown);
     }
@@ -70,7 +65,7 @@ pub fn exec(
     ip.put();
     tx.end();
 
-    if allocate_stack_pages(unsafe { pagetable.as_mut() }, &mut sz).is_err() {
+    if allocate_stack_pages(&mut pagetable, &mut sz).is_err() {
         proc::free_pagetable(pagetable, sz);
         return Err(Error::Unknown);
     }
@@ -79,7 +74,7 @@ pub fn exec(
     let stack_base = sp - USER_STACK * PAGE_SIZE;
 
     // Push argument strings, prepare rest of stack in ustack.
-    let Ok((sp, argc)) = push_arguments(unsafe { pagetable.as_ref() }, sp, stack_base, argv) else {
+    let Ok((sp, argc)) = push_arguments(&pagetable, sp, stack_base, argv) else {
         proc::free_pagetable(pagetable, sz);
         return Err(Error::Unknown);
     };
