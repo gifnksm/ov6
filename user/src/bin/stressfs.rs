@@ -4,12 +4,12 @@ extern crate alloc;
 
 use core::ffi::CStr;
 
-use user::{message, try_or_exit};
-use xv6_user_lib::{
+use ov6_user_lib::{
     fs::File,
     io::{Read as _, Write as _},
     process,
 };
+use user::{message, try_or_exit};
 
 fn main() {
     message!("starting");

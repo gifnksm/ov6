@@ -3,7 +3,7 @@
 
 use core::ptr;
 
-use xv6_user_lib::os::xv6::syscall::ffi;
+use ov6_user_lib::os::ov6::syscall::ffi;
 
 #[unsafe(link_section = ".text.init")]
 #[unsafe(no_mangle)]

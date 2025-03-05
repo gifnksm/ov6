@@ -7,7 +7,7 @@ use crate::{
     io::{Read, Write},
     os::{
         fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
-        xv6::syscall::{self, OpenFlags},
+        ov6::syscall::{self, OpenFlags},
     },
 };
 
@@ -244,7 +244,7 @@ impl Iterator for ReadDir {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let mut ent = xv6_fs_types::DirEntry::zeroed();
+            let mut ent = ov6_fs_types::DirEntry::zeroed();
             let Ok(size) = syscall::read(self.fd.as_fd(), ent.as_bytes_mut()) else {
                 return Some(Err(Error::Unknown));
             };
@@ -254,14 +254,14 @@ impl Iterator for ReadDir {
             if ent.ino().is_none() {
                 continue;
             }
-            assert_eq!(size, size_of::<xv6_fs_types::DirEntry>());
+            assert_eq!(size, size_of::<ov6_fs_types::DirEntry>());
             return Some(Ok(DirEntry { ent }));
         }
     }
 }
 
 pub struct DirEntry {
-    ent: xv6_fs_types::DirEntry,
+    ent: ov6_fs_types::DirEntry,
 }
 
 impl DirEntry {

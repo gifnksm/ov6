@@ -17,10 +17,10 @@ impl Error {
     }
 }
 
-impl From<xv6_syscall::Error> for Error {
-    fn from(value: xv6_syscall::Error) -> Self {
+impl From<ov6_syscall::Error> for Error {
+    fn from(value: ov6_syscall::Error) -> Self {
         match value {
-            xv6_syscall::Error::Unknown => Error::Unknown,
+            ov6_syscall::Error::Unknown => Error::Unknown,
         }
     }
 }

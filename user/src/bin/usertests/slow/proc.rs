@@ -1,6 +1,6 @@
 use core::ptr;
 
-use xv6_user_lib::{io::STDOUT_FD, os::xv6::syscall, process};
+use ov6_user_lib::{io::STDOUT_FD, os::ov6::syscall, process};
 
 use crate::{ECHO_PATH, PAGE_SIZE};
 

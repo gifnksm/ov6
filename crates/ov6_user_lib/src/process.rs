@@ -1,7 +1,7 @@
 use core::convert::Infallible;
 
-pub use crate::os::xv6::syscall::{exec, exit, fork, kill, wait};
-use crate::{error::Error, os::xv6::syscall};
+pub use crate::os::ov6::syscall::{exec, exit, fork, kill, wait};
+use crate::{error::Error, os::ov6::syscall};
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExitStatus {

@@ -3,8 +3,8 @@ use core::{
     ptr,
 };
 
-use xv6_kernel_params::MAX_PATH;
-use xv6_user_lib::{
+use ov6_kernel_params::MAX_PATH;
+use ov6_user_lib::{
     error::Error,
     fs::{self, File},
     process,

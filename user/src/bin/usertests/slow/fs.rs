@@ -1,7 +1,7 @@
 use core::{ffi::CStr, ptr, slice};
 
-use xv6_fs_types::{FS_BLOCK_SIZE, MAX_FILE};
-use xv6_user_lib::{
+use ov6_fs_types::{FS_BLOCK_SIZE, MAX_FILE};
+use ov6_user_lib::{
     error::Error,
     fs::{self, File},
     io::Write as _,

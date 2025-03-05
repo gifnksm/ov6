@@ -1,6 +1,6 @@
 use core::ffi::CStr;
 
-use xv6_user_lib::{
+use ov6_user_lib::{
     error::Error,
     fs::{self, File},
     io::{Read as _, Write as _},
@@ -52,7 +52,7 @@ pub fn test1() {
 
 /// write to an open FD whose file has just been truncated.
 /// this causes a write at an offset beyond the end of the file.
-/// such writes fail on xv6 (unlike POSIX) but at least
+/// such writes fail on ov6 (unlike POSIX) but at least
 /// they don't crash.
 pub fn test2() {
     let mut file1 = File::create(FILE_PATH).unwrap();

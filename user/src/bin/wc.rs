@@ -2,13 +2,13 @@
 
 use core::ffi::CStr;
 
-use user::try_or_exit;
-use xv6_user_lib::{
+use ov6_user_lib::{
     env,
     fs::File,
     io::{self, Read},
     println, process,
 };
+use user::try_or_exit;
 
 fn wc<R>(mut input: R, name: &CStr)
 where

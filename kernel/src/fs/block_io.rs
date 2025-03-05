@@ -5,8 +5,8 @@ use core::{alloc::Layout, convert::Infallible, mem::MaybeUninit, ptr::NonNull};
 use alloc::alloc::{AllocError, Allocator};
 use block_io::{BlockData, BlockDevice, BlockIoCache, LruMap};
 use once_init::OnceInit;
+use ov6_kernel_params::LOG_SIZE;
 use slab_allocator::SlabAllocator;
-use xv6_kernel_params::LOG_SIZE;
 
 use crate::{
     param::NBUF,

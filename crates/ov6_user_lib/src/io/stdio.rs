@@ -6,7 +6,7 @@ use once_init::OnceInit;
 use crate::{
     error::Error,
     io::DEFAULT_BUF_SIZE,
-    os::{fd::RawFd, xv6::syscall},
+    os::{fd::RawFd, ov6::syscall},
     sync::spin::{Mutex, MutexGuard},
 };
 

@@ -1,8 +1,8 @@
 use core::ffi::CStr;
 
-use xv6_fs_types::FS_BLOCK_SIZE;
-use xv6_kernel_params::{MAX_OP_BLOCKS, NINODE};
-use xv6_user_lib::{
+use ov6_fs_types::FS_BLOCK_SIZE;
+use ov6_kernel_params::{MAX_OP_BLOCKS, NINODE};
+use ov6_user_lib::{
     env,
     error::Error,
     fs::{self, File},

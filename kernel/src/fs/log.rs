@@ -32,7 +32,7 @@ use core::{
 
 use arrayvec::ArrayVec;
 use once_init::OnceInit;
-use xv6_kernel_params::LOG_SIZE;
+use ov6_kernel_params::LOG_SIZE;
 
 use crate::{
     fs::{

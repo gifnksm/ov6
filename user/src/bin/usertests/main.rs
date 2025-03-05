@@ -6,15 +6,15 @@ extern crate alloc;
 use core::ffi::CStr;
 
 use alloc::{borrow::ToOwned as _, string::String};
-use user::{message, usage_and_exit};
-use xv6_fs_types::FS_BLOCK_SIZE;
-use xv6_kernel_params::MAX_OP_BLOCKS;
-use xv6_user_lib::{
+use ov6_fs_types::FS_BLOCK_SIZE;
+use ov6_kernel_params::MAX_OP_BLOCKS;
+use ov6_user_lib::{
     env, eprint, eprintln,
     io::{Read, Write},
     pipe,
     process::{self},
 };
+use user::{message, usage_and_exit};
 
 mod macros;
 mod quick;

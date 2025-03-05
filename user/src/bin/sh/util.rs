@@ -1,10 +1,10 @@
 use core::convert::Infallible;
 
-use user::{ensure_or_exit, message, try_or_exit};
-use xv6_user_lib::{
-    os::{fd::AsRawFd, xv6::syscall},
+use ov6_user_lib::{
+    os::{fd::AsRawFd, ov6::syscall},
     process::{self, ExitStatus, ForkFnHandle, ForkResult},
 };
+use user::{ensure_or_exit, message, try_or_exit};
 
 pub(super) fn fork_or_exit() -> ForkResult {
     try_or_exit!(

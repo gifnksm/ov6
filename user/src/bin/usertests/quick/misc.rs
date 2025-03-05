@@ -6,8 +6,8 @@ use core::{
     ptr, slice,
 };
 
-use xv6_kernel_params::{MAX_ARG, USER_STACK};
-use xv6_user_lib::{
+use ov6_kernel_params::{MAX_ARG, USER_STACK};
+use ov6_user_lib::{
     error::Error,
     fs::{self, File},
     io::{Read as _, Write as _},

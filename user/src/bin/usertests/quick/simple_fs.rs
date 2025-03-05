@@ -1,12 +1,12 @@
 use core::{ffi::CStr, ptr};
 
-use xv6_fs_types::{FS_BLOCK_SIZE, MAX_FILE};
-use xv6_user_lib::{
+use ov6_fs_types::{FS_BLOCK_SIZE, MAX_FILE};
+use ov6_user_lib::{
     env,
     error::Error,
     fs::{self, File},
     io::{Read, STDOUT_FD, Write as _},
-    os::{fd::AsRawFd, xv6::syscall},
+    os::{fd::AsRawFd, ov6::syscall},
     process,
 };
 

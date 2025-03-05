@@ -1,5 +1,5 @@
-use xv6_fs_types::{T_DEVICE, T_DIR, T_FILE};
-use xv6_syscall::{Stat, StatType};
+use ov6_fs_types::{T_DEVICE, T_DIR, T_FILE};
+use ov6_syscall::{Stat, StatType};
 
 use crate::{
     error::Error,

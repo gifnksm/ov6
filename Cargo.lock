@@ -66,14 +66,14 @@ dependencies = [
  "dataview",
  "mutex_api",
  "once_init",
+ "ov6_fs_types",
+ "ov6_kernel_params",
+ "ov6_syscall",
  "page_alloc",
  "riscv",
  "slab_allocator",
  "strum",
  "thiserror",
- "xv6_fs_types",
- "xv6_kernel_params",
- "xv6_syscall",
 ]
 
 [[package]]
@@ -94,8 +94,8 @@ name = "mkfs"
 version = "0.1.0"
 dependencies = [
  "dataview",
- "xv6_fs_types",
- "xv6_kernel_params",
+ "ov6_fs_types",
+ "ov6_kernel_params",
 ]
 
 [[package]]
@@ -107,6 +107,38 @@ name = "once_init"
 version = "0.1.0"
 dependencies = [
  "dataview",
+]
+
+[[package]]
+name = "ov6_fs_types"
+version = "0.1.0"
+dependencies = [
+ "dataview",
+]
+
+[[package]]
+name = "ov6_kernel_params"
+version = "0.1.0"
+
+[[package]]
+name = "ov6_syscall"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "strum",
+]
+
+[[package]]
+name = "ov6_user_lib"
+version = "0.1.0"
+dependencies = [
+ "dataview",
+ "memchr",
+ "once_init",
+ "ov6_fs_types",
+ "ov6_syscall",
+ "strum",
+ "thiserror",
 ]
 
 [[package]]
@@ -240,39 +272,7 @@ checksum = "5a5f39404a5da50712a4c1eecf25e90dd62b613502b7e925fd4e4d19b5c96512"
 name = "user"
 version = "0.1.0"
 dependencies = [
- "xv6_fs_types",
- "xv6_kernel_params",
- "xv6_user_lib",
-]
-
-[[package]]
-name = "xv6_fs_types"
-version = "0.1.0"
-dependencies = [
- "dataview",
-]
-
-[[package]]
-name = "xv6_kernel_params"
-version = "0.1.0"
-
-[[package]]
-name = "xv6_syscall"
-version = "0.1.0"
-dependencies = [
- "bitflags",
- "strum",
-]
-
-[[package]]
-name = "xv6_user_lib"
-version = "0.1.0"
-dependencies = [
- "dataview",
- "memchr",
- "once_init",
- "strum",
- "thiserror",
- "xv6_fs_types",
- "xv6_syscall",
+ "ov6_fs_types",
+ "ov6_kernel_params",
+ "ov6_user_lib",
 ]

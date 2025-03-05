@@ -1,6 +1,6 @@
 use core::panic;
 
-use xv6_syscall::SyscallType;
+use ov6_syscall::SyscallType;
 
 use crate::{
     error::Error,
@@ -109,7 +109,7 @@ pub fn syscall(p: &'static Proc, private: &mut Option<ProcPrivateDataGuard>) {
     let ret = match f(p, private) {
         Ok(ret) => ret.cast_signed(),
         Err(e) => {
-            let v = xv6_syscall::Error::from(e) as isize;
+            let v = ov6_syscall::Error::from(e) as isize;
             assert!(v < 0);
             v
         }

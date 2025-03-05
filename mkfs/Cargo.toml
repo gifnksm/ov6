@@ -5,5 +5,5 @@ edition.workspace = true
 
 [dependencies]
 dataview.workspace = true
-xv6_fs_types.workspace = true
-xv6_kernel_params.workspace = true
+ov6_fs_types.workspace = true
+ov6_kernel_params.workspace = true

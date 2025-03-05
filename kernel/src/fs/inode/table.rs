@@ -1,5 +1,5 @@
-use xv6_fs_types::InodeNo;
-use xv6_kernel_params::NINODE;
+use ov6_fs_types::InodeNo;
+use ov6_kernel_params::NINODE;
 
 use crate::{
     error::Error,

@@ -1,4 +1,4 @@
-//! Data types for xv6 file system.
+//! Data types for ov6 file system.
 //!
 //! The data layout:
 //!
@@ -294,7 +294,11 @@ impl IndirectBlock {
     pub fn drain(&mut self) -> impl Iterator<Item = Option<BlockNo>> + '_ {
         self.0.iter_mut().map(|n| {
             let n = mem::take(n);
-            if n == 0 { None } else { Some(BlockNo::new(n)) }
+            if n == 0 {
+                None
+            } else {
+                Some(BlockNo::new(n))
+            }
         })
     }
 }

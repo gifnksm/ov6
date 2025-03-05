@@ -3,7 +3,7 @@ use core::{
     mem::offset_of,
 };
 
-use xv6_kernel_params::NCPU;
+use ov6_kernel_params::NCPU;
 
 use crate::{
     cpu::{self, Cpu},

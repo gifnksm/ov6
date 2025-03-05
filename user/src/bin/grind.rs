@@ -5,11 +5,11 @@ use core::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use xv6_user_lib::{
+use ov6_user_lib::{
     env,
     fs::{self, File},
     io::{Read as _, STDIN_FD, STDOUT_FD, Write as _},
-    os::{fd::AsRawFd, xv6::syscall},
+    os::{fd::AsRawFd, ov6::syscall},
     pipe, print, process, thread,
 };
 

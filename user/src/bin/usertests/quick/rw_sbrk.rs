@@ -1,6 +1,6 @@
 use core::{ffi::CStr, slice};
 
-use xv6_user_lib::{
+use ov6_user_lib::{
     error::Error,
     fs::{self, File},
     io::{Read as _, Write as _},

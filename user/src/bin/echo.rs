@@ -1,6 +1,6 @@
 #![no_std]
 
-use xv6_user_lib::{env, print, println};
+use ov6_user_lib::{env, print, println};
 
 fn main() {
     for (i, arg) in env::args().enumerate() {

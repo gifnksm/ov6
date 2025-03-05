@@ -12,11 +12,11 @@ use std::{
 };
 
 use dataview::{Pod, PodMethods as _};
-use xv6_fs_types::{
+use ov6_fs_types::{
     BITS_PER_BLOCK, BlockNo, DIR_SIZE, DirEntry, FS_BLOCK_SIZE, INODE_PER_BLOCK, Inode, InodeNo,
     MAX_FILE, NUM_DIRECT_REFS, NUM_INDIRECT_REFS, SuperBlock, T_DIR, T_FILE,
 };
-use xv6_kernel_params::{FS_LOG_SIZE, FS_SIZE, NUM_FS_INODES};
+use ov6_kernel_params::{FS_LOG_SIZE, FS_SIZE, NUM_FS_INODES};
 
 const _: () = const {
     assert!(FS_BLOCK_SIZE % size_of::<Inode>() == 0);

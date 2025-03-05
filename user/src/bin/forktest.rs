@@ -1,7 +1,7 @@
 #![no_std]
 
+use ov6_user_lib::process;
 use user::{message, try_or_panic};
-use xv6_user_lib::process;
 
 const N: usize = 1000;
 

@@ -3,7 +3,7 @@ use crate::{
     io::{Read, Write},
     os::{
         fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
-        xv6::syscall,
+        ov6::syscall,
     },
 };
 

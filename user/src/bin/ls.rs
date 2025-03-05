@@ -2,12 +2,12 @@
 
 use core::ffi::CStr;
 
-use user::{ensure_or, try_or};
-use xv6_user_lib::{
+use ov6_user_lib::{
     env,
     fs::{self, Metadata, StatType},
     println, process,
 };
+use user::{ensure_or, try_or};
 
 fn print_entry(name: &str, meta: &Metadata) {
     let ty = match meta.ty() {

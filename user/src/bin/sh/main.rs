@@ -5,8 +5,7 @@ extern crate alloc;
 use core::mem;
 
 use alloc::{ffi::CString, string::String};
-use user::{exit, message, try_or, try_or_exit};
-use xv6_user_lib::{
+use ov6_user_lib::{
     env, eprint,
     error::Error,
     fs::File,
@@ -14,6 +13,7 @@ use xv6_user_lib::{
     os::fd::AsRawFd,
     process,
 };
+use user::{exit, message, try_or, try_or_exit};
 
 mod command;
 mod parser;

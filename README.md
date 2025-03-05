@@ -1,34 +1,14 @@
-# Rust port of xv6 for RISC-V
+# ov6 - Oxide xv6
 
-This project is a Rust port of the [xv6 operating system for RISC-V][xv6-riscv].
+ov6 is a 100% Rust-written hobby OS project based on [xv6 operating system for RISC-V][xv6-riscv].
 
 xv6 is a simple Unix-like operating system developed by MIT for teaching purposes.
 
 [xv6-riscv]: https://github.com/mit-pdos/xv6-riscv/
 
-## Progress
-
-See Languages graph in the right side of this repository.
-
-## Posts
-
-I am writing a series of posts about this project in Japanese:
-
-* [xv6-riscv を Rust に移植する](https://zenn.dev/gifnksm/scraps/071a3d0b176e14)
-
 ## Requirements
 
 To build the project, you need to have the following tools installed.
-
-* RISC-V toolchain:
-
-    GCC cross-compiler and binutils for RISC-V is required to build the project.
-
-    For Arch Linux, you can install the toolchain by running:
-
-    ```bash
-    sudo pacman -S riscv64-elf-gcc riscv64-elf-binutils
-    ```
 
 * QEMU:
 
@@ -44,11 +24,16 @@ To build the project, you need to have the following tools installed.
 
     See [rustup.rs] for installation instructions.
 
-    Required components and targets are automatically installed by `rustup`, poweed by `rust-toolchain.toml` file.
+    Required components and targets are automatically installed by `rustup`, powered by the `rust-toolchain.toml` file.
+
+    ```bash
+    cd <path to ov6>
+    rustup toolchain install
+    ```
 
 ## Building
 
-To build the operation system, run:
+To build the operating system, run:
 
 ```bash
 make
@@ -80,9 +65,9 @@ gdb
 (gdb) source .gdbinit
 ```
 
-`.gdbinit` file is provided to automatically connect to the QEMU instance.
+The `.gdbinit` file is provided to automatically connect to the QEMU instance.
 
-To enable auto-loading of `.gdbinit` file, run:
+To enable auto-loading of the `.gdbinit` file, run:
 
 ```bash
 mkdir -p ~/.config/gdb/gdbinit

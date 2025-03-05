@@ -5,7 +5,7 @@ use core::{
     ptr,
 };
 
-pub use xv6_syscall::{OpenFlags, Stat, StatType, SyscallType};
+pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallType};
 
 use crate::{
     error::Error,
@@ -20,7 +20,7 @@ where
     T: TryFrom<isize>,
 {
     if res < 0 {
-        return Err(xv6_syscall::Error::from_repr(res).map_or(Error::Unknown, Error::from));
+        return Err(ov6_syscall::Error::from_repr(res).map_or(Error::Unknown, Error::from));
     }
     res.try_into().or(Err(Error::Unknown))
 }

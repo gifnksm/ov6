@@ -2,7 +2,7 @@ use core::{fmt, marker::PhantomData};
 
 use crate::error::Error;
 
-use super::xv6::syscall;
+use super::ov6::syscall;
 
 pub type RawFd = i32;
 

@@ -1,7 +1,7 @@
 use core::fmt;
 
 use alloc::{format, string::String, sync::Arc};
-use xv6_user_lib::sync::spin::Mutex;
+use ov6_user_lib::sync::spin::Mutex;
 
 use crate::command::{Command, MAX_ARGS, RedirectFd, RedirectMode};
 

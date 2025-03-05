@@ -1,5 +1,5 @@
 [package]
-name = "xv6_fs_types"
+name = "ov6_fs_types"
 version.workspace = true
 edition.workspace = true
 

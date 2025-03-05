@@ -1,6 +1,6 @@
 use core::ffi::c_char;
 
-pub use xv6_syscall::{OpenFlags, Stat, StatType, SyscallType};
+pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallType};
 
 #[cfg(target_arch = "riscv64")]
 macro_rules! syscall {

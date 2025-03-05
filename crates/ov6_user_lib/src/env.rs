@@ -4,7 +4,7 @@ use core::{
     sync::atomic::{AtomicPtr, AtomicUsize, Ordering},
 };
 
-use crate::{error::Error, os::xv6::syscall};
+use crate::{error::Error, os::ov6::syscall};
 
 pub(crate) static ARGC: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static ARGV: AtomicPtr<*const c_char> = AtomicPtr::new(core::ptr::null_mut());

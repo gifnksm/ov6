@@ -1,4 +1,4 @@
-use xv6_syscall::OpenFlags;
+use ov6_syscall::OpenFlags;
 
 use crate::{
     error::Error,

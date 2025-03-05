@@ -11,7 +11,7 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use xv6_kernel_params as param;
+use ov6_kernel_params as param;
 
 extern crate alloc;
 
@@ -41,7 +41,7 @@ extern "C" fn main() -> ! {
     if cpu::id() == 0 {
         console::init();
         println!();
-        println!("xv6 kernel is booting");
+        println!("ov6 kernel is booting");
         println!();
         memory::page::init(); // physical page allocator
         memory::vm::kernel::init(); // create kernel page table

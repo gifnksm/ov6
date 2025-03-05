@@ -1,6 +1,6 @@
 use core::{ptr, slice};
 
-use xv6_user_lib::{
+use ov6_user_lib::{
     error::Error,
     fs::File,
     io::{Read as _, Write as _},

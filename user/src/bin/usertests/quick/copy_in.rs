@@ -1,10 +1,10 @@
 use core::{ffi::CStr, ptr, slice};
 
-use xv6_user_lib::{
+use ov6_user_lib::{
     error::Error,
     fs::{self, File},
     io::{STDOUT_FD, Write as _},
-    os::xv6::syscall,
+    os::ov6::syscall,
     pipe,
 };
 

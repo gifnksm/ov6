@@ -1,7 +1,7 @@
 #![no_std]
 
+use ov6_user_lib::{process, thread};
 use user::try_or_exit;
-use xv6_user_lib::{process, thread};
 
 fn main() {
     try_or_exit!(

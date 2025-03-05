@@ -13,7 +13,7 @@
 
 use dataview::Pod;
 use once_init::OnceInit;
-use xv6_fs_types::{self as repr, SuperBlock};
+use ov6_fs_types::{self as repr, SuperBlock};
 
 pub use {
     self::{

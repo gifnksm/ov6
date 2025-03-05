@@ -5,8 +5,8 @@ use alloc::{
     sync::{Arc, Weak},
 };
 use once_init::OnceInit;
+use ov6_kernel_params::NINODE;
 use slab_allocator::{ArcInnerLayout, SlabAllocator};
-use xv6_kernel_params::NINODE;
 
 use crate::{
     error::Error,

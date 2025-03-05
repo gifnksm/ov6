@@ -10,8 +10,8 @@ else
 CARGO_PROFILE_FLAG=--profile $(PROFILE)
 endif
 
-R=target/xv6/$(PROFILE)
-I=target/xv6/initcode
+R=target/ov6/$(PROFILE)
+I=target/ov6/initcode
 RN=target/$(PROFILE)
 
 RUST_CROSS_TARGET=riscv64gc-unknown-none-elf
@@ -47,10 +47,10 @@ all: $R/kernel $I/initcode $(R_RUPROGS) fs.img
 
 # create separate debuginfo file
 # https://users.rust-lang.org/t/how-to-gdb-with-split-debug-files/102989/3
-target/xv6/%.debug: target/$(RUST_CROSS_TARGET)/% | $$(dir $$@)
+target/ov6/%.debug: target/$(RUST_CROSS_TARGET)/% | $$(dir $$@)
 	$(OBJCOPY) --only-keep-debug $< $@
 
-target/xv6/%: target/$(RUST_CROSS_TARGET)/% target/xv6/%.debug | $$(dir $$@)
+target/ov6/%: target/$(RUST_CROSS_TARGET)/% target/ov6/%.debug | $$(dir $$@)
 	$(OBJCOPY) --strip-debug --strip-unneeded --remove-section=".gnu_debuglink" --add-gnu-debuglink="$@.debug" $< $@
 
 target/$(RUST_CROSS_TARGET)/initcode/initcode:

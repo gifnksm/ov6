@@ -1,7 +1,7 @@
 use core::{alloc::Layout, ffi::CStr, hint, ptr::NonNull};
 
 use alloc::alloc::{Allocator as _, Global};
-use xv6_user_lib::{
+use ov6_user_lib::{
     eprint,
     fs::{self, File},
     io::{Read as _, Write as _},

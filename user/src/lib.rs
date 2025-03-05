@@ -4,8 +4,8 @@
 macro_rules! message {
     ($($msg:tt)*) => {
         {
-            let prog = ::xv6_user_lib::env::arg0();;
-            ::xv6_user_lib::eprintln!("{prog}: {msg}", msg = ::core::format_args!($($msg)*));
+            let prog = ::ov6_user_lib::env::arg0();
+            ::ov6_user_lib::eprintln!("{prog}: {msg}", msg = ::core::format_args!($($msg)*));
         }
     }
 }
@@ -14,9 +14,9 @@ macro_rules! message {
 macro_rules! usage_and_exit {
     ($($args:tt)*) => {
         {
-            let prog = ::xv6_user_lib::env::arg0();;
-            ::xv6_user_lib::eprintln!("Usage: {prog} {args}", args = ::core::format_args!($($args)*));
-            ::xv6_user_lib::process::exit(1);
+            let prog = ::ov6_user_lib::env::arg0();
+            ::ov6_user_lib::eprintln!("Usage: {prog} {args}", args = ::core::format_args!($($args)*));
+            ::ov6_user_lib::process::exit(1);
         }
     };
 }
@@ -52,7 +52,7 @@ macro_rules! try_or_panic {
         match $res {
             Ok(val) => val,
             Err($e) => {
-                let prog = ::xv6_user_lib::env::arg0();
+                let prog = ::ov6_user_lib::env::arg0();
                 ::core::panic!("{prog}: {msg}", msg = ::core::format_args!($($msg)*));
             }
         }
@@ -83,7 +83,7 @@ macro_rules! exit {
     ($($msg:tt)*) => {
         {
             $crate::message!($($msg)*);
-            ::xv6_user_lib::process::exit(1);
+            ::ov6_user_lib::process::exit(1);
         }
     }
 }

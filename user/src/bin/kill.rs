@@ -1,7 +1,7 @@
 #![no_std]
 
+use ov6_user_lib::{env, process};
 use user::{try_or, usage_and_exit};
-use xv6_user_lib::{env, process};
 
 fn main() {
     let args = env::args();

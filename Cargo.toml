@@ -1,5 +1,19 @@
 [workspace]
-members = [ "crates/block_io", "crates/lru", "crates/mutex_api", "crates/once_init", "crates/page_alloc", "crates/slab_allocator", "crates/xv6_fs_types", "crates/xv6_kernel_params", "crates/xv6_syscall", "crates/xv6_user_lib", "kernel" , "mkfs", "user"]
+members = [
+    "crates/block_io",
+    "crates/lru",
+    "crates/mutex_api",
+    "crates/once_init",
+    "crates/ov6_fs_types",
+    "crates/ov6_kernel_params",
+    "crates/ov6_syscall",
+    "crates/ov6_user_lib",
+    "crates/page_alloc",
+    "crates/slab_allocator",
+    "kernel",
+    "mkfs",
+    "user"
+]
 resolver = "2"
 
 [workspace.package]
@@ -12,19 +26,19 @@ bitflags = "2.9.0"
 dataview = "1.0.1"
 memchr = { version = "2.7.4", default-features = false, features = ["alloc"] }
 riscv = "0.12.1"
+strum = { version = "0.27.1", default-features = false, features = ["derive"] }
+thiserror = { version = "2.0.12", default-features = false }
 
 block_io = { path = "crates/block_io" }
 lru = { path = "crates/lru" }
 mutex_api = { path = "crates/mutex_api" }
 once_init = { path = "crates/once_init" }
+ov6_fs_types = { path = "crates/ov6_fs_types" }
+ov6_kernel_params = { path = "crates/ov6_kernel_params" }
+ov6_syscall = { path = "crates/ov6_syscall" }
+ov6_user_lib = { path = "crates/ov6_user_lib" }
 page_alloc = { path = "crates/page_alloc" }
 slab_allocator = { path = "crates/slab_allocator" }
-strum = { version = "0.27.1", default-features = false, features = ["derive"] }
-thiserror = { version = "2.0.12", default-features = false }
-xv6_fs_types = { path = "crates/xv6_fs_types" }
-xv6_kernel_params = { path = "crates/xv6_kernel_params" }
-xv6_syscall = { path = "crates/xv6_syscall" }
-xv6_user_lib = { path = "crates/xv6_user_lib" }
 
 [profile.release]
 debug = "full"
