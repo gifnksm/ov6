@@ -43,6 +43,7 @@ slab_allocator = { path = "crates/slab_allocator" }
 [profile.release]
 debug = "full"
 panic = "abort"
+lto = "fat"
 
 [profile.dev]
 debug = "full"
