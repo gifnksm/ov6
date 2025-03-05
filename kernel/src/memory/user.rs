@@ -134,10 +134,7 @@ impl UserPageTable {
         (|| {
             for va in (0..self.size).step_by(PAGE_SIZE) {
                 target.size = va;
-                let pte = self
-                    .pt
-                    .find_leaf_entry(VirtAddr::new(va))
-                    .ok_or(Error::Unknown)?;
+                let pte = self.pt.find_leaf_entry(VirtAddr::new(va))?;
                 assert!(pte.is_valid() && pte.is_leaf());
 
                 let src_pa = pte.phys_addr();
@@ -173,11 +170,15 @@ impl UserPageTable {
             .unwrap();
     }
 
-    pub fn resolve_virtual_address(&self, va: VirtAddr, flags: PtEntryFlags) -> Option<PhysAddr> {
+    pub fn resolve_virtual_address(
+        &self,
+        va: VirtAddr,
+        flags: PtEntryFlags,
+    ) -> Result<PhysAddr, Error> {
         self.pt.resolve_virtual_address(va, flags)
     }
 
-    pub fn fetch_page(&self, va: VirtAddr, flags: PtEntryFlags) -> Option<&[u8; PAGE_SIZE]> {
+    pub fn fetch_page(&self, va: VirtAddr, flags: PtEntryFlags) -> Result<&[u8; PAGE_SIZE], Error> {
         self.pt.fetch_page(va, flags)
     }
 
@@ -185,7 +186,7 @@ impl UserPageTable {
         &mut self,
         va: VirtAddr,
         flags: PtEntryFlags,
-    ) -> Option<&mut [u8; PAGE_SIZE]> {
+    ) -> Result<&mut [u8; PAGE_SIZE], Error> {
         self.pt.fetch_page_mut(va, flags)
     }
 }

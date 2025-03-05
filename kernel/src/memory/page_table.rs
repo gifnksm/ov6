@@ -134,21 +134,21 @@ impl PageTable {
     }
 
     /// Returns the leaf PTE in the page tables that corredponds to virtual address `va`.
-    pub(super) fn find_leaf_entry(&self, va: VirtAddr) -> Option<&PtEntry> {
+    pub(super) fn find_leaf_entry(&self, va: VirtAddr) -> Result<&PtEntry, Error> {
         assert!(va < VirtAddr::MAX);
 
         let mut pt = self;
         for level in (1..=2).rev() {
             let index = Self::entry_index(level, va);
-            pt = pt.0[index].get_page_table()?;
+            pt = pt.0[index].get_page_table().ok_or(Error::Unknown)?;
         }
 
         let index = Self::entry_index(0, va);
         let pte = &pt.0[index];
         if !pte.is_leaf() {
-            return None;
+            return Err(Error::Unknown);
         }
-        Some(pte)
+        Ok(pte)
     }
 
     /// Updates the level-0 PTE in the page tables that corredponds to virtual address `va`.
@@ -188,27 +188,34 @@ impl PageTable {
         Ok(res)
     }
 
-    /// Looks up a virtual address, returns the physical address,
-    /// or `None` if not mapped.
-    pub fn resolve_virtual_address(&self, va: VirtAddr, flags: PtEntryFlags) -> Option<PhysAddr> {
+    /// Looks up a virtual address, returns the physical address.
+    pub fn resolve_virtual_address(
+        &self,
+        va: VirtAddr,
+        flags: PtEntryFlags,
+    ) -> Result<PhysAddr, Error> {
         if va >= VirtAddr::MAX {
-            return None;
+            return Err(Error::Unknown);
         }
 
         let pte = self.find_leaf_entry(va)?;
         assert!(pte.is_valid() && pte.is_leaf());
         if !pte.flags().contains(flags) {
-            return None;
+            return Err(Error::Unknown);
         }
 
-        Some(pte.phys_addr())
+        Ok(pte.phys_addr())
     }
 
     /// Fetches the page that is mapped at virtual address `va`.
-    pub(super) fn fetch_page(&self, va: VirtAddr, flags: PtEntryFlags) -> Option<&[u8; PAGE_SIZE]> {
+    pub(super) fn fetch_page(
+        &self,
+        va: VirtAddr,
+        flags: PtEntryFlags,
+    ) -> Result<&[u8; PAGE_SIZE], Error> {
         let pa = self.resolve_virtual_address(va, flags)?;
         let page = unsafe { pa.as_mut_ptr::<[u8; PAGE_SIZE]>().as_ref() };
-        Some(page)
+        Ok(page)
     }
 
     /// Fetches the page that is mapped at virtual address `va`.
@@ -216,10 +223,10 @@ impl PageTable {
         &mut self,
         va: VirtAddr,
         flags: PtEntryFlags,
-    ) -> Option<&mut [u8; PAGE_SIZE]> {
+    ) -> Result<&mut [u8; PAGE_SIZE], Error> {
         let pa = self.resolve_virtual_address(va, flags)?;
         let page = unsafe { pa.as_mut_ptr::<[u8; PAGE_SIZE]>().as_mut() };
-        Some(page)
+        Ok(page)
     }
 
     /// Recursively frees page-table pages.

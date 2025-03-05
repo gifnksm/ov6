@@ -34,9 +34,7 @@ pub fn copy_out_bytes(
             n = src.len();
         }
 
-        let dst_page = pagetable
-            .fetch_page_mut(va0, PtEntryFlags::UW)
-            .ok_or(Error::Unknown)?;
+        let dst_page = pagetable.fetch_page_mut(va0, PtEntryFlags::UW)?;
         let dst = &mut dst_page[offset..][..n];
         dst.copy_from_slice(&src[..n]);
         src = &src[n..];
@@ -89,9 +87,7 @@ pub fn copy_in_raw(
         if n > dst_size {
             n = dst_size;
         }
-        let src_page = pagetable
-            .fetch_page(va0, PtEntryFlags::UR)
-            .ok_or(Error::Unknown)?;
+        let src_page = pagetable.fetch_page(va0, PtEntryFlags::UR)?;
         let src = &src_page[offset..][..n];
         unsafe {
             dst.copy_from(src.as_ptr(), n);
@@ -115,9 +111,7 @@ pub fn copy_in_str(
 ) -> Result<(), Error> {
     while !dst.is_empty() {
         let va0 = src_va.page_rounddown();
-        let src_page = pagetable
-            .fetch_page(va0, PtEntryFlags::UR)
-            .ok_or(Error::Unknown)?;
+        let src_page = pagetable.fetch_page(va0, PtEntryFlags::UR)?;
 
         let offset = src_va.addr() - va0.addr();
         let mut n = PAGE_SIZE - offset;
