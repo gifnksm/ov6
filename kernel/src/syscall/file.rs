@@ -4,10 +4,7 @@ use crate::{
     error::Error,
     file::File,
     fs::{self, DeviceNo, Inode, T_DEVICE, T_DIR, T_FILE},
-    memory::{
-        page,
-        vm::{self, PAGE_SIZE},
-    },
+    memory::{PAGE_SIZE, page, vm},
     param::{MAX_ARG, MAX_PATH},
     proc::{Proc, ProcPrivateData, ProcPrivateDataGuard, exec},
     syscall,

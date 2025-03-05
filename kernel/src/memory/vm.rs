@@ -1,7 +1,6 @@
 use core::{
     ffi::c_void,
     mem,
-    num::NonZero,
     ops::Range,
     ptr::{self, NonNull},
     slice,
@@ -17,18 +16,12 @@ use crate::{
     error::Error,
     interrupt::trampoline,
     memory::{
+        PAGE_SHIFT, PAGE_SIZE, PageRound as _, PhysAddr, PhysPageNum, VirtAddr,
         layout::{KERN_BASE, PHYS_TOP, PLIC, TRAMPOLINE, UART0, VIRTIO0},
-        page,
+        page::{self, PageFrameAllocator},
     },
     proc,
 };
-
-use super::page::PageFrameAllocator;
-
-/// Bytes per page
-pub const PAGE_SIZE: usize = 4096;
-/// Bits of offset within a page
-pub const PAGE_SHIFT: usize = 12;
 
 /// The kernel's page table address.
 static KERNEL_PAGETABLE: OnceInit<Box<PageTable, PageFrameAllocator>> = OnceInit::new();
@@ -42,100 +35,12 @@ const ETEXT: NonNull<c_void> = {
     NonNull::new((&raw mut ETEXT).cast()).unwrap()
 };
 
-pub const fn page_roundup(addr: usize) -> usize {
-    (addr + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
-}
-
-pub const fn page_rounddown(addr: usize) -> usize {
-    addr & !(PAGE_SIZE - 1)
-}
-
-pub const fn is_page_aligned(addr: usize) -> bool {
-    addr % PAGE_SIZE == 0
-}
-
-pub trait PageRound {
-    fn page_roundup(&self) -> Self;
-    fn page_rounddown(&self) -> Self;
-    fn is_page_aligned(&self) -> bool;
-}
-
-impl PageRound for usize {
-    fn page_roundup(&self) -> Self {
-        page_roundup(*self)
-    }
-
-    fn page_rounddown(&self) -> Self {
-        page_rounddown(*self)
-    }
-
-    fn is_page_aligned(&self) -> bool {
-        is_page_aligned(*self)
-    }
-}
-
-impl PageRound for NonZero<usize> {
-    fn page_roundup(&self) -> Self {
-        NonZero::new(page_roundup(self.get())).unwrap()
-    }
-
-    fn page_rounddown(&self) -> Self {
-        NonZero::new(page_rounddown(self.get())).unwrap()
-    }
-
-    fn is_page_aligned(&self) -> bool {
-        is_page_aligned(self.get())
-    }
-}
-
-impl<T> PageRound for NonNull<T> {
-    fn page_roundup(&self) -> Self {
-        self.map_addr(|a| a.page_roundup())
-    }
-
-    fn page_rounddown(&self) -> Self {
-        self.map_addr(|a| a.page_rounddown())
-    }
-
-    fn is_page_aligned(&self) -> bool {
-        is_page_aligned(self.as_ptr().addr())
-    }
-}
-
-impl PageRound for VirtAddr {
-    fn page_roundup(&self) -> Self {
-        Self(self.0.page_roundup())
-    }
-
-    fn page_rounddown(&self) -> Self {
-        Self(self.0.page_rounddown())
-    }
-
-    fn is_page_aligned(&self) -> bool {
-        is_page_aligned(self.addr())
-    }
-}
-
-impl PageRound for PhysAddr {
-    fn page_roundup(&self) -> Self {
-        Self(self.0.page_roundup())
-    }
-
-    fn page_rounddown(&self) -> Self {
-        Self(self.0.page_rounddown())
-    }
-
-    fn is_page_aligned(&self) -> bool {
-        is_page_aligned(self.addr())
-    }
-}
-
 /// Makes a direct-map page table for the kernel.
 fn make_kernel_pt() -> Box<PageTable, PageFrameAllocator> {
     use PtEntryFlags as F;
 
     let etext = ETEXT.addr().into();
-    let phys_trampoline = PhysAddr(trampoline::trampoline as usize);
+    let phys_trampoline = PhysAddr::new(trampoline::trampoline as usize);
 
     unsafe fn ident_map(
         kpgtbl: &mut PageTable,
@@ -143,7 +48,7 @@ fn make_kernel_pt() -> Box<PageTable, PageFrameAllocator> {
         size: usize,
         perm: PtEntryFlags,
     ) -> Result<(), Error> {
-        kpgtbl.map_pages(VirtAddr(addr), size, PhysAddr(addr), perm)
+        kpgtbl.map_pages(VirtAddr::new(addr), size, PhysAddr::new(addr), perm)
     }
 
     let rw = F::RW;
@@ -180,75 +85,6 @@ fn make_kernel_pt() -> Box<PageTable, PageFrameAllocator> {
     kpgtbl
 }
 
-/// Virtual address
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct VirtAddr(usize);
-
-/// Physical Page Number of a page
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PhysPageNum(usize);
-
-/// Physical Address
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PhysAddr(usize);
-
-impl VirtAddr {
-    /// One beyond the highest possible virtual address.
-    ///
-    /// VirtAddr::MAX is actually one bit less than the max allowed by
-    /// Sv39, to avoid having to sign-extend virtual addresses
-    /// that have the high bit set.
-    pub const MAX: Self = Self(1 << (9 * 3 + PAGE_SHIFT - 1));
-
-    pub const fn new(addr: usize) -> Self {
-        Self(addr)
-    }
-
-    pub const fn byte_add(&self, offset: usize) -> Self {
-        Self(self.0 + offset)
-    }
-
-    pub const fn byte_sub(&self, offset: usize) -> Self {
-        Self(self.0 - offset)
-    }
-
-    pub const fn addr(&self) -> usize {
-        self.0
-    }
-}
-
-impl PhysPageNum {
-    pub const fn phys_addr(&self) -> PhysAddr {
-        PhysAddr(self.0 << PAGE_SHIFT)
-    }
-}
-
-impl PhysAddr {
-    pub const fn new(addr: usize) -> Self {
-        Self(addr)
-    }
-
-    pub fn addr(&self) -> usize {
-        self.0
-    }
-
-    fn as_ptr<T>(&self) -> *const T {
-        ptr::with_exposed_provenance(self.0)
-    }
-
-    fn as_mut_ptr<T>(&self) -> NonNull<T> {
-        NonNull::new(ptr::with_exposed_provenance_mut(self.0)).unwrap()
-    }
-
-    fn phys_page_num(&self) -> PhysPageNum {
-        PhysPageNum(self.0 >> PAGE_SHIFT)
-    }
-
-    fn byte_add(&self, offset: usize) -> Self {
-        Self(self.0 + offset)
-    }
-}
-
 #[repr(transparent)]
 #[derive(Pod)]
 pub struct PageTable([PtEntry; 512]);
@@ -275,12 +111,12 @@ impl PageTable {
     fn entry_index(level: usize, va: VirtAddr) -> usize {
         assert!(level <= 2);
         let shift = PAGE_SHIFT + (9 * level);
-        (va.0 >> shift) & 0x1ff
+        (va.addr() >> shift) & 0x1ff
     }
 
     /// Returns the physical address containing this page table
     fn phys_addr(&self) -> PhysAddr {
-        PhysAddr(ptr::from_ref(self).addr())
+        PhysAddr::new(ptr::from_ref(self).addr())
     }
 
     /// Returns the physical page number of the physical page containing this page table
@@ -553,7 +389,7 @@ impl PtEntry {
             flags.bits(),
             "flags: {flags:#x}={flags:?}"
         );
-        let bits = (ppn.0 << 10) | (flags.bits() & 0x3FF);
+        let bits = (ppn.value() << 10) | (flags.bits() & 0x3FF);
         Self(bits)
     }
 
@@ -585,7 +421,7 @@ impl PtEntry {
 
     /// Returns physical page number (PPN)
     fn phys_page_num(&self) -> PhysPageNum {
-        PhysPageNum(self.0 >> 10)
+        PhysPageNum::new(self.0 >> 10)
     }
 
     fn set_phys_page_num(&mut self, ppn: PhysPageNum, flags: PtEntryFlags) {
@@ -652,7 +488,7 @@ pub mod kernel {
 
         let addr = KERNEL_PAGETABLE.get().phys_addr();
         unsafe {
-            satp::set(satp::Mode::Sv39, 0, addr.phys_page_num().0);
+            satp::set(satp::Mode::Sv39, 0, addr.phys_page_num().value());
         }
 
         // flush state entries from the TLB.
@@ -698,7 +534,11 @@ pub mod user {
         unsafe {
             let mem = page::alloc_zeroed_page().unwrap();
             pagetable
-                .map_page(VirtAddr(0), PhysAddr(mem.addr().get()), PtEntryFlags::URWX)
+                .map_page(
+                    VirtAddr::new(0),
+                    PhysAddr::new(mem.addr().get()),
+                    PtEntryFlags::URWX,
+                )
                 .unwrap();
             slice::from_raw_parts_mut(mem.as_ptr(), src.len()).copy_from_slice(src);
         }
@@ -718,7 +558,7 @@ pub mod user {
             return Ok(oldsz);
         }
 
-        let oldsz = page_roundup(oldsz);
+        let oldsz = oldsz.page_roundup();
         for va in (oldsz..newsz).step_by(PAGE_SIZE) {
             let Some(mem) = page::alloc_zeroed_page() else {
                 dealloc(pagetable, va, oldsz);
@@ -726,8 +566,8 @@ pub mod user {
             };
             if pagetable
                 .map_page(
-                    VirtAddr(va),
-                    PhysAddr(mem.addr().get()),
+                    VirtAddr::new(va),
+                    PhysAddr::new(mem.addr().get()),
                     xperm | PtEntryFlags::UR,
                 )
                 .is_err()
@@ -755,9 +595,9 @@ pub mod user {
             return oldsz;
         }
 
-        if page_roundup(newsz) < page_roundup(oldsz) {
-            let npages = (page_roundup(oldsz) - page_roundup(newsz)) / PAGE_SIZE;
-            unmap(pagetable, VirtAddr(page_roundup(newsz)), npages, true);
+        if newsz.page_roundup() < oldsz.page_roundup() {
+            let npages = (oldsz.page_roundup() - newsz.page_roundup()) / PAGE_SIZE;
+            unmap(pagetable, VirtAddr::new(newsz.page_roundup()), npages, true);
         }
 
         newsz
@@ -768,8 +608,8 @@ pub mod user {
         if sz > 0 {
             unmap(
                 &mut pagetable,
-                VirtAddr(0),
-                page_roundup(sz) / PAGE_SIZE,
+                VirtAddr::new(0),
+                sz.page_roundup() / PAGE_SIZE,
                 true,
             );
         }
@@ -784,7 +624,7 @@ pub mod user {
     pub fn copy(old: &PageTable, new: &mut PageTable, sz: usize) -> Result<(), Error> {
         let res = (|| {
             for va in (0..sz).step_by(PAGE_SIZE) {
-                let pte = old.find_leaf_entry(VirtAddr(va)).ok_or(va)?;
+                let pte = old.find_leaf_entry(VirtAddr::new(va)).ok_or(va)?;
                 assert!(pte.is_valid() && pte.is_leaf());
                 let src_pa = pte.phys_addr();
                 let flags = pte.flags();
@@ -795,7 +635,7 @@ pub mod user {
                     dst.as_ptr().copy_from(src_pa.as_ptr(), PAGE_SIZE);
                 }
                 if new
-                    .map_page(VirtAddr(va), PhysAddr(dst.addr().get()), flags)
+                    .map_page(VirtAddr::new(va), PhysAddr::new(dst.addr().get()), flags)
                     .is_err()
                 {
                     return Err(va);
@@ -805,7 +645,7 @@ pub mod user {
         })();
 
         if let Err(va) = res {
-            unmap(new, VirtAddr(0), va / PAGE_SIZE, true);
+            unmap(new, VirtAddr::new(0), va / PAGE_SIZE, true);
         }
 
         res.map_err(|_| Error::Unknown)
@@ -846,7 +686,7 @@ pub fn copy_out_bytes(
         if va0 >= VirtAddr::MAX {
             return Err(Error::Unknown);
         }
-        let offset = dst_va.0 - va0.0;
+        let offset = dst_va.addr() - va0.addr();
         let mut n = PAGE_SIZE - offset;
         if n > src.len() {
             n = src.len();
@@ -898,7 +738,7 @@ pub fn copy_in_raw(
 ) -> Result<(), Error> {
     while dst_size > 0 {
         let va0 = src_va.page_rounddown();
-        let offset = src_va.0 - va0.0;
+        let offset = src_va.addr() - va0.addr();
         let mut n = PAGE_SIZE - offset;
         if n > dst_size {
             n = dst_size;
@@ -933,7 +773,7 @@ pub fn copy_in_str(
             .fetch_page(va0, PtEntryFlags::UR)
             .ok_or(Error::Unknown)?;
 
-        let offset = src_va.0 - va0.0;
+        let offset = src_va.addr() - va0.addr();
         let mut n = PAGE_SIZE - offset;
         if n > dst.len() {
             n = dst.len();

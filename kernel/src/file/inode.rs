@@ -3,7 +3,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use crate::{
     error::Error,
     fs::{self, FS_BLOCK_SIZE, Inode},
-    memory::vm::VirtAddr,
+    memory::VirtAddr,
     param::MAX_OP_BLOCKS,
     proc::ProcPrivateData,
 };

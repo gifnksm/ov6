@@ -2,10 +2,7 @@ use alloc::sync::Arc;
 
 use crate::{
     error::Error,
-    memory::{
-        page::PageFrameAllocator,
-        vm::{self, VirtAddr},
-    },
+    memory::{VirtAddr, page::PageFrameAllocator, vm},
     proc::{Proc, ProcPrivateData},
     sync::{SpinLock, SpinLockCondVar},
 };

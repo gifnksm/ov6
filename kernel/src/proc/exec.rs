@@ -3,7 +3,10 @@ use core::{ffi::CStr, slice};
 use crate::{
     error::Error,
     fs::{self, LockedTxInode},
-    memory::vm::{self, PAGE_SIZE, PageRound as _, PageTable, PtEntryFlags, VirtAddr},
+    memory::{
+        PAGE_SIZE, PageRound as _, VirtAddr,
+        vm::{self, PageTable, PtEntryFlags},
+    },
     param::{MAX_ARG, USER_STACK},
     proc::{
         self, Proc,

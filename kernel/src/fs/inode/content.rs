@@ -15,7 +15,7 @@ use crate::{
         BlockNo, SUPER_BLOCK, data_block,
         repr::{self, FS_BLOCK_SIZE, MAX_FILE, NUM_DIRECT_REFS, NUM_INDIRECT_REFS},
     },
-    memory::vm::VirtAddr,
+    memory::VirtAddr,
     proc::{self, ProcPrivateData},
 };
 

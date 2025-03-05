@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     fs::{DeviceNo, Inode},
-    memory::vm::VirtAddr,
+    memory::VirtAddr,
     param::NDEV,
     proc::{Proc, ProcPrivateData},
     sync::SpinLock,

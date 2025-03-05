@@ -21,9 +21,10 @@ use crate::{
     fs::{self, DeviceNo, Inode},
     interrupt::{self, trampoline, trap},
     memory::{
+        PAGE_SIZE, PhysAddr, VirtAddr,
         layout::{TRAMPOLINE, TRAPFRAME, kstack},
         page::{self, PageFrameAllocator},
-        vm::{self, PAGE_SIZE, PageTable, PhysAddr, PtEntryFlags, VirtAddr},
+        vm::{self, PageTable, PtEntryFlags},
     },
     param::{NOFILE, NPROC},
     println,

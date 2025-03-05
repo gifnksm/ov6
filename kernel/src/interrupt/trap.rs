@@ -17,8 +17,8 @@ use crate::{
     console::uart,
     cpu, fs, interrupt,
     memory::{
+        PAGE_SIZE,
         layout::{UART0_IRQ, VIRTIO0_IRQ},
-        vm::PAGE_SIZE,
     },
     println,
     proc::{self, Proc, ProcPrivateDataGuard},

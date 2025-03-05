@@ -12,12 +12,9 @@ use core::{
 use alloc::alloc::{AllocError, Allocator};
 use once_init::OnceInit;
 
-use crate::{
-    memory::{layout::PHYS_TOP, vm::PAGE_SIZE},
-    sync::SpinLock,
-};
+use crate::{memory::layout::PHYS_TOP, sync::SpinLock};
 
-use super::vm::PageRound as _;
+use super::{PAGE_SIZE, PageRound as _};
 
 /// First address after kernel.
 fn end() -> NonNull<u8> {

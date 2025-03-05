@@ -4,7 +4,7 @@ use ov6_syscall::{Stat, StatType};
 use crate::{
     error::Error,
     fs::{self, Inode},
-    memory::vm::{self, VirtAddr},
+    memory::{VirtAddr, vm},
     proc::ProcPrivateData,
 };
 

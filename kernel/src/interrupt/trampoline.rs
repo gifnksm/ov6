@@ -12,8 +12,8 @@ use core::{arch::naked_asm, mem::offset_of};
 
 use crate::{
     memory::{
+        VirtAddr,
         layout::{TRAMPOLINE, TRAPFRAME},
-        vm::VirtAddr,
     },
     proc::TrapFrame,
 };

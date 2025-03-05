@@ -4,7 +4,7 @@ use ov6_syscall::SyscallType;
 
 use crate::{
     error::Error,
-    memory::vm::{self, VirtAddr},
+    memory::{VirtAddr, vm},
     println,
     proc::{Proc, ProcPrivateData, ProcPrivateDataGuard},
 };

@@ -13,7 +13,7 @@ use crate::{
     error::Error,
     file::{self, Device},
     fs::DeviceNo,
-    memory::vm::VirtAddr,
+    memory::VirtAddr,
     proc::{self, Proc, ProcPrivateData},
     sync::{SpinLock, SpinLockCondVar},
 };
