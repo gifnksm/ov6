@@ -113,7 +113,7 @@ impl PipeFile {
     pub(super) fn read(
         &self,
         p: &Proc,
-        private: &ProcPrivateData,
+        private: &mut ProcPrivateData,
         addr: VirtAddr,
         n: usize,
     ) -> Result<usize, Error> {
@@ -131,7 +131,7 @@ impl PipeFile {
             }
             let ch = pipe.data[pipe.nread % PIPE_SIZE];
             pipe.nread += 1;
-            if vm::copy_out(private.pagetable().unwrap(), addr.byte_add(i), &ch).is_err() {
+            if vm::copy_out(private.pagetable_mut().unwrap(), addr.byte_add(i), &ch).is_err() {
                 break;
             }
             i += 1;

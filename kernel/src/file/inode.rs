@@ -32,13 +32,13 @@ impl InodeFile {
         super::common::close_inode(self.inode);
     }
 
-    pub(super) fn stat(&self, private: &ProcPrivateData, addr: VirtAddr) -> Result<(), Error> {
+    pub(super) fn stat(&self, private: &mut ProcPrivateData, addr: VirtAddr) -> Result<(), Error> {
         super::common::stat_inode(&self.inode, private, addr)
     }
 
     pub(super) fn read(
         &self,
-        private: &ProcPrivateData,
+        private: &mut ProcPrivateData,
         addr: VirtAddr,
         n: usize,
     ) -> Result<usize, Error> {

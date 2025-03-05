@@ -50,7 +50,7 @@ impl<'tx, 'i, 'l, const READ_ONLY: bool> DirInode<'tx, 'i, 'l, READ_ONLY> {
 
 impl<const READ_ONLY: bool> DirInode<'_, '_, '_, READ_ONLY> {
     /// Returns `true` if the directory is empty except for `"."` and `".."`.
-    pub fn is_empty(&mut self, private: &ProcPrivateData) -> bool {
+    pub fn is_empty(&mut self, private: &mut ProcPrivateData) -> bool {
         let de_size = size_of::<repr::DirEntry>();
         let size = self.0.data().size as usize;
         // skip first two entry ("." and "..").
@@ -70,7 +70,7 @@ impl<'tx, const READ_ONLY: bool> DirInode<'tx, '_, '_, READ_ONLY> {
     /// Returns a inode that contains the entry and its offset from inode data head.
     pub fn lookup(
         &mut self,
-        private: &ProcPrivateData,
+        private: &mut ProcPrivateData,
         name: &[u8],
     ) -> Option<(TxInode<'tx, READ_ONLY>, usize)> {
         for off in (0..self.0.data().size as usize).step_by(size_of::<repr::DirEntry>()) {
@@ -90,7 +90,7 @@ impl DirInode<'_, '_, '_, false> {
     /// Writes a new directory entry (`name` and `ino`) into the directory.
     pub fn link(
         &mut self,
-        private: &ProcPrivateData,
+        private: &mut ProcPrivateData,
         name: &[u8],
         ino: InodeNo,
     ) -> Result<(), Error> {

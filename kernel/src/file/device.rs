@@ -76,7 +76,7 @@ impl DeviceFile {
         super::common::close_inode(self.inode);
     }
 
-    pub(super) fn stat(&self, private: &ProcPrivateData, addr: VirtAddr) -> Result<(), Error> {
+    pub(super) fn stat(&self, private: &mut ProcPrivateData, addr: VirtAddr) -> Result<(), Error> {
         super::common::stat_inode(&self.inode, private, addr)
     }
 

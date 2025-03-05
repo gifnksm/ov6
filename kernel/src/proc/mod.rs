@@ -2,7 +2,7 @@ use core::{
     cell::UnsafeCell,
     char, cmp,
     ffi::c_void,
-    fmt, mem,
+    fmt,
     ops::{Deref, DerefMut, Range},
     panic::Location,
     ptr, slice,
@@ -19,12 +19,13 @@ use crate::{
     error::Error,
     file::File,
     fs::{self, DeviceNo, Inode},
-    interrupt::{self, trampoline, trap},
+    interrupt::{self, trap},
     memory::{
         PAGE_SIZE, PhysAddr, VirtAddr,
-        layout::{TRAMPOLINE, TRAPFRAME, kstack},
+        layout::kstack,
         page::{self, PageFrameAllocator},
         page_table::{PageTable, PtEntryFlags},
+        user::UserPageTable,
         vm,
     },
     param::{NOFILE, NPROC},
@@ -211,10 +212,8 @@ impl ProcShared {
 pub struct ProcPrivateData {
     /// Virtual address of kernel stack.
     kstack: VirtAddr,
-    /// Size of process memory (bytes).
-    sz: usize,
     /// User page table,
-    pagetable: Option<Box<PageTable, PageFrameAllocator>>,
+    pagetable: Option<UserPageTable>,
     /// Data page for trampoline.S
     trapframe: Option<Box<TrapFrame, PageFrameAllocator>>,
     /// Open files
@@ -227,7 +226,6 @@ impl ProcPrivateData {
     const fn new() -> Self {
         Self {
             kstack: VirtAddr::new(0),
-            sz: 0,
             pagetable: None,
             trapframe: None,
             ofile: [const { None }; NOFILE],
@@ -240,23 +238,19 @@ impl ProcPrivateData {
     }
 
     pub fn size(&self) -> usize {
-        self.sz
+        self.pagetable.as_ref().unwrap().size()
     }
 
-    pub fn pagetable(&self) -> Option<&PageTable> {
-        self.pagetable.as_deref()
+    pub fn pagetable(&self) -> Option<&UserPageTable> {
+        self.pagetable.as_ref()
     }
 
-    pub fn pagetable_mut(&mut self) -> Option<&mut PageTable> {
-        self.pagetable.as_deref_mut()
+    pub fn pagetable_mut(&mut self) -> Option<&mut UserPageTable> {
+        self.pagetable.as_mut()
     }
 
-    pub fn update_pagetable(&mut self, pagetable: Box<PageTable, PageFrameAllocator>, sz: usize) {
-        let old_pt = self.pagetable.replace(pagetable);
-        let old_sz = mem::replace(&mut self.sz, sz);
-        if let Some(old) = old_pt {
-            free_pagetable(old, old_sz);
-        }
+    pub fn update_pagetable(&mut self, pt: UserPageTable) {
+        self.pagetable.replace(pt);
     }
 
     pub fn trapframe(&self) -> Option<&TrapFrame> {
@@ -295,7 +289,7 @@ impl ProcPrivateData {
     }
 
     pub fn validate_addr(&self, addr_range: Range<VirtAddr>) -> Result<(), Error> {
-        let end = VirtAddr::new(self.sz);
+        let end = VirtAddr::new(self.pagetable().unwrap().size());
         // both tests needed, in case of overflow
         if addr_range.start < end && addr_range.end <= end {
             Ok(())
@@ -447,7 +441,7 @@ impl Proc {
                     .map_err(|AllocError| Error::Unknown)?,
             );
             // An empty user page table.
-            private.pagetable = Some(create_pagetable(&mut private).ok_or(Error::Unknown)?);
+            private.pagetable = Some(UserPageTable::new(private.trapframe().unwrap())?);
             // Set up new context to start executing ad forkret,
             // which returns to user space.
             shared.context.clear();
@@ -474,9 +468,8 @@ impl Proc {
             drop(tf);
         }
         if let Some(pt) = private.pagetable.take() {
-            free_pagetable(pt, private.sz);
+            drop(pt);
         }
-        private.sz = 0;
         unsafe { self.parent.reset() };
         shared.pid = ProcId::INVALID;
         shared.name.clear();
@@ -509,62 +502,6 @@ pub fn init() {
     }
 }
 
-/// Creates a user page table for a given process, with no user memory,
-/// but with trampoline and trapframe pages.
-pub fn create_pagetable(
-    private: &mut ProcPrivateData,
-) -> Option<Box<PageTable, PageFrameAllocator>> {
-    // An empty page table.
-    let mut pagetable = vm::user::create().ok()?;
-
-    // map the trampoline code (for system call return)
-    // at the highest user virtual address.
-    // only the supervisort uses it, on the way
-    // to/from user space, so no PtEntryFlags::U
-    if pagetable
-        .map_page(
-            TRAMPOLINE,
-            PhysAddr::new(trampoline::trampoline as usize),
-            PtEntryFlags::RX,
-        )
-        .is_err()
-    {
-        vm::user::free(pagetable, 0);
-        return None;
-    }
-
-    // map the trapframe page just below the trampoline page, for
-    // trampoline.S.
-    if pagetable
-        .map_page(
-            TRAPFRAME,
-            PhysAddr::new(
-                private
-                    .trapframe
-                    .as_ref()
-                    .map(|tf| Box::as_ptr(tf).addr())
-                    .unwrap(),
-            ),
-            PtEntryFlags::RW,
-        )
-        .is_err()
-    {
-        vm::user::unmap(&mut pagetable, TRAMPOLINE, 1, false);
-        vm::user::free(pagetable, 0);
-        return None;
-    }
-
-    Some(pagetable)
-}
-
-/// Frees a process's page table, and free the
-/// physical memory it refers to.
-pub fn free_pagetable(mut pagetable: Box<PageTable, PageFrameAllocator>, sz: usize) {
-    vm::user::unmap(&mut pagetable, TRAMPOLINE, 1, false);
-    vm::user::unmap(&mut pagetable, TRAPFRAME, 1, false);
-    vm::user::free(pagetable, sz);
-}
-
 /// A user program that calls `exec("/init")`.
 #[cfg(feature = "initcode_env")]
 static INIT_CODE: &[u8] = const { include_bytes!(env!("INIT_CODE_PATH")) };
@@ -581,8 +518,11 @@ pub fn user_init() {
 
     // allocate one user page and copy initcode's instructions
     // and data into it.
-    vm::user::map_first(private.pagetable_mut().unwrap(), INIT_CODE);
-    private.sz = PAGE_SIZE;
+    private
+        .pagetable_mut()
+        .unwrap()
+        .map_first(INIT_CODE)
+        .unwrap();
 
     // prepare for the very first `return` from kernel to user.
     let trapframe = private.trapframe_mut().unwrap();
@@ -591,7 +531,7 @@ pub fn user_init() {
 
     let tx = fs::begin_readonly_tx();
     private.cwd = Some(Inode::from_tx(
-        &fs::path::resolve(&tx, &private, b"/").unwrap(),
+        &fs::path::resolve(&tx, &mut private, b"/").unwrap(),
     ));
     tx.end();
     shared.name = "initcode".try_into().unwrap();
@@ -602,14 +542,14 @@ pub fn user_init() {
 
 /// Grows or shrink user memory by nBytes.
 pub fn grow_proc(private: &mut ProcPrivateData, n: isize) -> Result<(), Error> {
-    let old_sz = private.sz;
-    let new_sz = (old_sz as isize + n) as usize;
     let pagetable = private.pagetable_mut().unwrap();
+    let old_sz = pagetable.size();
+    let new_sz = (old_sz as isize + n) as usize;
 
-    private.sz = match new_sz.cmp(&old_sz) {
-        cmp::Ordering::Equal => old_sz,
-        cmp::Ordering::Less => vm::user::dealloc(pagetable, old_sz, new_sz),
-        cmp::Ordering::Greater => vm::user::alloc(pagetable, old_sz, new_sz, PtEntryFlags::W)?,
+    match new_sz.cmp(&old_sz) {
+        cmp::Ordering::Equal => {}
+        cmp::Ordering::Less => pagetable.shrink(new_sz),
+        cmp::Ordering::Greater => pagetable.grow(new_sz, PtEntryFlags::W)?,
     };
 
     Ok(())
@@ -625,18 +565,16 @@ pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Option<ProcId> {
     let (np, mut np_shared, mut np_private) = Proc::allocate()?;
 
     // Copy use memory from parent to child.
-    if vm::user::copy(
-        p_private.pagetable().unwrap(),
-        np_private.pagetable_mut().unwrap(),
-        p_private.sz,
-    )
-    .is_err()
+    if p_private
+        .pagetable()
+        .unwrap()
+        .try_clone(np_private.pagetable_mut().unwrap())
+        .is_err()
     {
         np.free(np_private, &mut np_shared);
         drop(np_shared);
         return None;
     }
-    np_private.sz = p_private.sz;
 
     // Copy saved user registers.
     *np_private.trapframe_mut().unwrap() = *p_private.trapframe().unwrap();
@@ -732,7 +670,7 @@ pub fn exit(p: &Proc, mut p_private: ProcPrivateDataGuard, status: i32) -> ! {
 /// Waits for a child process to exit and return its pid.
 ///
 /// Returns `Err` if this process has no children.
-pub fn wait(p: &Proc, p_private: &ProcPrivateData, addr: VirtAddr) -> Result<ProcId, Error> {
+pub fn wait(p: &Proc, p_private: &mut ProcPrivateData, addr: VirtAddr) -> Result<ProcId, Error> {
     let mut wait_lock = wait_lock::lock();
 
     loop {
@@ -752,7 +690,7 @@ pub fn wait(p: &Proc, p_private: &ProcPrivateData, addr: VirtAddr) -> Result<Pro
 
                 let pid = pp_shared.pid;
                 if addr.addr() != 0
-                    && vm::copy_out(p_private.pagetable().unwrap(), addr, &exit_status).is_err()
+                    && vm::copy_out(p_private.pagetable_mut().unwrap(), addr, &exit_status).is_err()
                 {
                     drop(pp_shared);
                     drop(wait_lock);
@@ -870,13 +808,13 @@ pub fn kill(pid: ProcId) -> Result<(), Error> {
 /// Copies to either a user address, or kernel address,
 /// depending on `user_dst`.
 pub fn either_copy_out_bytes(
-    p_private: &ProcPrivateData,
+    p_private: &mut ProcPrivateData,
     user_dst: bool,
     dst: usize,
     src: &[u8],
 ) -> Result<(), Error> {
     if user_dst {
-        return vm::copy_out_bytes(p_private.pagetable().unwrap(), VirtAddr::new(dst), src);
+        return vm::copy_out_bytes(p_private.pagetable_mut().unwrap(), VirtAddr::new(dst), src);
     }
 
     unsafe {

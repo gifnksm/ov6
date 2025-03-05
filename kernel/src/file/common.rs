@@ -15,7 +15,7 @@ pub(super) fn close_inode(inode: Inode) {
 
 pub(super) fn stat_inode(
     inode: &Inode,
-    private: &ProcPrivateData,
+    private: &mut ProcPrivateData,
     addr: VirtAddr,
 ) -> Result<(), Error> {
     let tx = fs::begin_readonly_tx();
@@ -36,6 +36,6 @@ pub(super) fn stat_inode(
     };
     drop(lip);
     drop(ip);
-    vm::copy_out(private.pagetable().unwrap(), addr, &st)?;
+    vm::copy_out(private.pagetable_mut().unwrap(), addr, &st)?;
     Ok(())
 }

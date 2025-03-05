@@ -9,7 +9,7 @@ use super::{
     repr::{T_DEVICE, T_FILE},
 };
 
-pub fn unlink(tx: &Tx<false>, private: &ProcPrivateData, path: &[u8]) -> Result<(), Error> {
+pub fn unlink(tx: &Tx<false>, private: &mut ProcPrivateData, path: &[u8]) -> Result<(), Error> {
     let mut name = [0; DIR_SIZE];
     let (mut parent_ip, name) = path::resolve_parent(tx, private, path, &mut name)?;
 
@@ -50,7 +50,7 @@ pub fn unlink(tx: &Tx<false>, private: &ProcPrivateData, path: &[u8]) -> Result<
 
 pub fn create<'tx>(
     tx: &'tx Tx<'tx, false>,
-    private: &ProcPrivateData,
+    private: &mut ProcPrivateData,
     path: &[u8],
     ty: i16,
     major: DeviceNo,
@@ -103,7 +103,7 @@ pub fn create<'tx>(
 
 pub fn link(
     tx: &Tx<false>,
-    private: &ProcPrivateData,
+    private: &mut ProcPrivateData,
     old_path: &[u8],
     new_path: &[u8],
 ) -> Result<(), Error> {

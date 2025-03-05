@@ -78,7 +78,7 @@ impl File {
     /// Gets metadata about file `f`.
     ///
     /// `addr` is a user virtual address, pointing to a struct stat.
-    pub fn stat(&self, private: &ProcPrivateData, addr: VirtAddr) -> Result<(), Error> {
+    pub fn stat(&self, private: &mut ProcPrivateData, addr: VirtAddr) -> Result<(), Error> {
         match &self.data.data {
             Some(SpecificData::Inode(inode)) => inode.stat(private, addr),
             Some(SpecificData::Device(device)) => device.stat(private, addr),

@@ -1,189 +1,16 @@
 use core::{mem, ptr, slice};
 
-use alloc::boxed::Box;
-
 use crate::{
     error::Error,
-    memory::{
-        PAGE_SIZE, PageRound as _, PhysAddr, VirtAddr,
-        page::{self, PageFrameAllocator},
-        page_table::{PageTable, PtEntryFlags},
-    },
+    memory::{PAGE_SIZE, PageRound as _, VirtAddr, page_table::PtEntryFlags},
 };
 
-pub mod user {
-    use core::slice;
-
-    use super::*;
-
-    /// Removes npages of mappings starting from `va``.
-    ///
-    /// `va`` must be page-aligned.
-    /// The mappings must exist.
-    ///
-    /// Optionally free the physical memory.
-    pub fn unmap(pagetable: &mut PageTable, va: VirtAddr, npages: usize, do_free: bool) {
-        for pa in pagetable.unmap_pages(va, npages) {
-            if do_free {
-                unsafe {
-                    page::free_page(pa.as_mut_ptr());
-                }
-            }
-        }
-    }
-
-    /// Creates an empty user page table.
-    ///
-    /// Returns `Err()` if out of memory.
-    pub fn create() -> Result<Box<PageTable, PageFrameAllocator>, Error> {
-        PageTable::try_allocate()
-    }
-
-    /// Loads the user initcode into address 0 of pagetable.
-    ///
-    /// For the very first process.
-    /// `sz` must be less than a page.
-    pub fn map_first(pagetable: &mut PageTable, src: &[u8]) {
-        assert!(src.len() < PAGE_SIZE, "src.len()={:#x}", src.len());
-
-        unsafe {
-            let mem = page::alloc_zeroed_page().unwrap();
-            pagetable
-                .map_page(
-                    VirtAddr::new(0),
-                    PhysAddr::new(mem.addr().get()),
-                    PtEntryFlags::URWX,
-                )
-                .unwrap();
-            slice::from_raw_parts_mut(mem.as_ptr(), src.len()).copy_from_slice(src);
-        }
-    }
-
-    /// Allocates PTEs and physical memory to grow process from `oldsz` to `newsz`,
-    /// which need not be page aligned.
-    ///
-    /// Returns new size.
-    pub fn alloc(
-        pagetable: &mut PageTable,
-        oldsz: usize,
-        newsz: usize,
-        xperm: PtEntryFlags,
-    ) -> Result<usize, Error> {
-        if newsz < oldsz {
-            return Ok(oldsz);
-        }
-
-        let oldsz = oldsz.page_roundup();
-        for va in (oldsz..newsz).step_by(PAGE_SIZE) {
-            let Some(mem) = page::alloc_zeroed_page() else {
-                dealloc(pagetable, va, oldsz);
-                return Err(Error::Unknown);
-            };
-            if pagetable
-                .map_page(
-                    VirtAddr::new(va),
-                    PhysAddr::new(mem.addr().get()),
-                    xperm | PtEntryFlags::UR,
-                )
-                .is_err()
-            {
-                unsafe {
-                    page::free_page(mem);
-                }
-                dealloc(pagetable, va, oldsz);
-                return Err(Error::Unknown);
-            }
-        }
-
-        Ok(newsz)
-    }
-
-    /// Deallocates user pages to bring the process size from `oldsz` to `newsz`.
-    ///
-    /// `oldsz` and `newsz` need not be page-aligned, nor does `newsz`
-    /// need to be less than `oldsz`.
-    /// `oldsz` can be larger than the acrual process size.
-    ///
-    /// Returns the new process size.
-    pub fn dealloc(pagetable: &mut PageTable, oldsz: usize, newsz: usize) -> usize {
-        if newsz >= oldsz {
-            return oldsz;
-        }
-
-        if newsz.page_roundup() < oldsz.page_roundup() {
-            let npages = (oldsz.page_roundup() - newsz.page_roundup()) / PAGE_SIZE;
-            unmap(pagetable, VirtAddr::new(newsz.page_roundup()), npages, true);
-        }
-
-        newsz
-    }
-
-    /// Frees user memory pages, then free page-table pages.
-    pub fn free(mut pagetable: Box<PageTable, PageFrameAllocator>, sz: usize) {
-        if sz > 0 {
-            unmap(
-                &mut pagetable,
-                VirtAddr::new(0),
-                sz.page_roundup() / PAGE_SIZE,
-                true,
-            );
-        }
-        pagetable.free_descendant();
-    }
-
-    /// Given a parent process's page table, copies
-    /// its memory into a child's page table.
-    ///
-    /// Copies both the page table and the
-    /// physical memory.
-    pub fn copy(old: &PageTable, new: &mut PageTable, sz: usize) -> Result<(), Error> {
-        let res = (|| {
-            for va in (0..sz).step_by(PAGE_SIZE) {
-                let pte = old.find_leaf_entry(VirtAddr::new(va)).ok_or(va)?;
-                assert!(pte.is_valid() && pte.is_leaf());
-                let src_pa = pte.phys_addr();
-                let flags = pte.flags();
-                let Some(dst) = page::alloc_page() else {
-                    return Err(va);
-                };
-                unsafe {
-                    dst.as_ptr().copy_from(src_pa.as_ptr(), PAGE_SIZE);
-                }
-                if new
-                    .map_page(VirtAddr::new(va), PhysAddr::new(dst.addr().get()), flags)
-                    .is_err()
-                {
-                    return Err(va);
-                }
-            }
-            Ok(())
-        })();
-
-        if let Err(va) = res {
-            unmap(new, VirtAddr::new(0), va / PAGE_SIZE, true);
-        }
-
-        res.map_err(|_| Error::Unknown)
-    }
-
-    /// Marks a PTE invalid for user access.
-    ///
-    /// Used by exec for the user stackguard page.
-    pub fn forbide_user_access(pagetable: &mut PageTable, va: VirtAddr) {
-        pagetable
-            .update_level0_entry(va, false, |pte| {
-                let mut flags = pte.flags();
-                flags.remove(PtEntryFlags::U);
-                pte.set_flags(flags);
-            })
-            .unwrap();
-    }
-}
+use super::user::UserPageTable;
 
 /// Copies from user to kernel.
 ///
 /// Copies from `src` to virtual address `dst_va` in a given page table.
-pub fn copy_out<T>(pagetable: &PageTable, dst_va: VirtAddr, src: &T) -> Result<(), Error> {
+pub fn copy_out<T>(pagetable: &mut UserPageTable, dst_va: VirtAddr, src: &T) -> Result<(), Error> {
     let src = unsafe { slice::from_raw_parts(ptr::from_ref(src).cast(), mem::size_of::<T>()) };
     copy_out_bytes(pagetable, dst_va, src)
 }
@@ -192,7 +19,7 @@ pub fn copy_out<T>(pagetable: &PageTable, dst_va: VirtAddr, src: &T) -> Result<(
 ///
 /// Copies from `src` to virtual address `dst_va` in a given page table.
 pub fn copy_out_bytes(
-    pagetable: &PageTable,
+    pagetable: &mut UserPageTable,
     mut dst_va: VirtAddr,
     mut src: &[u8],
 ) -> Result<(), Error> {
@@ -208,7 +35,7 @@ pub fn copy_out_bytes(
         }
 
         let dst_page = pagetable
-            .fetch_page(va0, PtEntryFlags::UW)
+            .fetch_page_mut(va0, PtEntryFlags::UW)
             .ok_or(Error::Unknown)?;
         let dst = &mut dst_page[offset..][..n];
         dst.copy_from_slice(&src[..n]);
@@ -222,7 +49,7 @@ pub fn copy_out_bytes(
 /// Copies from user to kernel.
 ///
 /// Returns the copy from virtual address `src_va` in a given page table.
-pub fn copy_in<T>(pagetable: &PageTable, src_va: VirtAddr) -> Result<T, Error> {
+pub fn copy_in<T>(pagetable: &UserPageTable, src_va: VirtAddr) -> Result<T, Error> {
     let mut dst = mem::MaybeUninit::<T>::uninit();
     copy_in_raw(pagetable, dst.as_mut_ptr().cast(), size_of::<T>(), src_va)?;
     Ok(unsafe { dst.assume_init() })
@@ -231,14 +58,18 @@ pub fn copy_in<T>(pagetable: &PageTable, src_va: VirtAddr) -> Result<T, Error> {
 // /// Copies from user to kernel.
 // ///
 // /// Copies to `dst` from virtual address `src_va` in a given page table.
-// pub fn copy_in_to<T>(pagetable: &PageTable, dst: &mut T, src_va: VirtAddr) -> Result<(), Error> {
+// pub fn copy_in_to<T>(pagetable: &mut UserPageTable, dst: &mut T, src_va: VirtAddr) -> Result<(), Error> {
 //     copy_in_raw(pagetable, ptr::from_mut(dst).cast(), size_of::<T>(), src_va)
 // }
 
 /// Copies from user to kernel.
 ///
 /// Copies to `dst` from virtual address `src_va` in a given page table.
-pub fn copy_in_bytes(pagetable: &PageTable, dst: &mut [u8], src_va: VirtAddr) -> Result<(), Error> {
+pub fn copy_in_bytes(
+    pagetable: &UserPageTable,
+    dst: &mut [u8],
+    src_va: VirtAddr,
+) -> Result<(), Error> {
     copy_in_raw(pagetable, dst.as_mut_ptr(), dst.len(), src_va)
 }
 
@@ -246,7 +77,7 @@ pub fn copy_in_bytes(pagetable: &PageTable, dst: &mut [u8], src_va: VirtAddr) ->
 ///
 /// Copies to `dst` from virtual address `src_va` in a given page table.
 pub fn copy_in_raw(
-    pagetable: &PageTable,
+    pagetable: &UserPageTable,
     mut dst: *mut u8,
     mut dst_size: usize,
     mut src_va: VirtAddr,
@@ -278,7 +109,7 @@ pub fn copy_in_raw(
 /// Copies bytes to `dst` from virtual address `src_va` in a given page table,
 /// until a '\0', or max.
 pub fn copy_in_str(
-    pagetable: &PageTable,
+    pagetable: &UserPageTable,
     mut dst: &mut [u8],
     mut src_va: VirtAddr,
 ) -> Result<(), Error> {

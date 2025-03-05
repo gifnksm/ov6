@@ -36,7 +36,7 @@ fn skip_elem(path: &[u8]) -> Option<(&[u8], &[u8])> {
 /// Must be called inside a transaction since it calls `inode_put()`.
 fn resolve_impl<'a, const READ_ONLY: bool>(
     tx: &'a Tx<READ_ONLY>,
-    private: &ProcPrivateData,
+    private: &mut ProcPrivateData,
     path: &[u8],
     parent: bool,
     mut name_out: Option<&mut [u8; DIR_SIZE]>,
@@ -84,7 +84,7 @@ fn resolve_impl<'a, const READ_ONLY: bool>(
 
 pub fn resolve<'a, const READ_ONLY: bool>(
     tx: &'a Tx<READ_ONLY>,
-    private: &ProcPrivateData,
+    private: &mut ProcPrivateData,
     path: &[u8],
 ) -> Result<TxInode<'a, READ_ONLY>, Error> {
     resolve_impl(tx, private, path, false, None)
@@ -92,7 +92,7 @@ pub fn resolve<'a, const READ_ONLY: bool>(
 
 pub fn resolve_parent<'a, 'b, const READ_ONLY: bool>(
     tx: &'a Tx<READ_ONLY>,
-    private: &ProcPrivateData,
+    private: &mut ProcPrivateData,
     path: &[u8],
     name: &'b mut [u8; DIR_SIZE],
 ) -> Result<(TxInode<'a, READ_ONLY>, &'b [u8]), Error> {

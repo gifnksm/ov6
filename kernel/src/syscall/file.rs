@@ -75,7 +75,7 @@ pub fn sys_fstat(
     let private = private.as_mut().unwrap();
     let va = syscall::arg_addr(private, 1);
     let (_fd, f) = arg_fd(private, 0)?;
-    f.stat(private, va)?;
+    f.clone().stat(private, va)?;
     Ok(0)
 }
 
@@ -266,7 +266,7 @@ pub fn sys_pipe(
     };
 
     let fds = [rfd as i32, wfd as i32];
-    if vm::copy_out(private.pagetable().unwrap(), fd_array, &fds).is_err() {
+    if vm::copy_out(private.pagetable_mut().unwrap(), fd_array, &fds).is_err() {
         private.unset_ofile(rfd);
         private.unset_ofile(wfd);
         return Err(Error::Unknown);

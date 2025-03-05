@@ -46,7 +46,7 @@ impl PageTable {
     }
 
     /// Returns the physical page number of the physical page containing this page table
-    fn phys_page_num(&self) -> PhysPageNum {
+    pub(super) fn phys_page_num(&self) -> PhysPageNum {
         self.phys_addr().phys_page_num()
     }
 
@@ -205,8 +205,15 @@ impl PageTable {
     }
 
     /// Fetches the page that is mapped at virtual address `va`.
-    pub(super) fn fetch_page(
-        &self,
+    pub(super) fn fetch_page(&self, va: VirtAddr, flags: PtEntryFlags) -> Option<&[u8; PAGE_SIZE]> {
+        let pa = self.resolve_virtual_address(va, flags)?;
+        let page = unsafe { pa.as_mut_ptr::<[u8; PAGE_SIZE]>().as_ref() };
+        Some(page)
+    }
+
+    /// Fetches the page that is mapped at virtual address `va`.
+    pub(super) fn fetch_page_mut(
+        &mut self,
         va: VirtAddr,
         flags: PtEntryFlags,
     ) -> Option<&mut [u8; PAGE_SIZE]> {

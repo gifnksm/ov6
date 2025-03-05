@@ -4,13 +4,11 @@ use crate::{
     error::Error,
     fs::{self, LockedTxInode},
     memory::{
-        PAGE_SIZE, PageRound as _, VirtAddr,
-        page_table::{PageTable, PtEntryFlags},
-        vm,
+        PAGE_SIZE, PageRound as _, VirtAddr, page_table::PtEntryFlags, user::UserPageTable, vm,
     },
     param::{MAX_ARG, USER_STACK},
     proc::{
-        self, Proc,
+        Proc,
         elf::{ELF_MAGIC, ELF_PROG_LOAD, ElfHeader, ProgramHeader},
     },
 };
@@ -55,13 +53,10 @@ pub fn exec(
         return Err(Error::Unknown);
     }
 
-    let mut pagetable = proc::create_pagetable(private).ok_or(Error::Unknown)?;
+    let mut pt = UserPageTable::new(private.trapframe().unwrap())?;
 
     // Load program into memory.
-    let mut sz = 0;
-    if let Err(Error::Unknown) = load_segments(private, &mut lip, pagetable.as_mut(), &mut sz, &elf)
-    {
-        proc::free_pagetable(pagetable, sz);
+    if let Err(Error::Unknown) = load_segments(private, &mut lip, &mut pt, &elf) {
         return Err(Error::Unknown);
     }
 
@@ -69,17 +64,15 @@ pub fn exec(
     ip.put();
     tx.end();
 
-    if allocate_stack_pages(&mut pagetable, &mut sz).is_err() {
-        proc::free_pagetable(pagetable, sz);
+    if allocate_stack_pages(&mut pt).is_err() {
         return Err(Error::Unknown);
     }
 
-    let sp = sz;
+    let sp = pt.size();
     let stack_base = sp - USER_STACK * PAGE_SIZE;
 
     // Push argument strings, prepare rest of stack in ustack.
-    let Ok((sp, argc)) = push_arguments(&pagetable, sp, stack_base, argv) else {
-        proc::free_pagetable(pagetable, sz);
+    let Ok((sp, argc)) = push_arguments(&mut pt, sp, stack_base, argv) else {
         return Err(Error::Unknown);
     };
 
@@ -97,7 +90,7 @@ pub fn exec(
     p.shared().lock().set_name(name);
 
     // Commit to the user image.
-    private.update_pagetable(pagetable, sz);
+    private.update_pagetable(pt);
     private.trapframe_mut().unwrap().epc = elf.entry as usize; // initial pogram counter = main
     private.trapframe_mut().unwrap().sp = sp; // initial stack pointer
 
@@ -105,10 +98,9 @@ pub fn exec(
 }
 
 fn load_segments<const READ_ONLY: bool>(
-    private: &ProcPrivateData,
+    private: &mut ProcPrivateData,
     lip: &mut LockedTxInode<READ_ONLY>,
-    pagetable: &mut PageTable,
-    sz: &mut usize,
+    pagetable: &mut UserPageTable,
     elf: &ElfHeader,
 ) -> Result<(), Error> {
     for i in 0..elf.phnum {
@@ -133,12 +125,7 @@ fn load_segments<const READ_ONLY: bool>(
         if !(ph.vaddr as usize).is_page_aligned() {
             return Err(Error::Unknown);
         }
-        *sz = vm::user::alloc(
-            pagetable,
-            *sz,
-            (ph.vaddr + ph.memsz) as usize,
-            flags2perm(ph.flags),
-        )?;
+        pagetable.grow((ph.vaddr + ph.memsz) as usize, flags2perm(ph.flags))?;
         load_segment(
             private,
             pagetable,
@@ -156,8 +143,8 @@ fn load_segments<const READ_ONLY: bool>(
 ///
 /// `va` must be page-aligned.
 fn load_segment<const READ_ONLY: bool>(
-    private: &ProcPrivateData,
-    pagetable: &PageTable,
+    private: &mut ProcPrivateData,
+    pagetable: &UserPageTable,
     va: VirtAddr,
     lip: &mut LockedTxInode<READ_ONLY>,
     offset: usize,
@@ -189,20 +176,17 @@ fn load_segment<const READ_ONLY: bool>(
 ///
 /// Makes the first inaccessible as a stack guard.
 /// Uses the rest as the user stack.
-fn allocate_stack_pages(pagetable: &mut PageTable, sz: &mut usize) -> Result<(), Error> {
-    *sz = sz.page_roundup();
-    *sz = vm::user::alloc(
-        pagetable,
-        *sz,
-        *sz + (USER_STACK + 1) * PAGE_SIZE,
-        PtEntryFlags::W,
-    )?;
-    vm::user::forbide_user_access(pagetable, VirtAddr::new(*sz - (USER_STACK + 1) * PAGE_SIZE));
+fn allocate_stack_pages(pagetable: &mut UserPageTable) -> Result<(), Error> {
+    let size = pagetable.size().page_roundup();
+    pagetable.grow(size + (USER_STACK + 1) * PAGE_SIZE, PtEntryFlags::W)?;
+    pagetable.forbide_user_access(VirtAddr::new(
+        pagetable.size() - (USER_STACK + 1) * PAGE_SIZE,
+    ));
     Ok(())
 }
 
 fn push_arguments(
-    pagetable: &PageTable,
+    pagetable: &mut UserPageTable,
     mut sp: usize,
     stack_base: usize,
     argv: *const *const u8,

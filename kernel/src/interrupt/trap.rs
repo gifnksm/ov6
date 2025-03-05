@@ -1,4 +1,4 @@
-use core::{arch::asm, mem, ptr};
+use core::{arch::asm, mem};
 
 use riscv::{
     interrupt::{
@@ -150,7 +150,7 @@ pub fn trap_user_ret(mut private: ProcPrivateDataGuard) {
     sepc::write(private.trapframe().unwrap().epc);
 
     // tell trampoline.S the user page table to switch to.
-    let satp = (8 << 60) | (ptr::from_ref(private.pagetable().unwrap()).addr() >> 12);
+    let satp = (8 << 60) | (private.pagetable().unwrap().phys_page_num().value());
     drop(private);
 
     // jump to userret in trampoline.S at the top of memory, which

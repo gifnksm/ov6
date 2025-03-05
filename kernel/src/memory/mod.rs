@@ -12,4 +12,5 @@ pub mod kernel;
 pub mod layout;
 pub mod page;
 pub mod page_table;
+pub mod user;
 pub mod vm;

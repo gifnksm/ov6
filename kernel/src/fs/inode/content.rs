@@ -141,7 +141,7 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
     /// there was an error of some kind.
     pub fn read(
         &mut self,
-        private: &ProcPrivateData,
+        private: &mut ProcPrivateData,
         user_dst: bool,
         dst: VirtAddr,
         off: usize,
@@ -180,7 +180,7 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
     }
 
     /// Reads the inode's data as `T`.
-    pub fn read_as<T>(&mut self, private: &ProcPrivateData, off: usize) -> Result<T, Error>
+    pub fn read_as<T>(&mut self, private: &mut ProcPrivateData, off: usize) -> Result<T, Error>
     where
         T: Pod,
     {

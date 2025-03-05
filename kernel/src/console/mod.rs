@@ -86,7 +86,7 @@ fn write(private: &ProcPrivateData, user_src: bool, src: usize, n: usize) -> Res
 /// or kernel address.
 fn read(
     p: &Proc,
-    private: &ProcPrivateData,
+    private: &mut ProcPrivateData,
     user_dst: bool,
     mut dst: usize,
     mut n: usize,
