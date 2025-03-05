@@ -5,7 +5,8 @@ use crate::{
     fs::{self, LockedTxInode},
     memory::{
         PAGE_SIZE, PageRound as _, VirtAddr,
-        vm::{self, PageTable, PtEntryFlags},
+        page_table::{PageTable, PtEntryFlags},
+        vm,
     },
     param::{MAX_ARG, USER_STACK},
     proc::{

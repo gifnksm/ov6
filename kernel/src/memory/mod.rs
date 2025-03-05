@@ -10,4 +10,5 @@ mod addr;
 pub mod heap;
 pub mod layout;
 pub mod page;
+pub mod page_table;
 pub mod vm;
