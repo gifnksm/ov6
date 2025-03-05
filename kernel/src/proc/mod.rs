@@ -672,6 +672,9 @@ pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Option<ProcId> {
     np.parent.set(p, &mut wait_lock);
     drop(wait_lock);
 
+    // After setting the state to Runnable, the scheduler can pick up `np` and the process context may start.
+    // The started process context (e.g., forkret) will refer to `ProcPrivateData`, so we must drop `np_private` here.
+    drop(np_private);
     np.shared.lock().state = ProcState::Runnable;
 
     Some(pid)
