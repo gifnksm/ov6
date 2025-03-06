@@ -22,7 +22,7 @@ use crate::{
     interrupt::{self, trap},
     memory::{
         PAGE_SIZE, PhysAddr, VirtAddr,
-        layout::kstack,
+        layout::{KSTACK_PAGES, kstack},
         page::{self, PageFrameAllocator},
         page_table::{PageTable, PtEntryFlags},
         user::UserPageTable,
@@ -446,7 +446,7 @@ impl Proc {
             // which returns to user space.
             shared.context.clear();
             shared.context.ra = forkret as usize;
-            shared.context.sp = private.kstack.byte_add(PAGE_SIZE).addr();
+            shared.context.sp = private.kstack.byte_add(KSTACK_PAGES * PAGE_SIZE).addr();
             Ok(())
         })();
 
@@ -487,11 +487,13 @@ impl Proc {
 /// guard page.
 pub fn map_stacks(kpgtbl: &mut PageTable) {
     for (i, _p) in PROC.iter().enumerate() {
-        let pa = page::alloc_page().unwrap();
-        let va = kstack(i);
-        kpgtbl
-            .map_page(va, PhysAddr::new(pa.addr().get()), PtEntryFlags::RW)
-            .unwrap();
+        for k in 0..KSTACK_PAGES {
+            let pa = page::alloc_page().unwrap();
+            let va = kstack(i).byte_add(k * PAGE_SIZE);
+            kpgtbl
+                .map_page(va, PhysAddr::new(pa.addr().get()), PtEntryFlags::RW)
+                .unwrap();
+        }
     }
 }
 

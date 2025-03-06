@@ -95,8 +95,11 @@ unsafe extern "C" {
 
 pub const TRAMPOLINE: VirtAddr = VirtAddr::MAX.byte_sub(PAGE_SIZE);
 
+pub const TRAPFRAME: VirtAddr = TRAMPOLINE.byte_sub(PAGE_SIZE);
+
 pub const fn kstack(p: usize) -> VirtAddr {
-    TRAMPOLINE.byte_sub((p + 1) * 2 * PAGE_SIZE)
+    TRAPFRAME.byte_sub((1 + (p + 1) * (KSTACK_GUARD_PAGES + KSTACK_PAGES)) * PAGE_SIZE)
 }
 
-pub const TRAPFRAME: VirtAddr = TRAMPOLINE.byte_sub(PAGE_SIZE);
+pub const KSTACK_PAGES: usize = 1;
+pub const KSTACK_GUARD_PAGES: usize = 1;
