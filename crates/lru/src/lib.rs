@@ -5,13 +5,10 @@
 
 extern crate alloc;
 
-use core::{ptr::NonNull, sync::atomic::AtomicUsize};
+use core::{alloc::Allocator, ptr::NonNull, sync::atomic::AtomicUsize};
 
-use alloc::{
-    alloc::{Allocator, Global},
-    collections::LinkedList,
-    sync::Arc,
-};
+use alloc::{alloc::Global, collections::LinkedList, sync::Arc};
+
 use mutex_api::Mutex;
 
 /// Least Recently Used (LRU) cache.
@@ -23,6 +20,7 @@ where
     LruMutex: Mutex<Data = LruMap<K, V>>,
 {
     /// Creates a new LRU cache with the given size.
+    #[must_use]
     pub fn new(size: usize) -> Self
     where
         V: Default,
@@ -78,6 +76,7 @@ where
     _prev: Option<NonNull<Self>>,
     _element: (Option<K>, Arc<V, A>),
 }
+
 unsafe impl<K, V, A> Send for LruMapAllocLayout<K, V, A> where A: Allocator {}
 
 impl<K, V> Default for LruMap<K, V, Global> {
@@ -144,12 +143,10 @@ where
         // Not cached
         // Recycle the least recently used value.
         if let Some(buf) = self.list.iter_mut().rev().find_map(|(k, v)| {
-            if Arc::strong_count(v) == 1 {
+            (Arc::strong_count(v) == 1).then(|| {
                 *k = Some(key.clone());
-                Some((k, v))
-            } else {
-                None
-            }
+                (k, v)
+            })
         }) {
             return Some(LruValue {
                 list,

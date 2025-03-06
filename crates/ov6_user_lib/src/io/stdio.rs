@@ -4,7 +4,7 @@ use alloc_crate::string::String;
 use once_init::OnceInit;
 
 use crate::{
-    error::Error,
+    error::Ov6Error,
     io::DEFAULT_BUF_SIZE,
     os::{fd::RawFd, ov6::syscall},
     sync::spin::{Mutex, MutexGuard},
@@ -27,15 +27,17 @@ pub const STDERR_FD: RawFd = 2;
 struct StdinRaw {}
 
 impl Read for StdinRaw {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Ov6Error> {
         syscall::read(STDIN_FD, buf)
     }
 }
 
+#[must_use]
 pub fn stdout() -> Stdout {
     Stdout {}
 }
 
+#[must_use]
 pub fn stderr() -> Stderr {
     Stderr {}
 }
@@ -55,20 +57,22 @@ pub fn stdin() -> Stdin {
 pub struct Stdout {}
 
 impl Write for Stdout {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
         syscall::write(STDOUT_FD, buf)
     }
 }
 
 impl Write for &'_ Stdout {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
         syscall::write(STDOUT_FD, buf)
     }
 }
 
 impl fmt::Write for Stdout {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        Write::write(self, s.as_bytes()).map_err(|_| fmt::Error)?;
+        if Write::write(self, s.as_bytes()).is_err() {
+            return Err(fmt::Error);
+        }
         Ok(())
     }
 }
@@ -76,20 +80,22 @@ impl fmt::Write for Stdout {
 pub struct Stderr {}
 
 impl Write for Stderr {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
         syscall::write(STDERR_FD, buf)
     }
 }
 
 impl Write for &'_ Stderr {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
         syscall::write(STDERR_FD, buf)
     }
 }
 
 impl fmt::Write for Stderr {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        Write::write(self, s.as_bytes()).map_err(|_| fmt::Error)?;
+        if Write::write(self, s.as_bytes()).is_err() {
+            return Err(fmt::Error);
+        }
         Ok(())
     }
 }
@@ -103,32 +109,33 @@ pub struct StdinLock<'lock> {
 }
 
 impl Stdin {
+    #[must_use]
     pub fn lock(&self) -> StdinLock<'_> {
         StdinLock {
             inner: self.inner.lock(),
         }
     }
 
-    pub fn read_line(&mut self, buf: &mut String) -> Result<usize, Error> {
+    pub fn read_line(&mut self, buf: &mut String) -> Result<usize, Ov6Error> {
         let mut locked = self.lock();
         locked.read_line(buf)
     }
 }
 
 impl Read for Stdin {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Ov6Error> {
         self.inner.lock().read(buf)
     }
 }
 
 impl Read for StdinLock<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Ov6Error> {
         self.inner.read(buf)
     }
 }
 
 impl BufRead for StdinLock<'_> {
-    fn fill_buf(&mut self) -> Result<&[u8], Error> {
+    fn fill_buf(&mut self) -> Result<&[u8], Ov6Error> {
         self.inner.fill_buf()
     }
 

@@ -40,14 +40,17 @@ impl fmt::Display for BlockNo {
 }
 
 impl BlockNo {
+    #[must_use]
     pub const fn new(n: u32) -> Self {
         Self(n)
     }
 
+    #[must_use]
     pub const fn value(&self) -> u32 {
         self.0
     }
 
+    #[must_use]
     pub fn as_index(&self) -> usize {
         usize::try_from(self.0).unwrap()
     }
@@ -67,14 +70,17 @@ impl fmt::Display for InodeNo {
 impl InodeNo {
     pub const ROOT: Self = Self::new(1);
 
+    #[must_use]
     pub const fn new(n: u32) -> Self {
         Self(n)
     }
 
+    #[must_use]
     pub const fn value(&self) -> u32 {
         self.0
     }
 
+    #[must_use]
     pub fn as_index(&self) -> usize {
         usize::try_from(self.0).unwrap()
     }
@@ -103,30 +109,35 @@ pub struct SuperBlock {
 }
 
 impl SuperBlock {
-    pub const FS_MAGIC: u32 = 0x10203040;
+    pub const FS_MAGIC: u32 = 0x1020_3040;
 
     pub const SUPER_BLOCK_NO: BlockNo = BlockNo::new(1);
 
     /// Returns the block number that contains the specified inode.
+    #[must_use]
     pub fn inode_block(&self, inode_no: InodeNo) -> BlockNo {
         let block_index = u32::try_from(inode_no.as_index() / INODE_PER_BLOCK).unwrap();
         BlockNo::new(self.inodestart + block_index)
     }
 
     /// Returns the block number that contains the specified bitmap.
+    #[must_use]
     pub fn bmap_block(&self, bn: usize) -> BlockNo {
         let block_index = u32::try_from(bn / BITS_PER_BLOCK).unwrap();
         BlockNo::new(self.bmapstart + block_index)
     }
 
+    #[must_use]
     pub fn max_log_len(&self) -> usize {
         usize::try_from(self.nlog).unwrap()
     }
 
+    #[must_use]
     pub fn log_header_block(&self) -> BlockNo {
         BlockNo::new(self.logstart)
     }
 
+    #[must_use]
     pub fn log_body_block(&self, i: usize) -> BlockNo {
         BlockNo::new(self.logstart + u32::try_from(i).unwrap())
     }
@@ -145,6 +156,7 @@ pub struct LogHeader {
 const _: () = const { assert!(size_of::<LogHeader>() == FS_BLOCK_SIZE) };
 
 impl LogHeader {
+    #[must_use]
     pub fn len(&self) -> usize {
         usize::try_from(self.len).unwrap()
     }
@@ -158,10 +170,12 @@ impl LogHeader {
         self.len = u32::try_from(len).unwrap();
     }
 
+    #[must_use]
     pub fn block_indices(&self) -> &[u32] {
         &self.block_indices[..self.len()]
     }
 
+    #[must_use]
     pub fn block_indices_mut(&mut self) -> &mut [u32] {
         let len = self.len();
         &mut self.block_indices[..len]
@@ -180,9 +194,9 @@ pub const T_DEVICE: i16 = 3;
 pub struct Inode {
     /// File type
     pub ty: i16,
-    /// Major device number (T_DEVICE only)
+    /// Major device number ([`T_DEVICE`] only)
     pub major: i16,
-    /// Minor device number (T_DEVICE only)
+    /// Minor device number ([`T_DEVICE`] only)
     pub minor: i16,
     /// Number of links to inode in file system
     pub nlink: i16,
@@ -200,7 +214,7 @@ impl Inode {
 
     pub fn allocate(&mut self, ty: i16) {
         assert_eq!(self.ty, 0);
-        *self = Inode::zeroed();
+        *self = Self::zeroed();
         self.ty = ty;
     }
 
@@ -235,10 +249,12 @@ pub struct InodeBlock([Inode; INODE_PER_BLOCK]);
 const _: () = const { assert!(size_of::<InodeBlock>() == FS_BLOCK_SIZE) };
 
 impl InodeBlock {
+    #[must_use]
     pub fn inode(&self, ino: InodeNo) -> &Inode {
         &self.0[ino.value() as usize % INODE_PER_BLOCK]
     }
 
+    #[must_use]
     pub fn inode_mut(&mut self, ino: InodeNo) -> &mut Inode {
         &mut self.0[ino.value() as usize % INODE_PER_BLOCK]
     }
@@ -294,11 +310,7 @@ impl IndirectBlock {
     pub fn drain(&mut self) -> impl Iterator<Item = Option<BlockNo>> + '_ {
         self.0.iter_mut().map(|n| {
             let n = mem::take(n);
-            if n == 0 {
-                None
-            } else {
-                Some(BlockNo::new(n))
-            }
+            if n == 0 { None } else { Some(BlockNo::new(n)) }
         })
     }
 }

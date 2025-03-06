@@ -39,11 +39,11 @@ impl PageRound for usize {
 
 impl PageRound for NonZero<usize> {
     fn page_roundup(&self) -> Self {
-        NonZero::new(page_roundup(self.get())).unwrap()
+        Self::new(page_roundup(self.get())).unwrap()
     }
 
     fn page_rounddown(&self) -> Self {
-        NonZero::new(page_rounddown(self.get())).unwrap()
+        Self::new(page_rounddown(self.get())).unwrap()
     }
 
     fn is_page_aligned(&self) -> bool {
@@ -108,7 +108,7 @@ pub struct PhysAddr(usize);
 impl VirtAddr {
     /// One beyond the highest possible virtual address.
     ///
-    /// VirtAddr::MAX is actually one bit less than the max allowed by
+    /// [`VirtAddr::MAX`] is actually one bit less than the max allowed by
     /// Sv39, to avoid having to sign-extend virtual addresses
     /// that have the high bit set.
     pub const MAX: Self = Self(1 << (9 * 3 + PAGE_SHIFT - 1));
@@ -117,15 +117,15 @@ impl VirtAddr {
         Self(addr)
     }
 
-    pub const fn byte_add(&self, offset: usize) -> Self {
+    pub const fn byte_add(self, offset: usize) -> Self {
         Self(self.0 + offset)
     }
 
-    pub const fn byte_sub(&self, offset: usize) -> Self {
+    pub const fn byte_sub(self, offset: usize) -> Self {
         Self(self.0 - offset)
     }
 
-    pub const fn addr(&self) -> usize {
+    pub const fn addr(self) -> usize {
         self.0
     }
 
@@ -139,11 +139,11 @@ impl PhysPageNum {
         Self(value)
     }
 
-    pub const fn phys_addr(&self) -> PhysAddr {
+    pub const fn phys_addr(self) -> PhysAddr {
         PhysAddr(self.0 << PAGE_SHIFT)
     }
 
-    pub const fn value(&self) -> usize {
+    pub const fn value(self) -> usize {
         self.0
     }
 }
@@ -153,23 +153,23 @@ impl PhysAddr {
         Self(addr)
     }
 
-    pub fn addr(&self) -> usize {
+    pub fn addr(self) -> usize {
         self.0
     }
 
-    pub fn as_ptr<T>(&self) -> *const T {
+    pub fn as_ptr<T>(self) -> *const T {
         ptr::with_exposed_provenance(self.0)
     }
 
-    pub fn as_mut_ptr<T>(&self) -> NonNull<T> {
+    pub fn as_mut_ptr<T>(self) -> NonNull<T> {
         NonNull::new(ptr::with_exposed_provenance_mut(self.0)).unwrap()
     }
 
-    pub fn phys_page_num(&self) -> PhysPageNum {
+    pub fn phys_page_num(self) -> PhysPageNum {
         PhysPageNum(self.0 >> PAGE_SHIFT)
     }
 
-    pub fn byte_add(&self, offset: usize) -> Self {
+    pub fn byte_add(self, offset: usize) -> Self {
         Self(self.0 + offset)
     }
 

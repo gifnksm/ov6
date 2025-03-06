@@ -2,7 +2,7 @@ use ov6_fs_types::InodeNo;
 use ov6_kernel_params::NINODE;
 
 use crate::{
-    error::Error,
+    error::KernelError,
     fs::DeviceNo,
     sync::{SleepLock, SpinLock, SpinLockGuard},
 };
@@ -11,7 +11,7 @@ use super::{InodeDataArc, InodeDataWeak};
 
 static INODE_TABLE: SpinLock<InodeTable> = SpinLock::new(InodeTable::new());
 
-pub(super) fn get_or_insert(dev: DeviceNo, ino: InodeNo) -> Result<InodeDataArc, Error> {
+pub(super) fn get_or_insert(dev: DeviceNo, ino: InodeNo) -> Result<InodeDataArc, KernelError> {
     INODE_TABLE.lock().get_or_insert(dev, ino)
 }
 
@@ -30,7 +30,7 @@ impl InodeTable {
         }
     }
 
-    fn get_or_insert(&mut self, dev: DeviceNo, ino: InodeNo) -> Result<InodeDataArc, Error> {
+    fn get_or_insert(&mut self, dev: DeviceNo, ino: InodeNo) -> Result<InodeDataArc, KernelError> {
         let mut empty_idx = None;
         for (i, entry) in self.table.iter_mut().enumerate() {
             let Some(entry_body) = entry else {
@@ -51,7 +51,7 @@ impl InodeTable {
         }
 
         let Some(empty_idx) = empty_idx else {
-            return Err(Error::Unknown);
+            return Err(KernelError::Unknown);
         };
 
         // insert new entry

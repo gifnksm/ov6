@@ -1,6 +1,11 @@
-use core::{alloc::Layout, ffi::CStr, hint, ptr::NonNull};
+use core::{
+    alloc::{Allocator as _, Layout},
+    ffi::CStr,
+    hint,
+    ptr::NonNull,
+};
 
-use alloc::alloc::{Allocator as _, Global};
+use alloc::alloc::Global;
 use ov6_user_lib::{
     eprint,
     fs::{self, File},
@@ -141,7 +146,7 @@ pub fn reparent1() {
     }
 }
 
-/// what if two children exit() at the same time?
+/// what if two children `exit()` at the same time?
 pub fn two_children() {
     for _i in 0..1000 {
         let _child1 = process::fork_fn(|| process::exit(0)).unwrap();
@@ -196,10 +201,10 @@ pub fn fork_fork_fork() {
     thread::sleep(10); // one second
 }
 
-/// regression test. does reparent() violate the parent-then-child
-/// locking order when giving away a child to init, so that exit()
-/// deadlocks against init's wait()? also used to trigger a "panic:
-/// release" due to exit() releasing a different p->parent->lock than
+/// regression test. does `reparent()` violate the parent-then-child
+/// locking order when giving away a child to init, so that `exit()`
+/// deadlocks against init's `wait()`? also used to trigger a "panic:
+/// release" due to `exit()` releasing a different p->parent->lock than
 /// it acquired.
 pub fn reparent2() {
     for _ in 0..800 {

@@ -9,7 +9,7 @@ use ov6_user_lib::{
     env,
     fs::{self, File},
     io::{Read as _, STDIN_FD, STDOUT_FD, Write as _},
-    os::{fd::AsRawFd, ov6::syscall},
+    os::{fd::AsRawFd as _, ov6::syscall},
     pipe, print, process, thread,
 };
 
@@ -24,9 +24,9 @@ fn do_rand(ctx: &mut u64) -> u64 {
     // October 1988, p. 1195.
 
     // Transform to [1, 0x7ffffffe] range
-    let x = (*ctx % 0x7ffffffe) + 1;
-    let hi = x / 127773;
-    let lo = x % 127773;
+    let x = (*ctx % 0x7fff_fffe) + 1;
+    let hi = x / 127_773;
+    let lo = x % 127_773;
     let x = 16807 * lo - 2836 * hi;
 
     // Transform to [0, 0x7ffffffd] range
@@ -43,6 +43,7 @@ fn rand() -> u64 {
     n
 }
 
+#[expect(clippy::too_many_lines)]
 fn go(name: char) {
     let mut buf = [0; 999];
     let break0 = process::current_break().addr();

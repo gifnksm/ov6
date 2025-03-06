@@ -33,7 +33,7 @@ pub extern "C" fn start() -> ! {
 
     // configure Physical Memory Protection to give supervisor mode
     // access to all of physical memory.
-    pmpaddr0::write(0x3fffffffffffff);
+    pmpaddr0::write(0x3f_ffff_ffff_ffff);
     pmpcfg0::write(0xf);
 
     // ask for clock interrupts;
@@ -59,7 +59,7 @@ fn timerinit() {
 
     // enable the sstc extension (i.e. stimecmp).
     unsafe {
-        asm!("csrs menvcfg, {}", in(reg) 1u64 << 63);
+        asm!("csrs menvcfg, {}", in(reg) 1_u64 << 63);
     }
 
     // allow supervisor to use stimecmp and time.

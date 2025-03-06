@@ -29,6 +29,7 @@ unsafe impl<const PAGE_SIZE: usize> Send for HeapAllocator<PAGE_SIZE> {}
 
 impl<const PAGE_SIZE: usize> HeapAllocator<PAGE_SIZE> {
     /// Creates a new `HeapAllocator`.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             free_list_heads: [None; (usize::BITS / MIN_ALLOC_SIZE.trailing_zeros()) as usize],
@@ -96,6 +97,7 @@ impl<const PAGE_SIZE: usize> HeapAllocator<PAGE_SIZE> {
 
         let (_bin_size, bin_idx) = bin(layout.size());
         let free_list = &mut self.free_list_heads[bin_idx];
+        #[expect(clippy::cast_ptr_alignment)]
         let mut run = NonNull::new(ptr.cast::<Run>()).unwrap();
         unsafe {
             run.as_mut().next = *free_list;
@@ -148,6 +150,7 @@ pub struct GlobalHeapAllocator<P, H, const PAGE_SIZE: usize> {
 }
 
 impl<P, H, const PAGE_SIZE: usize> GlobalHeapAllocator<P, H, PAGE_SIZE> {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             _p: PhantomData,
@@ -232,7 +235,9 @@ mod tests {
         assert!(unsafe { heap_allocator.alloc(&mut page_allocator, layout) }.is_null());
 
         for p in ptrs {
-            unsafe { heap_allocator.dealloc(p, layout) };
+            unsafe {
+                heap_allocator.dealloc(p, layout);
+            }
         }
 
         assert!(!unsafe { heap_allocator.alloc(&mut page_allocator, layout) }.is_null());
@@ -259,7 +264,9 @@ mod tests {
         assert!(unsafe { heap_allocator.alloc(&mut page_allocator, layout) }.is_null());
 
         for p in ptrs {
-            unsafe { heap_allocator.dealloc(p, layout) };
+            unsafe {
+                heap_allocator.dealloc(p, layout);
+            }
         }
 
         assert!(!unsafe { heap_allocator.alloc(&mut page_allocator, layout) }.is_null());
@@ -299,5 +306,8 @@ mod tests {
             assert_eq!(ptr.addr() % 64, 0);
             ptrs2.push(ptr);
         }
+        assert_eq!(ptrs0.len(), 10);
+        assert_eq!(ptrs1.len(), 10);
+        assert_eq!(ptrs2.len(), 10);
     }
 }

@@ -37,13 +37,14 @@ where
             f.field(&value);
         } else {
             f.field(&format_args!("<uninit>"));
-        };
+        }
         f.finish()
     }
 }
 
 impl<T> OnceInit<T> {
     /// Creates a new uninitialized cell.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             initializing: AtomicBool::new(false),
@@ -129,10 +130,11 @@ impl<T> OnceInit<T> {
     /// Panics if the cell already initialized.
     #[track_caller]
     pub fn init(&self, value: T) {
-        if self.try_init(value).is_err() {
-            // `Result::expect` requires `T: Debug`, so we can't use it here
-            panic!("OnceInit should be initialized at most once");
-        }
+        // `Result::expect` requires `T: Debug`, so we can't use it here
+        assert!(
+            self.try_init(value).is_ok(),
+            "OnceInit should be initialized at most once"
+        );
     }
 
     /// Initializes the cell by reference.
@@ -147,9 +149,10 @@ impl<T> OnceInit<T> {
     where
         T: Pod,
     {
-        if self.try_init_by_ref(value).is_err() {
-            panic!("OnceInit should be initialized at most once");
-        }
+        assert!(
+            self.try_init_by_ref(value).is_ok(),
+            "OnceInit should be initialized at most once"
+        );
     }
 
     /// Gets the reference of the contents of the cell.
@@ -197,7 +200,7 @@ pub enum InitError {
 impl fmt::Display for InitError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            InitError::AlreadyInitialized => fmt::Display::fmt("already initialized", f),
+            Self::AlreadyInitialized => fmt::Display::fmt("already initialized", f),
         }
     }
 }
@@ -214,7 +217,7 @@ pub enum GetError {
 impl fmt::Display for GetError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            GetError::NotInitialized => fmt::Display::fmt("not initialized", f),
+            Self::NotInitialized => fmt::Display::fmt("not initialized", f),
         }
     }
 }
@@ -259,7 +262,7 @@ mod tests {
             let barrier = Arc::clone(&barrier);
             let handle = thread::spawn(move || {
                 barrier.wait();
-                once.try_init(i).ok().map(|_| i)
+                once.try_init(i).ok().map(|()| i)
             });
             threads.push(handle);
         }
@@ -289,13 +292,13 @@ mod tests {
         let value2 = 456;
 
         once.init_by_ref(&value1);
-        assert!(once.try_init_by_ref(&value2).is_err());
+        once.try_init_by_ref(&value2).unwrap_err();
         assert_eq!(once.get(), &123);
     }
 
     #[test]
     fn get_fails_if_not_initialized() {
         let once = OnceInit::<i32>::new();
-        assert!(once.try_get().is_err());
+        once.try_get().unwrap_err();
     }
 }

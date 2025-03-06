@@ -102,10 +102,7 @@ fn consume_token<'s>(s: &mut &'s str) -> Option<Token<'s>> {
             }
         }
         _ => {
-            while first(s)
-                .map(|ch| !ch.is_whitespace() && !SYMBOLS.contains(&ch))
-                .unwrap_or(false)
-            {
+            while first(s).is_some_and(|ch| !ch.is_whitespace() && !SYMBOLS.contains(&ch)) {
                 skip(s, 1);
             }
             let end = *s;

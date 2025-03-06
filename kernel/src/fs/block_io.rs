@@ -1,8 +1,12 @@
 //! Cache for block I/O.
 
-use core::{alloc::Layout, convert::Infallible, mem::MaybeUninit, ptr::NonNull};
+use core::{
+    alloc::{AllocError, Allocator, Layout},
+    convert::Infallible,
+    mem::MaybeUninit,
+    ptr::NonNull,
+};
 
-use alloc::alloc::{AllocError, Allocator};
 use block_io::{BlockData, BlockDevice, BlockIoCache, LruMap};
 use once_init::OnceInit;
 use ov6_kernel_params::LOG_SIZE;
@@ -20,13 +24,13 @@ pub(super) struct VirtioDiskDevice {}
 impl BlockDevice<FS_BLOCK_SIZE> for VirtioDiskDevice {
     type Error = Infallible;
 
-    fn read(&self, index: usize, data: &mut [u8; FS_BLOCK_SIZE]) -> Result<(), Self::Error> {
-        virtio_disk::read(index * FS_BLOCK_SIZE, data);
+    fn read(&self, block_index: usize, data: &mut [u8; FS_BLOCK_SIZE]) -> Result<(), Self::Error> {
+        virtio_disk::read(block_index * FS_BLOCK_SIZE, data);
         Ok(())
     }
 
-    fn write(&self, index: usize, data: &[u8; FS_BLOCK_SIZE]) -> Result<(), Self::Error> {
-        virtio_disk::write(index * FS_BLOCK_SIZE, data);
+    fn write(&self, block_index: usize, data: &[u8; FS_BLOCK_SIZE]) -> Result<(), Self::Error> {
+        virtio_disk::write(block_index * FS_BLOCK_SIZE, data);
         Ok(())
     }
 }

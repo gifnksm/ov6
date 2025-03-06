@@ -3,6 +3,7 @@
 use core::ptr;
 
 use ov6_user_lib::{
+    error::Ov6Error,
     fs::{self, File},
     process,
 };
@@ -10,19 +11,22 @@ use user::{message, try_or_panic};
 
 const CONSOLE: i16 = 1;
 
+fn open_console() -> Result<File, Ov6Error> {
+    File::options().read(true).write(true).open(c"console")
+}
+
+fn create_console() -> Result<(), Ov6Error> {
+    fs::mknod(c"console", CONSOLE, 0)
+}
+
 fn main() {
-    let console = match File::options().read(true).write(true).open(c"console") {
-        Ok(console) => console,
-        Err(_) => {
+    let console = open_console()
+        .or_else(|_| {
             // stdout/stderr are not created here, so we don't output error message here.
-            fs::mknod(c"console", CONSOLE, 0).unwrap();
-            File::options()
-                .read(true)
-                .write(true)
-                .open(c"console")
-                .unwrap()
-        }
-    };
+            create_console().unwrap();
+            open_console()
+        })
+        .unwrap();
     let _stdout = console.try_clone().unwrap();
     let _stderr = console.try_clone().unwrap();
 

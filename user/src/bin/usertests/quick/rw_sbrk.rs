@@ -1,7 +1,7 @@
 use core::{ffi::CStr, slice};
 
 use ov6_user_lib::{
-    error::Error,
+    error::Ov6Error,
     fs::{self, File},
     io::{Read as _, Write as _},
     process,
@@ -21,7 +21,7 @@ pub fn test() {
     unsafe {
         expect!(
             file.write(slice::from_raw_parts(a.add(4096), 1024)),
-            Err(Error::Unknown),
+            Err(Ov6Error::Unknown),
         );
     }
     drop(file);
@@ -31,7 +31,7 @@ pub fn test() {
     unsafe {
         expect!(
             file.read(slice::from_raw_parts_mut(a.add(4096), 10)),
-            Err(Error::Unknown),
+            Err(Ov6Error::Unknown),
         );
     }
     drop(file);

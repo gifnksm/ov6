@@ -1,6 +1,6 @@
 use core::{fmt, marker::PhantomData};
 
-use crate::error::Error;
+use crate::error::Ov6Error;
 
 use super::ov6::syscall;
 
@@ -10,7 +10,7 @@ pub struct OwnedFd {
     fd: RawFd,
 }
 impl OwnedFd {
-    pub fn try_clone(&self) -> Result<Self, Error> {
+    pub fn try_clone(&self) -> Result<Self, Ov6Error> {
         syscall::dup(self.fd)
     }
 }

@@ -22,6 +22,7 @@ impl<const PAGE_SIZE: usize> PageFrameAllocator<PAGE_SIZE> {
     /// # Safety
     ///
     /// The given range of physical memory must be valid and not overlap with other memory regions.
+    #[must_use]
     pub unsafe fn new(heap: Range<*mut u8>) -> Self {
         assert!(size_of::<Run>() <= PAGE_SIZE);
 

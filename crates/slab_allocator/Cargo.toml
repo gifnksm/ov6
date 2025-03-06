@@ -2,5 +2,15 @@
 name = "slab_allocator"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
+description.workspace = true
+readme.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]

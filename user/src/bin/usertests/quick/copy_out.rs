@@ -1,7 +1,7 @@
 use core::{ptr, slice};
 
 use ov6_user_lib::{
-    error::Error,
+    error::Ov6Error,
     fs::File,
     io::{Read as _, Write as _},
     pipe,
@@ -14,11 +14,11 @@ use crate::{README_PATH, expect};
 pub fn test() {
     let addrs: &[usize] = &[
         0,
-        0x80000000,
-        0x3fffffe000,
-        0x3ffffff000,
-        0x4000000000,
-        0xffffffffffffffff,
+        0x8000_0000,
+        0x3f_ffff_e000,
+        0x3f_ffff_f000,
+        0x40_0000_0000,
+        0xffff_ffff_ffff_ffff,
     ];
 
     for &addr in addrs {
@@ -28,7 +28,7 @@ pub fn test() {
         let mut file = File::open(README_PATH).unwrap();
 
         // FIXME: this should return an error, but it doesn't
-        expect!(file.read(buf), Err(Error::Unknown), "addr={addr:p}");
+        expect!(file.read(buf), Err(Ov6Error::Unknown), "addr={addr:p}");
         drop(file);
 
         let (mut rx, mut tx) = pipe::pipe().unwrap();

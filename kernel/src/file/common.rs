@@ -2,7 +2,7 @@ use ov6_fs_types::{T_DEVICE, T_DIR, T_FILE};
 use ov6_syscall::{Stat, StatType};
 
 use crate::{
-    error::Error,
+    error::KernelError,
     fs::{self, Inode},
     memory::{VirtAddr, vm},
     proc::ProcPrivateData,
@@ -17,7 +17,7 @@ pub(super) fn stat_inode(
     inode: &Inode,
     private: &mut ProcPrivateData,
     addr: VirtAddr,
-) -> Result<(), Error> {
+) -> Result<(), KernelError> {
     let tx = fs::begin_readonly_tx();
     let mut ip = inode.clone().into_tx(&tx);
     let lip = ip.lock();
@@ -25,13 +25,14 @@ pub(super) fn stat_inode(
         T_DIR => StatType::Dir,
         T_FILE => StatType::File,
         T_DEVICE => StatType::Dev,
-        _ => return Err(Error::Unknown),
+        _ => return Err(KernelError::Unknown),
     };
     let st = Stat {
         dev: lip.dev().value().cast_signed(),
         ino: lip.ino().value(),
-        ty: ty as _,
+        ty: ty as i16,
         nlink: lip.nlink(),
+        _pad: [0; 4],
         size: u64::from(lip.size()),
     };
     drop(lip);

@@ -10,7 +10,7 @@
 //! * `control-p` -- print process list
 
 use crate::{
-    error::Error,
+    error::KernelError,
     file::{self, Device},
     fs::DeviceNo,
     memory::VirtAddr,
@@ -32,8 +32,8 @@ const CTRL_P: u8 = ctrl(b'P');
 
 /// Send one character to the UART.
 ///
-/// Called by printf(), and to echo input characters,
-/// but not from write().
+/// Called by `println!()`, and to echo input characters,
+/// but not from `write()`.
 pub fn put_char(c: char) {
     uart::putc_sync(c);
 }
@@ -67,7 +67,12 @@ static CONSOLE_BUFFER_WRITTEN: SpinLockCondVar = SpinLockCondVar::new();
 /// Writes the bytes to the console.
 ///
 /// User write()s to the console go here.
-fn write(private: &ProcPrivateData, user_src: bool, src: usize, n: usize) -> Result<usize, Error> {
+fn write(
+    private: &ProcPrivateData,
+    user_src: bool,
+    src: usize,
+    n: usize,
+) -> Result<usize, KernelError> {
     for i in 0..n {
         let mut c: [u8; 1] = [0];
         if proc::either_copy_in_bytes(private, &mut c, user_src, src + i).is_err() {
@@ -90,7 +95,7 @@ fn read(
     user_dst: bool,
     mut dst: usize,
     mut n: usize,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     let target = n;
     let mut cons = CONSOLE_BUFFER.lock();
     while n > 0 {
@@ -99,7 +104,7 @@ fn read(
         while cons.r == cons.w {
             if p.shared().lock().killed() {
                 drop(cons);
-                return Err(Error::Unknown);
+                return Err(KernelError::Unknown);
             }
             cons = CONSOLE_BUFFER_WRITTEN.wait(cons);
         }
@@ -191,7 +196,7 @@ fn console_write(
     user_src: bool,
     src: VirtAddr,
     n: usize,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     write(private, user_src, src.addr(), n)
 }
 
@@ -201,7 +206,7 @@ fn console_read(
     user_dst: bool,
     dst: VirtAddr,
     n: usize,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     read(p, private, user_dst, dst.addr(), n)
 }
 

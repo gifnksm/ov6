@@ -3,10 +3,10 @@ use core::{ffi::CStr, ptr};
 use ov6_fs_types::{FS_BLOCK_SIZE, MAX_FILE};
 use ov6_user_lib::{
     env,
-    error::Error,
+    error::Ov6Error,
     fs::{self, File},
-    io::{Read, STDOUT_FD, Write as _},
-    os::{fd::AsRawFd, ov6::syscall},
+    io::{Read as _, STDOUT_FD, Write as _},
+    os::{fd::AsRawFd as _, ov6::syscall},
     process,
 };
 
@@ -19,7 +19,7 @@ const BIG_PATH: &CStr = c"big";
 pub fn open_test() {
     let file = File::open(ECHO_PATH).unwrap();
     drop(file);
-    expect!(File::open(NOT_EXIST_PATH), Err(Error::Unknown));
+    expect!(File::open(NOT_EXIST_PATH), Err(Ov6Error::Unknown));
 }
 
 pub fn write_test() {

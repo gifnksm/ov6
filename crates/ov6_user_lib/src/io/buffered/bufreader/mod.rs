@@ -1,5 +1,5 @@
 use crate::{
-    error::Error,
+    error::Ov6Error,
     io::{BufRead, DEFAULT_BUF_SIZE, Read},
 };
 
@@ -21,7 +21,7 @@ where
     }
 
     pub fn with_capacity(capacity: usize, inner: R) -> Self {
-        BufReader {
+        Self {
             inner,
             buf: Buffer::with_capacity(capacity),
         }
@@ -40,7 +40,7 @@ impl<R> Read for BufReader<R>
 where
     R: Read,
 {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Ov6Error> {
         if self.buf.pos() == self.buf.filled() && buf.len() >= self.capacity() {
             self.discard_buffer();
             return self.inner.read(buf);
@@ -56,7 +56,7 @@ impl<R> BufRead for BufReader<R>
 where
     R: Read,
 {
-    fn fill_buf(&mut self) -> Result<&[u8], Error> {
+    fn fill_buf(&mut self) -> Result<&[u8], Ov6Error> {
         self.buf.fill_buf(&mut self.inner)
     }
 

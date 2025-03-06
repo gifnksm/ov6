@@ -3,7 +3,7 @@
 use dataview::PodMethods as _;
 
 use crate::{
-    error::Error,
+    error::KernelError,
     fs::{
         DeviceNo, InodeNo,
         repr::{self, T_DIR},
@@ -21,11 +21,7 @@ impl<'tx, 'i, const READ_ONLY: bool> LockedTxInode<'tx, 'i, READ_ONLY> {
     }
 
     pub fn as_dir<'l>(&'l mut self) -> Option<DirInode<'tx, 'i, 'l, READ_ONLY>> {
-        if self.is_dir() {
-            Some(DirInode(self))
-        } else {
-            None
-        }
+        self.is_dir().then_some(DirInode(self))
     }
 }
 
@@ -93,10 +89,10 @@ impl DirInode<'_, '_, '_, false> {
         private: &mut ProcPrivateData,
         name: &[u8],
         ino: InodeNo,
-    ) -> Result<(), Error> {
+    ) -> Result<(), KernelError> {
         // Check that name is not present.
         if self.lookup(private, name).is_some() {
-            return Err(Error::Unknown);
+            return Err(KernelError::Unknown);
         }
 
         // Looks for an empty dirent.
@@ -110,7 +106,7 @@ impl DirInode<'_, '_, '_, false> {
                 (de, off)
             })
             .find(|(de, _)| de.ino().is_none())
-            .unwrap_or((repr::DirEntry::zeroed(), size));
+            .unwrap_or_else(|| (repr::DirEntry::zeroed(), size));
 
         de.set_name(name);
         de.set_ino(Some(ino));

@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::{
-    error::Error,
+    error::KernelError,
     fs::{self, FS_BLOCK_SIZE, Inode},
     memory::VirtAddr,
     param::MAX_OP_BLOCKS,
@@ -15,7 +15,7 @@ pub(super) struct InodeFile {
     off: AtomicUsize,
 }
 
-pub fn new_file(inode: Inode, readable: bool, writable: bool) -> Result<File, Error> {
+pub fn new_file(inode: Inode, readable: bool, writable: bool) -> Result<File, KernelError> {
     let data = FileDataArc::try_new(FileData {
         readable,
         writable,
@@ -32,7 +32,11 @@ impl InodeFile {
         super::common::close_inode(self.inode);
     }
 
-    pub(super) fn stat(&self, private: &mut ProcPrivateData, addr: VirtAddr) -> Result<(), Error> {
+    pub(super) fn stat(
+        &self,
+        private: &mut ProcPrivateData,
+        addr: VirtAddr,
+    ) -> Result<(), KernelError> {
         super::common::stat_inode(&self.inode, private, addr)
     }
 
@@ -41,7 +45,7 @@ impl InodeFile {
         private: &mut ProcPrivateData,
         addr: VirtAddr,
         n: usize,
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, KernelError> {
         let tx = fs::begin_readonly_tx();
         let mut ip = self.inode.clone().into_tx(&tx);
         let mut lip = ip.lock();
@@ -57,7 +61,7 @@ impl InodeFile {
         private: &ProcPrivateData,
         addr: VirtAddr,
         n: usize,
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, KernelError> {
         // write a few blocks at a time to avoid exceeding
         // the maximum log transaction size, including
         // i-node, indirect block, allocation blocks,
@@ -95,6 +99,10 @@ impl InodeFile {
             }
             i += n1;
         }
-        if i == n { Ok(n) } else { Err(Error::Unknown) }
+        if i == n {
+            Ok(n)
+        } else {
+            Err(KernelError::Unknown)
+        }
     }
 }

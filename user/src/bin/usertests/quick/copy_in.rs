@@ -1,7 +1,7 @@
 use core::{ffi::CStr, ptr, slice};
 
 use ov6_user_lib::{
-    error::Error,
+    error::Ov6Error,
     fs::{self, File},
     io::{STDOUT_FD, Write as _},
     os::ov6::syscall,
@@ -16,11 +16,11 @@ const FILE_PATH: &CStr = c"copyin1";
 /// that read user memory with copyin?
 pub fn test() {
     let addrs: &[usize] = &[
-        0x80000000,
-        0x3fffffe000,
-        0x3ffffff000,
-        0x4000000000,
-        0xffffffffffffffff,
+        0x8000_0000,
+        0x3f_ffff_e000,
+        0x3f_ffff_f000,
+        0x40_0000_0000,
+        0xffff_ffff_ffff_ffff,
     ];
 
     for &addr in addrs {
@@ -28,7 +28,7 @@ pub fn test() {
         let buf = unsafe { slice::from_raw_parts(addr, 8192) };
 
         let mut file = File::create(FILE_PATH).unwrap();
-        expect!(file.write(buf), Err(Error::Unknown), "addr={addr:p}");
+        expect!(file.write(buf), Err(Ov6Error::Unknown), "addr={addr:p}");
         drop(file);
         fs::remove_file(FILE_PATH).unwrap();
 

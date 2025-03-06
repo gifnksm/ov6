@@ -80,7 +80,7 @@ impl<const N: usize> Disk<N> {
         desc_freed: &'static SpinLockCondVar,
         completed: &'static [SpinLockCondVar; N],
     ) -> Self {
-        Disk {
+        Self {
             base_address,
             desc: Box::into_pin(Box::new_in(unsafe { mem::zeroed() }, PageFrameAllocator)),
             avail: Box::into_pin(Box::new_in(unsafe { mem::zeroed() }, PageFrameAllocator)),
@@ -117,7 +117,7 @@ impl<const N: usize> Disk<N> {
         }
     }
 
-    fn init(&mut self) {
+    fn init(&self) {
         assert_eq!(self.read_reg(MmioRegister::MagicValue), 0x7472_6976);
         assert_eq!(self.read_reg(MmioRegister::Version), 2);
         assert_eq!(self.read_reg(MmioRegister::DeviceId), 2);
@@ -168,16 +168,16 @@ impl<const N: usize> Disk<N> {
         assert!(max as usize >= N);
 
         // set queue size.
-        self.write_reg(MmioRegister::QueueNum, N as u32);
+        self.write_reg(MmioRegister::QueueNum, N.try_into().unwrap());
 
         // write physical addresses.
         fn addr_low<T>(p: &T) -> u32 {
             let addr = ptr::from_ref(p).addr();
-            (addr & 0xffff_ffff) as u32
+            (addr & 0xffff_ffff).try_into().unwrap()
         }
         fn addr_high<T>(p: &T) -> u32 {
             let addr = ptr::from_ref(p).addr();
-            ((addr >> 32) & 0xffff_ffff) as u32
+            ((addr >> 32) & 0xffff_ffff).try_into().unwrap()
         }
 
         self.write_reg(MmioRegister::QueueDescLow, addr_low(&*self.desc));
@@ -268,20 +268,20 @@ impl<const N: usize> Disk<N> {
 
         self.desc[desc_idx[0]] = VirtqDesc {
             addr: buf0_addr as u64,
-            len: size_of::<VirtioBlkReq>() as u32,
+            len: size_of::<VirtioBlkReq>().try_into().unwrap(),
             flags: VirtqDescFlags::NEXT,
-            next: desc_idx[1] as u16,
+            next: desc_idx[1].try_into().unwrap(),
         };
 
         self.desc[desc_idx[1]] = VirtqDesc {
             addr: data.as_ptr().addr() as u64,
-            len: FS_BLOCK_SIZE as u32,
+            len: FS_BLOCK_SIZE.try_into().unwrap(),
             flags: if write {
                 VirtqDescFlags::empty() // device reads b.date
             } else {
                 VirtqDescFlags::WRITE // device writes b.data
             } | VirtqDescFlags::NEXT,
-            next: desc_idx[2] as u16,
+            next: desc_idx[2].try_into().unwrap(),
         };
 
         self.info[desc_idx[0]].status = 0xff; // device writes 0 on success
@@ -298,7 +298,7 @@ impl<const N: usize> Disk<N> {
 
         // tell the device the first index in our chain of descriptors.
         let avail_idx = self.avail.idx.load(Ordering::Relaxed) as usize;
-        self.avail.ring[avail_idx % NUM] = desc_idx[0] as u16;
+        self.avail.ring[avail_idx % NUM] = desc_idx[0].try_into().unwrap();
 
         // tell the device another avail ring entry is available.
         self.avail.idx.fetch_add(1, Ordering::AcqRel);
@@ -311,7 +311,7 @@ pub(super) fn init() {
     static REQ_COMPLETED: [SpinLockCondVar; NUM] = [const { SpinLockCondVar::new() }; NUM];
     static DESC_FREED: SpinLockCondVar = SpinLockCondVar::new();
 
-    let mut disk = Disk::<NUM>::new(VIRTIO0, &DESC_FREED, &REQ_COMPLETED);
+    let disk = Disk::<NUM>::new(VIRTIO0, &DESC_FREED, &REQ_COMPLETED);
     disk.init();
     DISK.init(SpinLock::new(disk))
 }
@@ -342,7 +342,9 @@ fn read_or_write(offset: usize, data: &[u8], write: bool) {
     disk.free_chain(desc_idx[0]);
 }
 
+#[expect(clippy::needless_pass_by_ref_mut)]
 pub(super) fn read(offset: usize, data: &mut [u8]) {
+    // FIXME: is it ok to pass data as &[u8], then hardware changes the contents of data?
     read_or_write(offset, data, false);
 }
 

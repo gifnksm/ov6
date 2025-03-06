@@ -1,5 +1,5 @@
 use crate::{
-    error::Error,
+    error::KernelError,
     fs::{DeviceNo, Inode},
     memory::VirtAddr,
     proc::{Proc, ProcPrivateData},
@@ -48,7 +48,7 @@ impl Drop for FileData {
 }
 
 impl File {
-    pub fn new_pipe() -> Result<(File, File), Error> {
+    pub fn new_pipe() -> Result<(Self, Self), KernelError> {
         pipe::new_file()
     }
 
@@ -57,11 +57,11 @@ impl File {
         inode: Inode,
         readable: bool,
         writable: bool,
-    ) -> Result<File, Error> {
+    ) -> Result<Self, KernelError> {
         device::new_file(major, inode, readable, writable)
     }
 
-    pub fn new_inode(inode: Inode, readable: bool, writable: bool) -> Result<File, Error> {
+    pub fn new_inode(inode: Inode, readable: bool, writable: bool) -> Result<Self, KernelError> {
         inode::new_file(inode, readable, writable)
     }
 
@@ -73,16 +73,17 @@ impl File {
     /// Decrements ref count for the file.
     pub fn close(self) {
         // consume self to drop
+        let _ = self;
     }
 
     /// Gets metadata about file `f`.
     ///
     /// `addr` is a user virtual address, pointing to a struct stat.
-    pub fn stat(&self, private: &mut ProcPrivateData, addr: VirtAddr) -> Result<(), Error> {
+    pub fn stat(&self, private: &mut ProcPrivateData, addr: VirtAddr) -> Result<(), KernelError> {
         match &self.data.data {
             Some(SpecificData::Inode(inode)) => inode.stat(private, addr),
             Some(SpecificData::Device(device)) => device.stat(private, addr),
-            _ => Err(Error::Unknown),
+            _ => Err(KernelError::Unknown),
         }
     }
 
@@ -95,9 +96,9 @@ impl File {
         private: &mut ProcPrivateData,
         addr: VirtAddr,
         n: usize,
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, KernelError> {
         if !self.data.readable {
-            return Err(Error::Unknown);
+            return Err(KernelError::Unknown);
         }
 
         match &self.data.data {
@@ -117,9 +118,9 @@ impl File {
         private: &mut ProcPrivateData,
         addr: VirtAddr,
         n: usize,
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, KernelError> {
         if !self.data.writable {
-            return Err(Error::Unknown);
+            return Err(KernelError::Unknown);
         }
 
         match &self.data.data {

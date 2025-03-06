@@ -65,7 +65,7 @@
 //! have locked the inodes involved; this lets callers create
 //! multi-step atomic operations.
 
-use crate::{error::Error, sync::SleepLockGuard};
+use crate::{error::KernelError, sync::SleepLockGuard};
 
 use self::alloc::{InodeDataArc, InodeDataWeak};
 
@@ -215,13 +215,15 @@ impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
     /// case it has to free the inode.
     pub fn put(self) {
         // this is a no-op because the inode is dropped
+        let _ = self;
     }
 
     /// Attempts to lock the inode.
     ///
     /// This also reads the inode from disk if it is not already in memory.
     /// Returns `Err()` if the inode is already locked.
-    pub fn try_lock<'a>(&'a mut self) -> Result<LockedTxInode<'tx, 'a, READ_ONLY>, Error> {
+    #[expect(clippy::needless_pass_by_ref_mut)]
+    pub fn try_lock<'a>(&'a mut self) -> Result<LockedTxInode<'tx, 'a, READ_ONLY>, KernelError> {
         let locked = self.data.try_lock()?;
         Ok(LockedTxInode::new(
             self.tx,
@@ -235,6 +237,7 @@ impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
     /// Locks the inode.
     ///
     /// This also reads the inode from disk if it is not already in memory.
+    #[expect(clippy::needless_pass_by_ref_mut)]
     pub fn lock<'a>(&'a mut self) -> LockedTxInode<'tx, 'a, READ_ONLY> {
         let locked = self.data.lock();
         LockedTxInode::new(
@@ -252,7 +255,7 @@ impl<'tx> TxInode<'tx, false> {
     ///
     /// Returns a n unlocked but allocated and referenced inode,
     /// or `Err()` if there is no free inode.
-    pub fn alloc(tx: &'tx Tx<false>, dev: DeviceNo, ty: i16) -> Result<TxInode<'tx, false>, Error> {
+    pub fn alloc(tx: &'tx Tx<false>, dev: DeviceNo, ty: i16) -> Result<Self, KernelError> {
         let ino = alloc_ino(tx, dev, ty)?;
         Ok(Self::get(tx, dev, ino))
     }
@@ -298,7 +301,7 @@ impl<'tx, 'i, const READ_ONLY: bool> LockedTxInode<'tx, 'i, READ_ONLY> {
         ino: InodeNo,
         data: InodeDataArc,
         mut locked: InodeDataGuard<'i>,
-    ) -> LockedTxInode<'tx, 'i, READ_ONLY> {
+    ) -> Self {
         if locked.is_none() {
             // read data from disk
             let sb = SUPER_BLOCK.get();
@@ -356,14 +359,15 @@ impl<'tx, 'i, const READ_ONLY: bool> LockedTxInode<'tx, 'i, READ_ONLY> {
     /// Unlocks the inode.
     pub fn unlock(self) {
         // this is a no-op because the guard is dropped
+        let _ = self;
     }
 }
 
 /// Allocates an inode on device `dev`.
 ///
 /// Marks it as allocated by giving it type `ty`.
-/// Returns an allocated inode number or Err() if there is no free inode.
-fn alloc_ino(tx: &Tx<false>, dev: DeviceNo, ty: i16) -> Result<InodeNo, Error> {
+/// Returns an allocated inode number or `Err()` if there is no free inode.
+fn alloc_ino(tx: &Tx<false>, dev: DeviceNo, ty: i16) -> Result<InodeNo, KernelError> {
     let sb = SUPER_BLOCK.get();
 
     for ino in 1..(sb.ninodes) {
@@ -377,5 +381,5 @@ fn alloc_ino(tx: &Tx<false>, dev: DeviceNo, ty: i16) -> Result<InodeNo, Error> {
         }
     }
     crate::println!("no free inodes");
-    Err(Error::Unknown)
+    Err(KernelError::Unknown)
 }

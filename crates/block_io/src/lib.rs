@@ -4,7 +4,8 @@
 
 extern crate alloc;
 
-use alloc::alloc::{Allocator, Global};
+use alloc::alloc::Global;
+use core::alloc::Allocator;
 use dataview::{Pod, PodMethods as _};
 use lru::Lru;
 use mutex_api::Mutex;
@@ -173,10 +174,10 @@ where
     ///
     /// Panics if all buffers are referenced.
     pub fn get(&self, index: usize) -> BlockRef<'_, Device, LruMutex, BlockMutex, A> {
-        match self.try_get(index) {
-            Some(buf) => buf,
-            None => panic!("block buffer exhausted"),
-        }
+        let Some(buf) = self.try_get(index) else {
+            panic!("block buffer exhausted");
+        };
+        buf
     }
 }
 
@@ -255,7 +256,7 @@ where
     }
 
     /// Reads the block from disk if cached data is not valid.
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     pub fn read(
         mut self,
     ) -> Result<
@@ -383,7 +384,7 @@ where
 mod tests {
     use super::*;
 
-    use core::convert::Infallible;
+    use core::{convert::Infallible, iter};
     use std::sync::{Arc, Mutex};
 
     const BLOCK_SIZE: usize = 512;
@@ -416,15 +417,15 @@ mod tests {
     impl MockDevice {
         fn new(size: usize) -> Self {
             Self {
-                data: (0..size)
-                    .map(|_| {
-                        Arc::new(Mutex::new(MockData {
-                            data: [0; BLOCK_SIZE],
-                            read: 0,
-                            write: 0,
-                        }))
-                    })
-                    .collect(),
+                data: iter::repeat_with(|| {
+                    Arc::new(Mutex::new(MockData {
+                        data: [0; BLOCK_SIZE],
+                        read: 0,
+                        write: 0,
+                    }))
+                })
+                .take(size)
+                .collect(),
             }
         }
     }
@@ -432,15 +433,15 @@ mod tests {
     impl BlockDevice<BLOCK_SIZE> for MockDevice {
         type Error = Infallible;
 
-        fn read(&self, index: usize, data: &mut [u8; 512]) -> Result<(), Self::Error> {
-            let mut mock = self.data[index].lock().unwrap();
+        fn read(&self, block_index: usize, data: &mut [u8; 512]) -> Result<(), Self::Error> {
+            let mut mock = self.data[block_index].lock().unwrap();
             mock.read += 1;
             data.copy_from_slice(&mock.data);
             Ok(())
         }
 
-        fn write(&self, index: usize, data: &[u8; 512]) -> Result<(), Self::Error> {
-            let mut mock = self.data[index].lock().unwrap();
+        fn write(&self, block_index: usize, data: &[u8; 512]) -> Result<(), Self::Error> {
+            let mut mock = self.data[block_index].lock().unwrap();
             mock.write += 1;
             mock.data.copy_from_slice(data);
             Ok(())

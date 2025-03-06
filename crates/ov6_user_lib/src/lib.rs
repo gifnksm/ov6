@@ -25,9 +25,7 @@ pub mod thread;
 #[cfg(all(not(feature = "std"), not(test)))]
 #[lang = "start"]
 fn lang_start<T>(main: fn() -> T, argc: isize, argv: *const *const u8, _: u8) -> isize {
-    if argc < 0 {
-        panic!("argc should be greater than 0");
-    }
+    assert!(argc >= 0, "argc should be greater than or equal to 0");
     env::set_args(argc.cast_unsigned(), argv.cast());
     main();
     process::exit(0);

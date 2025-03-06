@@ -1,6 +1,6 @@
 //! Format of an ELF executable file
 
-pub const ELF_MAGIC: u32 = 0x464c457f; // "\x7FELF" in dittle endian
+pub const ELF_MAGIC: u32 = 0x46_4c_45_7f; // "\x7FELF" in dittle endian
 
 /// File Header
 #[repr(C)]

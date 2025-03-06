@@ -1,7 +1,7 @@
 use ov6_syscall::OpenFlags;
 
 use crate::{
-    error::Error,
+    error::KernelError,
     file::File,
     fs::{self, DeviceNo, Inode, T_DEVICE, T_DIR, T_FILE},
     memory::{PAGE_SIZE, page, vm},
@@ -12,23 +12,23 @@ use crate::{
 
 /// Fetches the nth word-sized system call argument as a file descriptor
 /// and returns the descriptor and the corresponding `File`.
-fn arg_fd(private: &ProcPrivateData, n: usize) -> Result<(usize, &File), Error> {
+fn arg_fd(private: &ProcPrivateData, n: usize) -> Result<(usize, &File), KernelError> {
     let fd = syscall::arg_int(private, n);
-    let file = private.ofile(fd).ok_or(Error::Unknown)?;
+    let file = private.ofile(fd).ok_or(KernelError::Unknown)?;
     Ok((fd, file))
 }
 
 /// Allocates a file descriptor for the given `File`.
 ///
 /// Takes over file reference from caller on success.
-fn fd_alloc(private: &mut ProcPrivateData, file: File) -> Result<usize, Error> {
+fn fd_alloc(private: &mut ProcPrivateData, file: File) -> Result<usize, KernelError> {
     private.add_ofile(file)
 }
 
 pub fn sys_dup(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     let private = private.as_mut().unwrap();
     let (_fd, f) = arg_fd(private, 0)?;
     let f = f.clone();
@@ -39,7 +39,7 @@ pub fn sys_dup(
 pub fn sys_read(
     p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     let private = private.as_mut().unwrap();
     let va = syscall::arg_addr(private, 1);
     let n = syscall::arg_int(private, 2);
@@ -50,7 +50,7 @@ pub fn sys_read(
 pub fn sys_write(
     p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     let private = private.as_mut().unwrap();
     let va = syscall::arg_addr(private, 1);
     let n = syscall::arg_int(private, 2);
@@ -61,7 +61,7 @@ pub fn sys_write(
 pub fn sys_close(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     let private = private.as_mut().unwrap();
     let (fd, _f) = arg_fd(private, 0)?;
     private.unset_ofile(fd);
@@ -71,7 +71,7 @@ pub fn sys_close(
 pub fn sys_fstat(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     let private = private.as_mut().unwrap();
     let va = syscall::arg_addr(private, 1);
     let (_fd, f) = arg_fd(private, 0)?;
@@ -83,7 +83,7 @@ pub fn sys_fstat(
 pub fn sys_link(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     let private = private.as_mut().unwrap();
     let mut new = [0; MAX_PATH];
     let mut old = [0; MAX_PATH];
@@ -99,7 +99,7 @@ pub fn sys_link(
 pub fn sys_unlink(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
@@ -112,7 +112,7 @@ pub fn sys_unlink(
 pub fn sys_open(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     let private = private.as_mut().unwrap();
     let mode = OpenFlags::from_bits_retain(syscall::arg_int(private, 1));
     let mut path = [0; MAX_PATH];
@@ -125,7 +125,7 @@ pub fn sys_open(
         let mut ip = fs::path::resolve(&tx, private, path)?;
         let lip = ip.lock();
         if lip.is_dir() && mode != OpenFlags::READ_ONLY {
-            return Err(Error::Unknown);
+            return Err(KernelError::Unknown);
         }
         lip.unlock();
         ip
@@ -153,7 +153,7 @@ pub fn sys_open(
 pub fn sys_mkdir(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
@@ -167,12 +167,12 @@ pub fn sys_mkdir(
 pub fn sys_mknod(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
-    let major = syscall::arg_int(private, 1) as u32;
-    let minor = syscall::arg_int(private, 2) as i16;
+    let major = u32::try_from(syscall::arg_int(private, 1)).unwrap();
+    let minor = i16::try_from(syscall::arg_int(private, 2)).unwrap();
 
     let tx = fs::begin_tx();
     let _ip = fs::ops::create(&tx, private, path, T_DEVICE, DeviceNo::new(major), minor)?;
@@ -183,7 +183,7 @@ pub fn sys_mknod(
 pub fn sys_chdir(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
@@ -191,7 +191,7 @@ pub fn sys_chdir(
     let tx = fs::begin_tx();
     let mut ip = fs::path::resolve(&tx, private, path)?;
     if !ip.lock().is_dir() {
-        return Err(Error::Unknown);
+        return Err(KernelError::Unknown);
     }
     let old = private.update_cwd(Inode::from_tx(&ip));
     old.into_tx(&tx).put();
@@ -202,7 +202,7 @@ pub fn sys_chdir(
 pub fn sys_exec(
     p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
@@ -212,7 +212,7 @@ pub fn sys_exec(
     let res = (|| {
         for i in 0.. {
             if i > argv.len() {
-                return Err(Error::Unknown);
+                return Err(KernelError::Unknown);
             }
 
             let uarg = syscall::fetch_addr(private, uargv.byte_add(i * size_of::<usize>()))?;
@@ -220,7 +220,7 @@ pub fn sys_exec(
                 argv[i] = None;
                 break;
             }
-            argv[i] = Some(page::alloc_page().ok_or(Error::Unknown)?);
+            argv[i] = Some(page::alloc_page().ok_or(KernelError::Unknown)?);
             let buf =
                 unsafe { core::slice::from_raw_parts_mut(argv[i].unwrap().as_ptr(), PAGE_SIZE) };
             syscall::fetch_str(private, uarg, buf)?;
@@ -234,7 +234,7 @@ pub fn sys_exec(
                 page::free_page(arg);
             }
         }
-        return Err(Error::Unknown);
+        return Err(KernelError::Unknown);
     }
 
     let ret = exec::exec(p, private, path, argv.as_ptr().cast());
@@ -251,25 +251,25 @@ pub fn sys_exec(
 pub fn sys_pipe(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, Error> {
+) -> Result<usize, KernelError> {
     let private = private.as_mut().unwrap();
     let fd_array = syscall::arg_addr(private, 0);
 
     let (rf, wf) = File::new_pipe()?;
 
     let Ok(rfd) = fd_alloc(private, rf) else {
-        return Err(Error::Unknown);
+        return Err(KernelError::Unknown);
     };
     let Ok(wfd) = fd_alloc(private, wf) else {
         private.unset_ofile(rfd);
-        return Err(Error::Unknown);
+        return Err(KernelError::Unknown);
     };
 
-    let fds = [rfd as i32, wfd as i32];
+    let fds = [i32::try_from(rfd).unwrap(), i32::try_from(wfd).unwrap()];
     if vm::copy_out(private.pagetable_mut().unwrap(), fd_array, &fds).is_err() {
         private.unset_ofile(rfd);
         private.unset_ofile(wfd);
-        return Err(Error::Unknown);
+        return Err(KernelError::Unknown);
     }
 
     Ok(0)

@@ -52,7 +52,7 @@ fn ls(path: &CStr) {
                 buf[path_len + 1..][..name.len()].copy_from_slice(name.as_bytes());
                 buf[path_len + 1 + name.len()] = 0;
                 let file_path =
-                    CStr::from_bytes_with_nul(&buf[..path_len + 1 + name.len() + 1]).unwrap();
+                    CStr::from_bytes_with_nul(&buf[..=path_len + 1 + name.len()]).unwrap();
                 let meta = try_or!(
                     fs::metadata(file_path),
                     continue,

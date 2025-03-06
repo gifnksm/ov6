@@ -1,6 +1,6 @@
 use dataview::PodMethods as _;
 
-use crate::{error::Error, fs::repr, proc::ProcPrivateData};
+use crate::{error::KernelError, fs::repr, proc::ProcPrivateData};
 
 use super::{
     DIR_SIZE, DeviceNo, Tx,
@@ -9,25 +9,31 @@ use super::{
     repr::{T_DEVICE, T_FILE},
 };
 
-pub fn unlink(tx: &Tx<false>, private: &mut ProcPrivateData, path: &[u8]) -> Result<(), Error> {
+pub fn unlink(
+    tx: &Tx<false>,
+    private: &mut ProcPrivateData,
+    path: &[u8],
+) -> Result<(), KernelError> {
     let mut name = [0; DIR_SIZE];
     let (mut parent_ip, name) = path::resolve_parent(tx, private, path, &mut name)?;
 
     // Cannot unlink "." of "..".
     if name == b".." || name == b"." {
-        return Err(Error::Unknown);
+        return Err(KernelError::Unknown);
     }
 
     let mut parent_lip = parent_ip.lock();
-    let mut parent_dp = parent_lip.as_dir().ok_or(Error::Unknown)?;
+    let mut parent_dp = parent_lip.as_dir().ok_or(KernelError::Unknown)?;
 
-    let (mut child_ip, off) = parent_dp.lookup(private, name).ok_or(Error::Unknown)?;
+    let (mut child_ip, off) = parent_dp
+        .lookup(private, name)
+        .ok_or(KernelError::Unknown)?;
     let mut child_lip = child_ip.lock();
 
     assert!(child_lip.data().nlink > 0);
     if let Some(mut child_dp) = child_lip.as_dir() {
         if !child_dp.is_empty(private) {
-            return Err(Error::Unknown);
+            return Err(KernelError::Unknown);
         }
     }
 
@@ -55,13 +61,13 @@ pub fn create<'tx>(
     ty: i16,
     major: DeviceNo,
     minor: i16,
-) -> Result<TxInode<'tx, false>, Error> {
+) -> Result<TxInode<'tx, false>, KernelError> {
     let mut name = [0; DIR_SIZE];
     let (mut parent_ip, name) = path::resolve_parent(tx, private, path, &mut name)?;
 
     let mut parent_lip = parent_ip.lock();
     let Some(mut parent_dp) = parent_lip.as_dir() else {
-        return Err(Error::Unknown);
+        return Err(KernelError::Unknown);
     };
 
     if let Some((mut child_ip, _off)) = parent_dp.lookup(private, name) {
@@ -70,7 +76,7 @@ pub fn create<'tx>(
             drop(lip);
             return Ok(child_ip);
         }
-        return Err(Error::Unknown);
+        return Err(KernelError::Unknown);
     }
 
     let mut child_ip = TxInode::alloc(tx, parent_dp.dev(), ty)?;
@@ -106,11 +112,11 @@ pub fn link(
     private: &mut ProcPrivateData,
     old_path: &[u8],
     new_path: &[u8],
-) -> Result<(), Error> {
+) -> Result<(), KernelError> {
     let mut old_ip = path::resolve(tx, private, old_path)?;
     let old_lip = old_ip.lock();
     if old_lip.is_dir() {
-        return Err(Error::Unknown);
+        return Err(KernelError::Unknown);
     }
     old_lip.unlock();
 
@@ -118,10 +124,10 @@ pub fn link(
     let (mut parent_ip, name) = path::resolve_parent(tx, private, new_path, &mut name)?;
     let mut parent_lip = parent_ip.lock();
     if parent_lip.dev() != old_ip.dev() {
-        return Err(Error::Unknown);
+        return Err(KernelError::Unknown);
     }
     let Some(mut parent_dp) = parent_lip.as_dir() else {
-        return Err(Error::Unknown);
+        return Err(KernelError::Unknown);
     };
     parent_dp.link(private, name, old_ip.ino())?;
 

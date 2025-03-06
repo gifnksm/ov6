@@ -1,4 +1,4 @@
-use crate::{error::Error, proc::ProcPrivateData};
+use crate::{error::KernelError, proc::ProcPrivateData};
 
 use super::{DIR_SIZE, DeviceNo, InodeNo, Tx, inode::TxInode};
 
@@ -40,7 +40,7 @@ fn resolve_impl<'a, const READ_ONLY: bool>(
     path: &[u8],
     parent: bool,
     mut name_out: Option<&mut [u8; DIR_SIZE]>,
-) -> Result<TxInode<'a, READ_ONLY>, Error> {
+) -> Result<TxInode<'a, READ_ONLY>, KernelError> {
     let mut ip: TxInode<'_, READ_ONLY> = if path.first() == Some(&b'/') {
         TxInode::get(tx, DeviceNo::ROOT, InodeNo::ROOT)
     } else {
@@ -59,7 +59,7 @@ fn resolve_impl<'a, const READ_ONLY: bool>(
         let mut lip = ip.lock();
         let mut dip_opt = lip.as_dir();
         let Some(dip) = &mut dip_opt else {
-            return Err(Error::Unknown);
+            return Err(KernelError::Unknown);
         };
 
         if parent && path.is_empty() {
@@ -69,7 +69,7 @@ fn resolve_impl<'a, const READ_ONLY: bool>(
         }
 
         let Some((next, _off)) = dip.lookup(private, name) else {
-            return Err(Error::Unknown);
+            return Err(KernelError::Unknown);
         };
 
         drop(lip);
@@ -77,7 +77,7 @@ fn resolve_impl<'a, const READ_ONLY: bool>(
     }
 
     if parent {
-        return Err(Error::Unknown);
+        return Err(KernelError::Unknown);
     }
     Ok(ip)
 }
@@ -86,7 +86,7 @@ pub fn resolve<'a, const READ_ONLY: bool>(
     tx: &'a Tx<READ_ONLY>,
     private: &mut ProcPrivateData,
     path: &[u8],
-) -> Result<TxInode<'a, READ_ONLY>, Error> {
+) -> Result<TxInode<'a, READ_ONLY>, KernelError> {
     resolve_impl(tx, private, path, false, None)
 }
 
@@ -95,7 +95,7 @@ pub fn resolve_parent<'a, 'b, const READ_ONLY: bool>(
     private: &mut ProcPrivateData,
     path: &[u8],
     name: &'b mut [u8; DIR_SIZE],
-) -> Result<(TxInode<'a, READ_ONLY>, &'b [u8]), Error> {
+) -> Result<(TxInode<'a, READ_ONLY>, &'b [u8]), KernelError> {
     let ip = resolve_impl(tx, private, path, true, Some(name))?;
     let len = name.iter().position(|b| *b == 0).unwrap_or(name.len());
     let name = &name[..len];

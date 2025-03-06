@@ -2,7 +2,7 @@ use core::{ptr, slice};
 
 use alloc::boxed::Box;
 
-use crate::{error::Error, interrupt::trampoline, proc::TrapFrame};
+use crate::{error::KernelError, interrupt::trampoline, proc::TrapFrame};
 
 use super::{
     PAGE_SIZE, PageRound as _, PhysAddr, PhysPageNum, VirtAddr,
@@ -19,7 +19,7 @@ pub struct UserPageTable {
 impl UserPageTable {
     /// Creates a user page table with a given trapframe, with no user memory,
     /// but with trampoline and trapframe pages.
-    pub fn new(tf: &TrapFrame) -> Result<Self, Error> {
+    pub fn new(tf: &TrapFrame) -> Result<Self, KernelError> {
         // An empty page table.
         let mut pt = PageTable::try_allocate()?;
         if let Err(e) = pt.map_page(
@@ -59,7 +59,7 @@ impl UserPageTable {
     ///
     /// For the very first process.
     /// `src.len()` must be less than a page.
-    pub fn map_first(&mut self, src: &[u8]) -> Result<(), Error> {
+    pub fn map_first(&mut self, src: &[u8]) -> Result<(), KernelError> {
         assert!(src.len() < PAGE_SIZE, "src.len()={:#x}", src.len());
 
         let mem = page::alloc_zeroed_page().unwrap();
@@ -76,7 +76,7 @@ impl UserPageTable {
 
     /// Allocates PTEs and physical memory to grow process to `new_size`,
     /// which need not be page aligned.
-    pub fn grow(&mut self, new_size: usize, xperm: PtEntryFlags) -> Result<(), Error> {
+    pub fn grow(&mut self, new_size: usize, xperm: PtEntryFlags) -> Result<(), KernelError> {
         if new_size < self.size {
             return Ok(());
         }
@@ -86,7 +86,7 @@ impl UserPageTable {
             self.size = va;
             let Some(mem) = page::alloc_zeroed_page() else {
                 self.shrink(old_size);
-                return Err(Error::Unknown);
+                return Err(KernelError::Unknown);
             };
 
             if let Err(e) = self.pt.map_page(
@@ -121,14 +121,16 @@ impl UserPageTable {
                 .pt
                 .unmap_pages(VirtAddr::new(new_size.page_roundup()), npages)
             {
-                unsafe { page::free_page(pa.as_mut_ptr()) };
+                unsafe {
+                    page::free_page(pa.as_mut_ptr());
+                }
             }
         }
 
         self.size = new_size;
     }
 
-    pub fn try_clone(&self, target: &mut Self) -> Result<(), Error> {
+    pub fn try_clone(&self, target: &mut Self) -> Result<(), KernelError> {
         target.shrink(0);
 
         (|| {
@@ -141,9 +143,11 @@ impl UserPageTable {
                 let flags = pte.flags();
 
                 let Some(dst) = page::alloc_page() else {
-                    return Err(Error::Unknown);
+                    return Err(KernelError::Unknown);
                 };
-                unsafe { dst.as_ptr().copy_from(src_pa.as_ptr(), PAGE_SIZE) };
+                unsafe {
+                    dst.as_ptr().copy_from(src_pa.as_ptr(), PAGE_SIZE);
+                }
 
                 target
                     .pt
@@ -174,11 +178,15 @@ impl UserPageTable {
         &self,
         va: VirtAddr,
         flags: PtEntryFlags,
-    ) -> Result<PhysAddr, Error> {
+    ) -> Result<PhysAddr, KernelError> {
         self.pt.resolve_virtual_address(va, flags)
     }
 
-    pub fn fetch_page(&self, va: VirtAddr, flags: PtEntryFlags) -> Result<&[u8; PAGE_SIZE], Error> {
+    pub fn fetch_page(
+        &self,
+        va: VirtAddr,
+        flags: PtEntryFlags,
+    ) -> Result<&[u8; PAGE_SIZE], KernelError> {
         self.pt.fetch_page(va, flags)
     }
 
@@ -186,7 +194,7 @@ impl UserPageTable {
         &mut self,
         va: VirtAddr,
         flags: PtEntryFlags,
-    ) -> Result<&mut [u8; PAGE_SIZE], Error> {
+    ) -> Result<&mut [u8; PAGE_SIZE], KernelError> {
         self.pt.fetch_page_mut(va, flags)
     }
 }
@@ -199,7 +207,9 @@ impl Drop for UserPageTable {
         if self.size > 0 {
             let npages = self.size.page_roundup() / PAGE_SIZE;
             for pa in self.pt.unmap_pages(VirtAddr::new(0), npages) {
-                unsafe { page::free_page(pa.as_mut_ptr()) };
+                unsafe {
+                    page::free_page(pa.as_mut_ptr());
+                }
             }
         }
         self.pt.free_descendant();

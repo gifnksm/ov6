@@ -21,6 +21,7 @@ impl<T> SlabAllocator<T> {
     /// # Safety
     ///
     /// The given range of pointers must be valid and not overlap with other memory regions.
+    #[must_use]
     pub unsafe fn new(range: Range<*mut T>) -> Self {
         assert!(size_of::<Run>() <= size_of::<T>());
         assert!(align_of::<T>() % align_of::<Run>() == 0);
@@ -94,7 +95,7 @@ mod tests {
 
     impl Data {
         const fn zeroed() -> Self {
-            Data { _data: [0; 4] }
+            Self { _data: [0; 4] }
         }
     }
 

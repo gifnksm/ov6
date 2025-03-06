@@ -5,7 +5,7 @@ use crate::interrupt::trap;
 /// Interrupts and exceptions while in supervisor mode come here.
 ///
 /// The current stack is a kernel stack.
-/// Pushes the registers, call `trap_kernel()``.
+/// Pushes the registers, call `trap_kernel()`.
 /// When `trap_kernel()` returns, pops the registers and returns.
 #[naked]
 #[repr(align(4))]

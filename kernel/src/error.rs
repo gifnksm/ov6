@@ -1,13 +1,13 @@
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum KernelError {
     #[error("unknown error")]
     Unknown,
 }
 
-impl From<Error> for ov6_syscall::Error {
-    fn from(error: Error) -> Self {
+impl From<KernelError> for ov6_syscall::Error {
+    fn from(error: KernelError) -> Self {
         match error {
-            Error::Unknown => ov6_syscall::Error::Unknown,
+            KernelError::Unknown => Self::Unknown,
         }
     }
 }

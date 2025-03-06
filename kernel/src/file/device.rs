@@ -1,5 +1,5 @@
 use crate::{
-    error::Error,
+    error::KernelError,
     fs::{DeviceNo, Inode},
     memory::VirtAddr,
     param::NDEV,
@@ -16,14 +16,14 @@ pub struct Device {
         user_src: bool,
         src: VirtAddr,
         size: usize,
-    ) -> Result<usize, Error>,
+    ) -> Result<usize, KernelError>,
     pub write: fn(
         p: &Proc,
         private: &mut ProcPrivateData,
         user_dst: bool,
         dst: VirtAddr,
         size: usize,
-    ) -> Result<usize, Error>,
+    ) -> Result<usize, KernelError>,
 }
 
 struct DeviceTable {
@@ -62,7 +62,7 @@ pub(super) fn new_file(
     inode: Inode,
     readable: bool,
     writable: bool,
-) -> Result<File, Error> {
+) -> Result<File, KernelError> {
     let data = FileDataArc::try_new(FileData {
         readable,
         writable,
@@ -76,7 +76,11 @@ impl DeviceFile {
         super::common::close_inode(self.inode);
     }
 
-    pub(super) fn stat(&self, private: &mut ProcPrivateData, addr: VirtAddr) -> Result<(), Error> {
+    pub(super) fn stat(
+        &self,
+        private: &mut ProcPrivateData,
+        addr: VirtAddr,
+    ) -> Result<(), KernelError> {
         super::common::stat_inode(&self.inode, private, addr)
     }
 
@@ -86,11 +90,11 @@ impl DeviceFile {
         private: &mut ProcPrivateData,
         addr: VirtAddr,
         n: usize,
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, KernelError> {
         let read = DEVICE_TABLE
             .lock()
             .get_device(self.major)
-            .ok_or(Error::Unknown)?
+            .ok_or(KernelError::Unknown)?
             .read;
         read(p, private, true, addr, n)
     }
@@ -101,11 +105,11 @@ impl DeviceFile {
         private: &mut ProcPrivateData,
         addr: VirtAddr,
         n: usize,
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, KernelError> {
         let write = DEVICE_TABLE
             .lock()
             .get_device(self.major)
-            .ok_or(Error::Unknown)?
+            .ok_or(KernelError::Unknown)?
             .write;
         write(p, private, true, addr, n)
     }

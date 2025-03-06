@@ -1,6 +1,7 @@
 #![no_std]
 
 use bitflags::bitflags;
+use dataview::Pod;
 use strum::FromRepr;
 
 bitflags! {
@@ -16,15 +17,17 @@ bitflags! {
 }
 
 #[repr(C)]
+#[derive(Pod)]
 pub struct Stat {
     /// File system's disk device
     pub dev: i32,
     /// Inode number
     pub ino: u32,
     /// Type of file
-    pub ty: StatType,
+    pub ty: i16,
     /// Number of links to file
     pub nlink: i16,
+    pub _pad: [u8; 4],
     /// Size of file in bytes
     pub size: u64,
 }

@@ -5,11 +5,10 @@
 //! Allocates whole 4096-byte pages.
 
 use core::{
-    alloc::Layout,
+    alloc::{AllocError, Allocator, Layout},
     ptr::{self, NonNull},
 };
 
-use alloc::alloc::{AllocError, Allocator};
 use once_init::OnceInit;
 
 use crate::{memory::layout::PHYS_TOP, sync::SpinLock};

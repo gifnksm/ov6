@@ -1,13 +1,13 @@
 use core::ptr;
 
 use alloc::slice;
-use user::message;
 use ov6_user_lib::{
-    error::Error,
+    error::Ov6Error,
     fs::{self, File},
     io::{Read as _, Write as _},
     pipe, process, thread,
 };
+use user::message;
 
 use crate::{KERN_BASE, MAX_VA, PAGE_SIZE, expect};
 
@@ -31,7 +31,7 @@ pub fn fork() {
         process::wait().unwrap();
     }
 
-    expect!(process::wait(), Err(Error::Unknown));
+    expect!(process::wait(), Err(Ov6Error::Unknown));
 }
 
 pub fn sbrk_basic() {
@@ -40,7 +40,7 @@ pub fn sbrk_basic() {
     // does sbrk() return the sexpected failure value?
     let status = process::fork_fn(|| {
         let Ok(a) = process::grow_break(TOO_MUCH).map_err(|e| {
-            assert!(matches!(e, Error::Unknown));
+            assert!(matches!(e, Ov6Error::Unknown));
             process::exit(0);
         });
         unsafe {
@@ -103,7 +103,9 @@ pub fn sbrk_much() {
 
     // can one de-allocate?
     let a = process::current_break();
-    unsafe { process::shrink_break(PAGE_SIZE).unwrap() };
+    unsafe {
+        process::shrink_break(PAGE_SIZE).unwrap();
+    }
     let c = process::current_break();
     assert_eq!(c, a.wrapping_sub(PAGE_SIZE));
 
@@ -124,7 +126,7 @@ pub fn sbrk_much() {
 
 /// can we read the kernel's memory?
 pub fn kern_mem() {
-    for i in (0..2000000).step_by(50000) {
+    for i in (0..2_000_000).step_by(50_000) {
         let a = ptr::with_exposed_provenance_mut::<u8>(KERN_BASE + i);
 
         let status = process::fork_fn(|| {
@@ -144,7 +146,9 @@ pub fn max_va_plus() {
     let mut a = MAX_VA;
     loop {
         let status = process::fork_fn(|| {
-            unsafe { ptr::with_exposed_provenance_mut::<u8>(a).write(99) };
+            unsafe {
+                ptr::with_exposed_provenance_mut::<u8>(a).write(99);
+            }
             message!("oops wrote {a}");
             process::exit(1);
         })
@@ -218,5 +222,7 @@ pub fn sbrk_arg() {
 
     // test writes to allocated memory
     let a = process::grow_break(PAGE_SIZE).unwrap();
-    unsafe { a.write(0) };
+    unsafe {
+        a.write(0);
+    }
 }

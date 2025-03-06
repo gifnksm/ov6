@@ -28,7 +28,7 @@ pub fn alloc(tx: &Tx<false>, dev: DeviceNo) -> Option<BlockNo> {
         bg.data_mut::<repr::BmapBlock>().set_bit(bni); // mark block in use
         drop(bg);
 
-        let bn = BlockNo::new((bn0 + bni) as u32);
+        let bn = BlockNo::new((bn0 + bni).try_into().unwrap());
         block_zero(tx, dev, bn);
         return Some(bn);
     }

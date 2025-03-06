@@ -1,6 +1,6 @@
 use core::{alloc::GlobalAlloc, ptr};
 
-use crate::{error::Error, process, sync::spin::Mutex};
+use crate::{error::Ov6Error, process, sync::spin::Mutex};
 
 /// Header for free block
 ///
@@ -27,7 +27,7 @@ static mut BASE: Header = Header {
 // Circular list of free blocks
 static FREE_LIST: Mutex<*mut Header> = Mutex::new(&raw mut BASE);
 
-fn malloc(nbytes: usize, free_list: &mut *mut Header) -> Result<*mut u8, Error> {
+fn malloc(nbytes: usize, free_list: &mut *mut Header) -> Result<*mut u8, Ov6Error> {
     let nunits = nbytes.div_ceil(size_of::<Header>()) + 1;
 
     unsafe {
@@ -63,6 +63,8 @@ fn malloc(nbytes: usize, free_list: &mut *mut Header) -> Result<*mut u8, Error> 
 unsafe fn free(ap: *mut u8, free_list: &mut *mut Header) {
     unsafe {
         // point to block header
+        assert_eq!(ap.addr() % align_of::<Header>(), 0);
+        #[expect(clippy::cast_ptr_alignment)]
         let bp = ap.cast::<Header>().sub(1);
 
         let mut p = *free_list;
@@ -94,7 +96,7 @@ unsafe fn free(ap: *mut u8, free_list: &mut *mut Header) {
     }
 }
 
-fn expand_heap(mut nunits: usize, free_list: &mut *mut Header) -> Result<*mut Header, Error> {
+fn expand_heap(mut nunits: usize, free_list: &mut *mut Header) -> Result<*mut Header, Ov6Error> {
     unsafe {
         if nunits < 4096 {
             nunits = 4096;
@@ -102,9 +104,11 @@ fn expand_heap(mut nunits: usize, free_list: &mut *mut Header) -> Result<*mut He
 
         let p = process::grow_break(nunits * size_of::<Header>())?;
 
+        assert_eq!(p.addr() % align_of::<Header>(), 0);
+        #[expect(clippy::cast_ptr_alignment)]
         let hp = p.cast::<Header>();
         (*hp).size = nunits;
-        free(hp.add(1) as _, free_list);
+        free(hp.add(1).cast::<u8>(), free_list);
 
         Ok(*free_list)
     }

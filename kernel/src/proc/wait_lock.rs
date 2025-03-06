@@ -28,9 +28,9 @@ impl Parent {
         }
     }
 
-    pub(super) fn get<'a>(
+    pub(super) fn get(
         &self,
-        _wait_lock: &mut SpinLockGuard<'a, WaitLock>,
+        _wait_lock: &mut SpinLockGuard<'_, WaitLock>,
     ) -> Option<&'static Proc> {
         unsafe { *self.parent.get() }
     }

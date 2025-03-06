@@ -22,7 +22,7 @@ pub fn init_hart() {
     // for the uart and virtio disk.
     unsafe {
         ptr::with_exposed_provenance_mut::<u32>(plic_senable(hart))
-            .write_volatile(1 << UART0_IRQ | 1 << VIRTIO0_IRQ);
+            .write_volatile((1 << UART0_IRQ) | (1 << VIRTIO0_IRQ));
     }
 
     // set this hart's S-mode priority threshold to 0
@@ -42,6 +42,7 @@ pub fn claim() -> usize {
 pub fn complete(irq: usize) {
     let hart = cpu::id();
     unsafe {
-        ptr::with_exposed_provenance_mut::<u32>(plic_sclaim(hart)).write_volatile(irq as u32)
-    };
+        ptr::with_exposed_provenance_mut::<u32>(plic_sclaim(hart))
+            .write_volatile(irq.try_into().unwrap());
+    }
 }

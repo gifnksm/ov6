@@ -55,6 +55,7 @@ pub fn _print(args: fmt::Arguments) {
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {
+        #[expect(clippy::used_underscore_items)]
         $crate::console::print::_print(format_args!($($arg)*))
     };
 }

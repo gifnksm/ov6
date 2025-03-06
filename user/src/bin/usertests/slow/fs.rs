@@ -2,7 +2,7 @@ use core::{ffi::CStr, ptr, slice};
 
 use ov6_fs_types::{FS_BLOCK_SIZE, MAX_FILE};
 use ov6_user_lib::{
-    error::Error,
+    error::Ov6Error,
     fs::{self, File},
     io::Write as _,
     process,
@@ -61,7 +61,7 @@ pub fn many_writes() {
             let _ = fs::remove_file(path);
 
             for _ in 0..howmany {
-                for _ in 0..ci + 1 {
+                for _ in 0..=ci {
                     let mut file = File::create(path).unwrap();
                     file.write_all(buf).unwrap();
                 }
@@ -78,10 +78,10 @@ pub fn many_writes() {
     }
 }
 
-/// regression test. does write() with an invalid buffer pointer cause
+/// regression test. does `write()` with an invalid buffer pointer cause
 /// a block to be allocated for a file that is then not freed when the
 /// file is deleted? if the kernel has this bug, it will panic: balloc:
-/// out of blocks. assumed_free may need to be raised to be more than
+/// out of blocks. `assumed_free` may need to be raised to be more than
 /// the number of free blocks. this test takes a long time.
 pub fn bad_write() {
     const FILE_PATH: &CStr = c"junk";
@@ -93,7 +93,7 @@ pub fn bad_write() {
         let mut file = File::create(FILE_PATH).unwrap();
         unsafe {
             let buf = slice::from_raw_parts(ptr::with_exposed_provenance(0xff_ffff_ffff), 1);
-            expect!(file.write(buf), Err(Error::Unknown));
+            expect!(file.write(buf), Err(Ov6Error::Unknown));
             drop(file);
             fs::remove_file(FILE_PATH).unwrap();
         }
@@ -146,7 +146,7 @@ pub fn disk_full() {
     }
 
     // this mkdir() is expected to fail.
-    expect!(fs::create_dir(DIR_PATH), Err(Error::Unknown));
+    expect!(fs::create_dir(DIR_PATH), Err(Ov6Error::Unknown));
     let _ = fs::remove_file(DIR_PATH);
 
     for i in 0..nzz {

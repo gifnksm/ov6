@@ -4,7 +4,7 @@ use core::{cmp, io::BorrowedCursor};
 
 use alloc_crate::{string::String, vec::Vec};
 
-use crate::error::Error;
+use crate::error::Ov6Error;
 
 pub use self::{buffered::*, stdio::*};
 
@@ -14,9 +14,9 @@ mod buffered;
 mod stdio;
 
 pub trait Read {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error>;
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Ov6Error>;
 
-    fn read_to_end(&mut self, buf: &mut Vec<u8>) -> Result<usize, Error> {
+    fn read_to_end(&mut self, buf: &mut Vec<u8>) -> Result<usize, Ov6Error> {
         let start_len = buf.len();
 
         loop {
@@ -35,11 +35,11 @@ pub trait Read {
         Ok(buf.len() - start_len)
     }
 
-    fn read_to_string(&mut self, buf: &mut String) -> Result<usize, Error> {
+    fn read_to_string(&mut self, buf: &mut String) -> Result<usize, Ov6Error> {
         unsafe { append_to_string(buf, |b| self.read_to_end(b)) }
     }
 
-    fn read_exact(&mut self, mut buf: &mut [u8]) -> Result<(), Error> {
+    fn read_exact(&mut self, mut buf: &mut [u8]) -> Result<(), Ov6Error> {
         while !buf.is_empty() {
             match self.read(buf) {
                 Ok(0) => break,
@@ -48,14 +48,15 @@ pub trait Read {
                 Err(e) => return Err(e),
             }
         }
+
         if !buf.is_empty() {
-            Err(Error::ReadExactEof)
-        } else {
-            Ok(())
+            return Err(Ov6Error::ReadExactEof);
         }
+
+        Ok(())
     }
 
-    fn read_buf(&mut self, mut cursor: BorrowedCursor<'_>) -> Result<(), Error> {
+    fn read_buf(&mut self, mut cursor: BorrowedCursor<'_>) -> Result<(), Ov6Error> {
         let n = self.read(cursor.ensure_init().init_mut())?;
         cursor.advance(n);
         Ok(())
@@ -75,9 +76,9 @@ impl Drop for Guard<'_> {
     }
 }
 
-unsafe fn append_to_string<F>(buf: &mut String, f: F) -> Result<usize, Error>
+unsafe fn append_to_string<F>(buf: &mut String, f: F) -> Result<usize, Ov6Error>
 where
-    F: FnOnce(&mut Vec<u8>) -> Result<usize, Error>,
+    F: FnOnce(&mut Vec<u8>) -> Result<usize, Ov6Error>,
 {
     let mut g = Guard {
         len: buf.len(),
@@ -86,7 +87,7 @@ where
     let ret = f(g.buf);
     let appended = unsafe { g.buf.get_unchecked(g.len..) };
     if str::from_utf8(appended).is_err() {
-        ret.and(Err(Error::InvalidUtf8))
+        ret.and(Err(Ov6Error::InvalidUtf8))
     } else {
         g.len = g.buf.len();
         ret
@@ -94,12 +95,12 @@ where
 }
 
 pub trait Write {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Error>;
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error>;
 
-    fn write_all(&mut self, mut buf: &[u8]) -> Result<(), Error> {
+    fn write_all(&mut self, mut buf: &[u8]) -> Result<(), Ov6Error> {
         while !buf.is_empty() {
             match self.write(buf) {
-                Ok(0) => return Err(Error::WriteAllEof),
+                Ok(0) => return Err(Ov6Error::WriteAllEof),
                 Ok(n) => buf = &buf[n..],
                 Err(e) if e.is_interrupted() => continue,
                 Err(e) => return Err(e),
@@ -110,14 +111,14 @@ pub trait Write {
 }
 
 pub trait BufRead: Read {
-    fn fill_buf(&mut self) -> Result<&[u8], Error>;
+    fn fill_buf(&mut self) -> Result<&[u8], Ov6Error>;
     fn consume(&mut self, amt: usize);
 
-    fn has_data_left(&mut self) -> Result<bool, Error> {
+    fn has_data_left(&mut self) -> Result<bool, Ov6Error> {
         self.fill_buf().map(|b| !b.is_empty())
     }
 
-    fn read_until(&mut self, byte: u8, buf: &mut Vec<u8>) -> Result<usize, Error> {
+    fn read_until(&mut self, byte: u8, buf: &mut Vec<u8>) -> Result<usize, Ov6Error> {
         let mut read = 0;
         loop {
             let (done, used) = {
@@ -145,7 +146,7 @@ pub trait BufRead: Read {
         }
     }
 
-    fn skip_until(&mut self, byte: u8) -> Result<usize, Error> {
+    fn skip_until(&mut self, byte: u8) -> Result<usize, Ov6Error> {
         let mut read = 0;
         loop {
             let (done, used) = {
@@ -154,10 +155,7 @@ pub trait BufRead: Read {
                     Err(e) if e.is_interrupted() => continue,
                     Err(e) => return Err(e),
                 };
-                match memchr::memchr(byte, available) {
-                    Some(i) => (true, i + 1),
-                    None => (false, available.len()),
-                }
+                memchr::memchr(byte, available).map_or((false, available.len()), |i| (true, i + 1))
             };
             self.consume(used);
             read += used;
@@ -167,7 +165,7 @@ pub trait BufRead: Read {
         }
     }
 
-    fn read_line(&mut self, buf: &mut String) -> Result<usize, Error> {
+    fn read_line(&mut self, buf: &mut String) -> Result<usize, Ov6Error> {
         unsafe { append_to_string(buf, |b| self.read_until(b'\n', b)) }
     }
 }
@@ -176,13 +174,13 @@ impl<R> Read for &mut R
 where
     R: Read,
 {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Ov6Error> {
         (**self).read(buf)
     }
 }
 
 impl Read for &[u8] {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Ov6Error> {
         let amt = cmp::min(buf.len(), self.len());
         let (a, b) = self.split_at(amt);
         buf[..amt].copy_from_slice(a);

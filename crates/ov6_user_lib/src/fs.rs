@@ -3,7 +3,7 @@ use core::ffi::CStr;
 use dataview::PodMethods as _;
 
 use crate::{
-    error::Error,
+    error::Ov6Error,
     io::{Read, Write},
     os::{
         fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
@@ -22,34 +22,42 @@ pub struct Metadata {
 }
 
 impl Metadata {
+    #[must_use]
     pub fn ty(&self) -> StatType {
         self.ty
     }
 
+    #[must_use]
     pub fn is_file(&self) -> bool {
         self.ty == StatType::File
     }
 
+    #[must_use]
     pub fn is_device(&self) -> bool {
         self.ty == StatType::Dev
     }
 
+    #[must_use]
     pub fn is_dir(&self) -> bool {
         self.ty == StatType::Dir
     }
 
+    #[must_use]
     pub fn dev(&self) -> u32 {
         self.dev
     }
 
+    #[must_use]
     pub fn ino(&self) -> u32 {
         self.ino
     }
 
+    #[must_use]
     pub fn nlink(&self) -> u16 {
         self.nlink
     }
 
+    #[must_use]
     pub fn size(&self) -> u64 {
         self.size
     }
@@ -64,6 +72,7 @@ pub struct OpenOptions {
 }
 
 impl OpenOptions {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -88,7 +97,7 @@ impl OpenOptions {
         self
     }
 
-    pub fn open(&self, path: &CStr) -> Result<File, Error> {
+    pub fn open(&self, path: &CStr) -> Result<File, Ov6Error> {
         let Self {
             read,
             write,
@@ -100,8 +109,8 @@ impl OpenOptions {
             (true, true) => flags |= OpenFlags::READ_WRITE,
             (true, false) => flags |= OpenFlags::READ_ONLY,
             (false, true) => flags |= OpenFlags::WRITE_ONLY,
-            (false, false) => return Err(Error::Unknown),
-        };
+            (false, false) => return Err(Ov6Error::Unknown),
+        }
         flags.set(OpenFlags::CREATE, *create);
         flags.set(OpenFlags::TRUNC, *truncate);
         let fd = syscall::open(path, flags)?;
@@ -115,15 +124,16 @@ pub struct File {
 }
 
 impl File {
+    #[must_use]
     pub fn options() -> OpenOptions {
         OpenOptions::new()
     }
 
-    pub fn open(path: &CStr) -> Result<Self, Error> {
+    pub fn open(path: &CStr) -> Result<Self, Ov6Error> {
         OpenOptions::new().read(true).open(path)
     }
 
-    pub fn create(path: &CStr) -> Result<Self, Error> {
+    pub fn create(path: &CStr) -> Result<Self, Ov6Error> {
         OpenOptions::new()
             .write(true)
             .create(true)
@@ -131,17 +141,17 @@ impl File {
             .open(path)
     }
 
-    pub fn try_clone(&self) -> Result<Self, Error> {
+    pub fn try_clone(&self) -> Result<Self, Ov6Error> {
         let fd = syscall::dup(self.fd.as_fd())?;
-        Ok(File { fd })
+        Ok(Self { fd })
     }
 
-    pub fn metadata(&self) -> Result<Metadata, Error> {
+    pub fn metadata(&self) -> Result<Metadata, Ov6Error> {
         let stat = syscall::fstat(self.fd.as_fd())?;
         Ok(Metadata {
             dev: stat.dev.cast_unsigned(),
             ino: stat.ino,
-            ty: stat.ty,
+            ty: StatType::from_repr(stat.ty).ok_or(Ov6Error::Unknown)?,
             nlink: stat.nlink.cast_unsigned(),
             size: stat.size,
         })
@@ -175,62 +185,62 @@ impl IntoRawFd for File {
 }
 
 impl Write for File {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
         syscall::write(self.fd.as_fd(), buf)
     }
 }
 
 impl Write for &'_ File {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
         syscall::write(self.fd.as_fd(), buf)
     }
 }
 
 impl Read for File {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Ov6Error> {
         syscall::read(self.fd.as_fd(), buf)
     }
 }
 
 impl Read for &'_ File {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Ov6Error> {
         syscall::read(self.fd.as_fd(), buf)
     }
 }
 
-pub fn mknod(path: &CStr, major: i16, minor: i16) -> Result<(), Error> {
+pub fn mknod(path: &CStr, major: i16, minor: i16) -> Result<(), Ov6Error> {
     syscall::mknod(path, major, minor)
 }
 
-pub fn link(old: &CStr, new: &CStr) -> Result<(), Error> {
+pub fn link(old: &CStr, new: &CStr) -> Result<(), Ov6Error> {
     syscall::link(old, new)
 }
 
-pub fn metadata(path: &CStr) -> Result<Metadata, Error> {
+pub fn metadata(path: &CStr) -> Result<Metadata, Ov6Error> {
     let fd = syscall::open(path, OpenFlags::READ_ONLY)?;
     let stat = syscall::fstat(fd.as_fd())?;
     Ok(Metadata {
         dev: stat.dev.cast_unsigned(),
         ino: stat.ino,
-        ty: stat.ty,
+        ty: StatType::from_repr(stat.ty).ok_or(Ov6Error::Unknown)?,
         nlink: stat.nlink.cast_unsigned(),
         size: stat.size,
     })
 }
 
-pub fn remove_file(path: &CStr) -> Result<(), Error> {
+pub fn remove_file(path: &CStr) -> Result<(), Ov6Error> {
     syscall::unlink(path)
 }
 
-pub fn create_dir(path: &CStr) -> Result<(), Error> {
+pub fn create_dir(path: &CStr) -> Result<(), Ov6Error> {
     syscall::mkdir(path)
 }
 
-pub fn read_dir(path: &CStr) -> Result<ReadDir, Error> {
+pub fn read_dir(path: &CStr) -> Result<ReadDir, Ov6Error> {
     let fd = syscall::open(path, OpenFlags::READ_ONLY)?;
     let st = syscall::fstat(fd.as_fd())?;
-    if st.ty != StatType::Dir {
-        return Err(Error::NotADirectory);
+    if st.ty != StatType::Dir as i16 {
+        return Err(Ov6Error::NotADirectory);
     }
     Ok(ReadDir { fd })
 }
@@ -240,13 +250,13 @@ pub struct ReadDir {
 }
 
 impl Iterator for ReadDir {
-    type Item = Result<DirEntry, Error>;
+    type Item = Result<DirEntry, Ov6Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let mut ent = ov6_fs_types::DirEntry::zeroed();
             let Ok(size) = syscall::read(self.fd.as_fd(), ent.as_bytes_mut()) else {
-                return Some(Err(Error::Unknown));
+                return Some(Err(Ov6Error::Unknown));
             };
             if size == 0 {
                 return None;
@@ -265,6 +275,7 @@ pub struct DirEntry {
 }
 
 impl DirEntry {
+    #[must_use]
     pub fn name(&self) -> &str {
         str::from_utf8(self.ent.name()).unwrap()
     }

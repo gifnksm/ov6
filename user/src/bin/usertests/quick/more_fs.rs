@@ -4,7 +4,7 @@ use ov6_fs_types::FS_BLOCK_SIZE;
 use ov6_kernel_params::{MAX_OP_BLOCKS, NINODE};
 use ov6_user_lib::{
     env,
-    error::Error,
+    error::Ov6Error,
     fs::{self, File},
     io::{Read as _, Write as _},
     process,
@@ -30,7 +30,7 @@ pub fn shared_fd() {
     }
     if res.is_child() {
         process::exit(0);
-    };
+    }
     let (_, status) = process::wait().unwrap();
     assert!(status.success());
     drop(file);
@@ -145,12 +145,16 @@ pub fn create_delete() {
             name[1] = b'0' + u8::try_from(i).unwrap();
             let path = CStr::from_bytes_until_nul(&name).unwrap();
             let file = File::open(path);
-            if !(1..N / 2).contains(&i) && file.is_err() {
-                panic!("oops create_delete {} didn't exist", path.to_str().unwrap());
-            }
-            if (1..N / 2).contains(&i) && file.is_ok() {
-                panic!("oops create_delete {} did exist", path.to_str().unwrap());
-            }
+            assert!(
+                (1..N / 2).contains(&i) || file.is_ok(),
+                "oops create_delete {} didn't exist",
+                path.to_str().unwrap()
+            );
+            assert!(
+                !((1..N / 2).contains(&i) && file.is_ok()),
+                "oops create_delete {} did exist",
+                path.to_str().unwrap()
+            )
         }
     }
 
@@ -205,7 +209,7 @@ pub fn link() {
     fs::link(FILE1_PATH, FILE2_PATH).unwrap();
     fs::remove_file(FILE1_PATH).unwrap();
 
-    expect!(File::open(FILE1_PATH), Err(Error::Unknown));
+    expect!(File::open(FILE1_PATH), Err(Ov6Error::Unknown));
 
     let mut file = File::open(FILE2_PATH).unwrap();
     let mut buf = [0; 5];
@@ -213,12 +217,12 @@ pub fn link() {
     assert_eq!(&buf, b"hello");
     drop(file);
 
-    expect!(fs::link(FILE2_PATH, FILE2_PATH), Err(Error::Unknown));
+    expect!(fs::link(FILE2_PATH, FILE2_PATH), Err(Ov6Error::Unknown));
 
     fs::remove_file(FILE2_PATH).unwrap();
-    expect!(fs::link(FILE2_PATH, FILE1_PATH), Err(Error::Unknown));
+    expect!(fs::link(FILE2_PATH, FILE1_PATH), Err(Ov6Error::Unknown));
 
-    expect!(fs::link(c".", FILE1_PATH), Err(Error::Unknown));
+    expect!(fs::link(c".", FILE1_PATH), Err(Ov6Error::Unknown));
 }
 
 /// test concurrent create/link/unlink of the same file
@@ -298,7 +302,7 @@ pub fn link_unlink() {
 
     let mut x: u32 = if res.is_parent() { 1 } else { 97 };
     for _ in 0..100 {
-        x = x.wrapping_mul(1103515245).wrapping_add(12345);
+        x = x.wrapping_mul(1_103_515_245).wrapping_add(12_345);
         match x % 3 {
             0 => {
                 let _ = File::options().create(true).open(c"x");
@@ -329,7 +333,7 @@ pub fn subdir() {
     file.write_all(b"ff").unwrap();
     drop(file);
 
-    expect!(fs::remove_file(c"dd"), Err(Error::Unknown));
+    expect!(fs::remove_file(c"dd"), Err(Ov6Error::Unknown));
 
     fs::create_dir(c"/dd/dd").unwrap();
 
@@ -345,7 +349,7 @@ pub fn subdir() {
 
     fs::link(c"dd/dd/ff", c"dd/dd/ffff").unwrap();
     fs::remove_file(c"dd/dd/ff").unwrap();
-    expect!(File::open(c"dd/dd/ff"), Err(Error::Unknown));
+    expect!(File::open(c"dd/dd/ff"), Err(Ov6Error::Unknown));
 
     env::set_current_directory(c"dd").unwrap();
     env::set_current_directory(c"dd/../../dd").unwrap();
@@ -357,33 +361,36 @@ pub fn subdir() {
     file.read_exact(&mut buf).unwrap();
     drop(file);
 
-    expect!(File::open(c"dd/dd/ff"), Err(Error::Unknown));
+    expect!(File::open(c"dd/dd/ff"), Err(Ov6Error::Unknown));
 
-    expect!(File::create(c"dd/ff/ff"), Err(Error::Unknown));
-    expect!(File::create(c"dd/xx/ff"), Err(Error::Unknown));
+    expect!(File::create(c"dd/ff/ff"), Err(Ov6Error::Unknown));
+    expect!(File::create(c"dd/xx/ff"), Err(Ov6Error::Unknown));
     expect!(
         File::options().create(true).open(c"dd"),
-        Err(Error::Unknown)
+        Err(Ov6Error::Unknown)
     );
     expect!(
         File::options().read(true).write(true).open(c"dd"),
-        Err(Error::Unknown)
+        Err(Ov6Error::Unknown)
     );
-    expect!(File::options().write(true).open(c"dd"), Err(Error::Unknown));
-    expect!(fs::link(c"dd/ff/ff", c"dd/dd/xx"), Err(Error::Unknown));
-    expect!(fs::link(c"dd/xx/ff", c"dd/dd/xx"), Err(Error::Unknown));
-    expect!(fs::link(c"dd/ff", c"dd/dd/ffff"), Err(Error::Unknown));
-    expect!(fs::create_dir(c"dd/ff/ff"), Err(Error::Unknown));
-    expect!(fs::create_dir(c"dd/xx/ff"), Err(Error::Unknown));
-    expect!(fs::create_dir(c"dd/dd/ffff"), Err(Error::Unknown));
-    expect!(fs::remove_file(c"dd/xx/ff"), Err(Error::Unknown));
-    expect!(fs::remove_file(c"dd/ff/ff"), Err(Error::Unknown));
-    expect!(env::set_current_directory(c"dd/ff"), Err(Error::Unknown));
-    expect!(env::set_current_directory(c"dd/xx"), Err(Error::Unknown));
+    expect!(
+        File::options().write(true).open(c"dd"),
+        Err(Ov6Error::Unknown)
+    );
+    expect!(fs::link(c"dd/ff/ff", c"dd/dd/xx"), Err(Ov6Error::Unknown));
+    expect!(fs::link(c"dd/xx/ff", c"dd/dd/xx"), Err(Ov6Error::Unknown));
+    expect!(fs::link(c"dd/ff", c"dd/dd/ffff"), Err(Ov6Error::Unknown));
+    expect!(fs::create_dir(c"dd/ff/ff"), Err(Ov6Error::Unknown));
+    expect!(fs::create_dir(c"dd/xx/ff"), Err(Ov6Error::Unknown));
+    expect!(fs::create_dir(c"dd/dd/ffff"), Err(Ov6Error::Unknown));
+    expect!(fs::remove_file(c"dd/xx/ff"), Err(Ov6Error::Unknown));
+    expect!(fs::remove_file(c"dd/ff/ff"), Err(Ov6Error::Unknown));
+    expect!(env::set_current_directory(c"dd/ff"), Err(Ov6Error::Unknown));
+    expect!(env::set_current_directory(c"dd/xx"), Err(Ov6Error::Unknown));
 
     fs::remove_file(c"dd/dd/ffff").unwrap();
     fs::remove_file(c"dd/ff").unwrap();
-    expect!(fs::remove_file(c"dd"), Err(Error::Unknown));
+    expect!(fs::remove_file(c"dd"), Err(Ov6Error::Unknown));
     fs::remove_file(c"dd/dd").unwrap();
     fs::remove_file(c"dd").unwrap();
 }
@@ -451,14 +458,14 @@ pub fn fourteen() {
     fs::create_dir(N14_15).unwrap();
     let _ = File::create(N15_15_15).unwrap();
     let _ = File::open(N14_14_14).unwrap();
-    expect!(fs::create_dir(N14_14), Err(Error::Unknown),);
-    expect!(fs::create_dir(N15_14), Err(Error::Unknown),);
+    expect!(fs::create_dir(N14_14), Err(Ov6Error::Unknown),);
+    expect!(fs::create_dir(N15_14), Err(Ov6Error::Unknown),);
 
     // clean up
-    expect!(fs::remove_file(N15_14), Err(Error::Unknown),);
-    expect!(fs::remove_file(N14_14), Err(Error::Unknown),);
+    expect!(fs::remove_file(N15_14), Err(Ov6Error::Unknown),);
+    expect!(fs::remove_file(N14_14), Err(Ov6Error::Unknown),);
     fs::remove_file(N14_14_14).unwrap();
-    expect!(fs::remove_file(N15_15_15), Err(Error::Unknown),);
+    expect!(fs::remove_file(N15_15_15), Err(Ov6Error::Unknown),);
     fs::remove_file(N14_15).unwrap();
     fs::remove_file(N14).unwrap();
 }
@@ -466,50 +473,53 @@ pub fn fourteen() {
 pub fn rm_dot() {
     fs::create_dir(c"dots").unwrap();
     env::set_current_directory(c"dots").unwrap();
-    expect!(fs::remove_file(c"."), Err(Error::Unknown));
-    expect!(fs::remove_file(c".."), Err(Error::Unknown));
+    expect!(fs::remove_file(c"."), Err(Ov6Error::Unknown));
+    expect!(fs::remove_file(c".."), Err(Ov6Error::Unknown));
 
     env::set_current_directory(c"/").unwrap();
-    expect!(fs::remove_file(c"dots/."), Err(Error::Unknown));
-    expect!(fs::remove_file(c"dots/.."), Err(Error::Unknown));
+    expect!(fs::remove_file(c"dots/."), Err(Ov6Error::Unknown));
+    expect!(fs::remove_file(c"dots/.."), Err(Ov6Error::Unknown));
     fs::remove_file(c"dots").unwrap();
 }
 
 pub fn dir_file() {
     let _file = File::create(c"dirfile").unwrap();
-    expect!(env::set_current_directory(c"dirfile"), Err(Error::Unknown));
-    expect!(File::open(c"dirfile/xx"), Err(Error::Unknown));
-    expect!(File::create(c"dirfile/xx"), Err(Error::Unknown));
-    expect!(fs::create_dir(c"dirfile/xx"), Err(Error::Unknown));
-    expect!(fs::remove_file(c"dirfile/xx"), Err(Error::Unknown));
-    expect!(fs::link(README_PATH, c"dirfile/xx"), Err(Error::Unknown));
+    expect!(
+        env::set_current_directory(c"dirfile"),
+        Err(Ov6Error::Unknown)
+    );
+    expect!(File::open(c"dirfile/xx"), Err(Ov6Error::Unknown));
+    expect!(File::create(c"dirfile/xx"), Err(Ov6Error::Unknown));
+    expect!(fs::create_dir(c"dirfile/xx"), Err(Ov6Error::Unknown));
+    expect!(fs::remove_file(c"dirfile/xx"), Err(Ov6Error::Unknown));
+    expect!(fs::link(README_PATH, c"dirfile/xx"), Err(Ov6Error::Unknown));
     fs::remove_file(c"dirfile").unwrap();
 
     expect!(
         File::options().read(true).write(true).open(c"."),
-        Err(Error::Unknown),
+        Err(Ov6Error::Unknown),
     );
     let mut file = File::open(c".").unwrap();
-    expect!(file.write(b"x"), Err(Error::Unknown));
+    expect!(file.write(b"x"), Err(Ov6Error::Unknown));
 }
 
-/// test that inode_put() is called at the end of _namei().
+/// test that `inode_put()` is called at the end of `_namei()`.
 /// also tests empty file names.
 pub fn iref() {
     const DIR_PATH: &CStr = c"irefd";
-    for _ in 0..NINODE + 1 {
+    for _ in 0..=NINODE {
         fs::create_dir(DIR_PATH).unwrap();
         env::set_current_directory(DIR_PATH).unwrap();
 
-        expect!(fs::create_dir(c""), Err(Error::Unknown));
-        expect!(fs::link(c"README", c""), Err(Error::Unknown));
+        expect!(fs::create_dir(c""), Err(Ov6Error::Unknown));
+        expect!(fs::link(c"README", c""), Err(Ov6Error::Unknown));
         let _ = File::open(c"").unwrap();
         let _file = File::create(c"xx").unwrap();
         fs::remove_file(c"xx").unwrap();
     }
 
     // clean up
-    for _ in 0..NINODE + 1 {
+    for _ in 0..=NINODE {
         env::set_current_directory(c"..").unwrap();
         fs::remove_file(DIR_PATH).unwrap();
     }

@@ -51,7 +51,10 @@ impl Buffer {
         self.pos = cmp::min(self.pos + amt, self.filled);
     }
 
-    pub(crate) fn fill_buf(&mut self, mut reader: impl Read) -> Result<&[u8], crate::error::Error> {
+    pub(crate) fn fill_buf(
+        &mut self,
+        mut reader: impl Read,
+    ) -> Result<&[u8], crate::error::Ov6Error> {
         if self.pos >= self.filled {
             debug_assert!(self.pos == self.filled);
 

@@ -1,7 +1,7 @@
 use core::ffi::CStr;
 
 use ov6_user_lib::{
-    error::Error,
+    error::Ov6Error,
     fs::{self, File},
     io::{Read as _, Write as _},
     process,
@@ -11,7 +11,7 @@ use crate::expect;
 
 const FILE_PATH: &CStr = c"truncfile";
 
-/// test O_TRUNC.
+/// test `O_TRUNC`.
 pub fn test1() {
     let mut buf = [0; 6];
 
@@ -64,7 +64,7 @@ pub fn test2() {
         .open(FILE_PATH)
         .unwrap();
 
-    expect!(file1.write(b"x"), Err(Error::Unknown));
+    expect!(file1.write(b"x"), Err(Ov6Error::Unknown));
 
     fs::remove_file(FILE_PATH).unwrap();
 }

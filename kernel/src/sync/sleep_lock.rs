@@ -8,7 +8,7 @@ use mutex_api::Mutex;
 
 use crate::{
     cpu::Cpu,
-    error::Error,
+    error::KernelError,
     proc::{self, ProcId},
 };
 
@@ -31,10 +31,10 @@ impl RawSleepLock {
         }
     }
 
-    fn try_acquire(&self) -> Result<(), Error> {
+    fn try_acquire(&self) -> Result<(), KernelError> {
         let mut locked = self.locked.try_lock()?;
         if locked.0 {
-            return Err(Error::Unknown);
+            return Err(KernelError::Unknown);
         }
 
         locked.0 = true;
@@ -82,7 +82,7 @@ impl<T> SleepLock<T> {
         }
     }
 
-    pub fn try_lock(&self) -> Result<SleepLockGuard<T>, Error> {
+    pub fn try_lock(&self) -> Result<SleepLockGuard<T>, KernelError> {
         self.lock.try_acquire()?;
         Ok(SleepLockGuard { lock: self })
     }

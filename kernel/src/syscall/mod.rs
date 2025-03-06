@@ -3,7 +3,7 @@ use core::panic;
 use ov6_syscall::SyscallType;
 
 use crate::{
-    error::Error,
+    error::KernelError,
     memory::{VirtAddr, vm},
     println,
     proc::{Proc, ProcPrivateData, ProcPrivateDataGuard},
@@ -13,7 +13,7 @@ mod file;
 mod proc;
 
 /// Fetches a `usize` at `addr` from the current process.
-fn fetch_addr(private: &ProcPrivateData, addr: VirtAddr) -> Result<VirtAddr, Error> {
+fn fetch_addr(private: &ProcPrivateData, addr: VirtAddr) -> Result<VirtAddr, KernelError> {
     private.validate_addr(addr..addr.byte_add(size_of::<usize>()))?;
     let va = vm::copy_in(private.pagetable().unwrap(), addr)?;
     Ok(VirtAddr::new(va))
@@ -26,7 +26,7 @@ fn fetch_str<'a>(
     private: &ProcPrivateData,
     addr: VirtAddr,
     buf: &'a mut [u8],
-) -> Result<&'a [u8], Error> {
+) -> Result<&'a [u8], KernelError> {
     vm::copy_in_str(private.pagetable().unwrap(), buf, addr)?;
     let len = buf.iter().position(|&c| c == 0).unwrap();
     Ok(&buf[..len])
@@ -53,7 +53,7 @@ pub fn arg_int(private: &ProcPrivateData, n: usize) -> usize {
 /// Retrieves an argument as a pointer.
 ///
 /// Don't check for legality, since
-/// copy_in/copy_out will do that.
+/// `copy_in` / `copy_out` will do that.
 pub fn arg_addr(private: &ProcPrivateData, n: usize) -> VirtAddr {
     VirtAddr::new(arg_int(private, n))
 }
@@ -66,7 +66,7 @@ pub fn arg_str<'a>(
     private: &ProcPrivateData,
     n: usize,
     buf: &'a mut [u8],
-) -> Result<&'a [u8], Error> {
+) -> Result<&'a [u8], KernelError> {
     let addr = arg_addr(private, n);
     fetch_str(private, addr, buf)
 }

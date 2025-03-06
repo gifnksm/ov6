@@ -5,11 +5,11 @@
 //!   + Log: crash recovery for multi-step updates.
 //!   + Files: inode allocator, reading, writing, metadata.
 //!   + Directories: inode with special contents (list of other inodes!)
-//!   + Names: paths like /usr/rtm/xv6/fs.c for convenient naming.
+//!   + Names: paths like `/usr/rtm/xv6/fs.c` for convenient naming.
 //!
 //! This file contains the low-level file system manipulation
 //! routines. The (higher-level) system call implementations
-//! are in syscall_file.rs
+//! are in `syscall/file.rs`
 
 use dataview::Pod;
 use once_init::OnceInit;
@@ -45,11 +45,11 @@ impl DeviceNo {
         Self(n)
     }
 
-    pub const fn value(&self) -> u32 {
+    pub const fn value(self) -> u32 {
         self.0
     }
 
-    pub fn as_index(&self) -> usize {
+    pub fn as_index(self) -> usize {
         usize::try_from(self.0).unwrap()
     }
 }

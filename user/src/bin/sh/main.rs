@@ -7,10 +7,10 @@ use core::mem;
 use alloc::{ffi::CString, string::String};
 use ov6_user_lib::{
     env, eprint,
-    error::Error,
+    error::Ov6Error,
     fs::File,
     io::{self},
-    os::fd::AsRawFd,
+    os::fd::AsRawFd as _,
     process,
 };
 use user::{exit, message, try_or, try_or_exit};
@@ -19,7 +19,7 @@ mod command;
 mod parser;
 mod util;
 
-fn get_cmd(buf: &mut String) -> Result<Option<&str>, Error> {
+fn get_cmd(buf: &mut String) -> Result<Option<&str>, Ov6Error> {
     eprint!("$ ");
     buf.clear();
     let n = io::stdin().read_line(buf)?;

@@ -31,7 +31,7 @@ where
         }
 
         c += nread;
-        for &b in buf[..nread].iter() {
+        for &b in &buf[..nread] {
             if b == b'\n' {
                 l += 1;
             }

@@ -28,7 +28,9 @@ pub fn id() -> usize {
     assert!(!interrupt::is_enabled());
 
     let id: usize;
-    unsafe { asm!("mv {}, tp", out(reg) id) };
+    unsafe {
+        asm!("mv {}, tp", out(reg) id);
+    }
     id
 }
 

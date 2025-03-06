@@ -1,11 +1,11 @@
-use core::{ops::Range, ptr};
+use core::{alloc::AllocError, ops::Range, ptr};
 
-use alloc::{alloc::AllocError, boxed::Box};
+use alloc::boxed::Box;
 use bitflags::bitflags;
 use dataview::Pod;
 
 use crate::{
-    error::Error,
+    error::KernelError,
     memory::{PAGE_SHIFT, PAGE_SIZE, PageRound as _},
 };
 
@@ -17,8 +17,9 @@ pub struct PageTable([PtEntry; 512]);
 
 impl PageTable {
     /// Allocates a new empty page table.
-    pub(super) fn try_allocate() -> Result<Box<Self, PageFrameAllocator>, Error> {
-        let pt = Box::try_new_zeroed_in(PageFrameAllocator).map_err(|AllocError| Error::Unknown)?;
+    pub(super) fn try_allocate() -> Result<Box<Self, PageFrameAllocator>, KernelError> {
+        let pt = Box::try_new_zeroed_in(PageFrameAllocator)
+            .map_err(|AllocError| KernelError::Unknown)?;
         Ok(unsafe { pt.assume_init() })
     }
 
@@ -62,7 +63,7 @@ impl PageTable {
         va: VirtAddr,
         pa: PhysAddr,
         perm: PtEntryFlags,
-    ) -> Result<(), Error> {
+    ) -> Result<(), KernelError> {
         assert!(va.is_page_aligned(), "va={va:?}");
         assert!(perm.intersects(PtEntryFlags::RWX), "perm={perm:?}");
 
@@ -88,7 +89,7 @@ impl PageTable {
         size: usize,
         pa: PhysAddr,
         perm: PtEntryFlags,
-    ) -> Result<(), Error> {
+    ) -> Result<(), KernelError> {
         assert!(va.is_page_aligned(), "va={va:?}");
         assert!(size.is_page_aligned(), "size={size:#x}");
         assert_ne!(size, 0, "size={size:#x}");
@@ -134,19 +135,19 @@ impl PageTable {
     }
 
     /// Returns the leaf PTE in the page tables that corredponds to virtual address `va`.
-    pub(super) fn find_leaf_entry(&self, va: VirtAddr) -> Result<&PtEntry, Error> {
+    pub(super) fn find_leaf_entry(&self, va: VirtAddr) -> Result<&PtEntry, KernelError> {
         assert!(va < VirtAddr::MAX);
 
         let mut pt = self;
         for level in (1..=2).rev() {
             let index = Self::entry_index(level, va);
-            pt = pt.0[index].get_page_table().ok_or(Error::Unknown)?;
+            pt = pt.0[index].get_page_table().ok_or(KernelError::Unknown)?;
         }
 
         let index = Self::entry_index(0, va);
         let pte = &pt.0[index];
         if !pte.is_leaf() {
-            return Err(Error::Unknown);
+            return Err(KernelError::Unknown);
         }
         Ok(pte)
     }
@@ -161,7 +162,7 @@ impl PageTable {
         va: VirtAddr,
         insert_new_table: bool,
         f: F,
-    ) -> Result<T, Error>
+    ) -> Result<T, KernelError>
     where
         F: for<'a> FnOnce(&'a mut PtEntry) -> T,
     {
@@ -172,7 +173,7 @@ impl PageTable {
             let index = Self::entry_index(level, va);
             if !pt.0[index].is_valid() {
                 if !insert_new_table {
-                    return Err(Error::Unknown);
+                    return Err(KernelError::Unknown);
                 }
                 let new_pt = Self::try_allocate()?;
                 pt.0[index].set_page_table(new_pt);
@@ -193,15 +194,15 @@ impl PageTable {
         &self,
         va: VirtAddr,
         flags: PtEntryFlags,
-    ) -> Result<PhysAddr, Error> {
+    ) -> Result<PhysAddr, KernelError> {
         if va >= VirtAddr::MAX {
-            return Err(Error::Unknown);
+            return Err(KernelError::Unknown);
         }
 
         let pte = self.find_leaf_entry(va)?;
         assert!(pte.is_valid() && pte.is_leaf());
         if !pte.flags().contains(flags) {
-            return Err(Error::Unknown);
+            return Err(KernelError::Unknown);
         }
 
         Ok(pte.phys_addr())
@@ -212,18 +213,19 @@ impl PageTable {
         &self,
         va: VirtAddr,
         flags: PtEntryFlags,
-    ) -> Result<&[u8; PAGE_SIZE], Error> {
+    ) -> Result<&[u8; PAGE_SIZE], KernelError> {
         let pa = self.resolve_virtual_address(va, flags)?;
         let page = unsafe { pa.as_mut_ptr::<[u8; PAGE_SIZE]>().as_ref() };
         Ok(page)
     }
 
     /// Fetches the page that is mapped at virtual address `va`.
+    #[expect(clippy::needless_pass_by_ref_mut)]
     pub(super) fn fetch_page_mut(
         &mut self,
         va: VirtAddr,
         flags: PtEntryFlags,
-    ) -> Result<&mut [u8; PAGE_SIZE], Error> {
+    ) -> Result<&mut [u8; PAGE_SIZE], KernelError> {
         let pa = self.resolve_virtual_address(va, flags)?;
         let page = unsafe { pa.as_mut_ptr::<[u8; PAGE_SIZE]>().as_mut() };
         Ok(page)

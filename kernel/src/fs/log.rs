@@ -126,7 +126,7 @@ impl LogHeader {
         let dst = bg.data_mut::<repr::LogHeader>();
         dst.set_len(self.blocks.len());
         for (i, br) in self.blocks.iter().enumerate() {
-            dst.block_indices_mut()[i] = br.index() as u32;
+            dst.block_indices_mut()[i] = br.index().try_into().unwrap();
         }
         let Ok(()) = bg.write(); // infallible
     }
@@ -219,6 +219,7 @@ impl Log {
         }
     }
 
+    #[expect(clippy::needless_pass_by_ref_mut)]
     fn write(&self, b: &mut BlockGuard<true>) {
         let data = &mut *self.data.lock();
         let header = data.header.as_mut().unwrap();
@@ -270,7 +271,9 @@ impl Tx<'_, true> {
 }
 
 impl<const READ_ONLY: bool> Tx<'_, READ_ONLY> {
-    pub fn end(self) {}
+    pub fn end(self) {
+        let _ = self;
+    }
 
     pub(super) fn get_block(&self, dev: DeviceNo, bn: BlockNo) -> TxBlockRef<READ_ONLY> {
         TxBlockRef {
@@ -279,6 +282,7 @@ impl<const READ_ONLY: bool> Tx<'_, READ_ONLY> {
         }
     }
 
+    #[expect(clippy::unused_self)]
     pub(super) fn to_writable(&self) -> Option<NestedTx<false>> {
         if READ_ONLY {
             None

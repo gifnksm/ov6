@@ -1,14 +1,17 @@
-use core::{alloc::Layout, mem::MaybeUninit, ops::Deref, ptr::NonNull};
-
-use alloc::{
+use core::{
+    alloc::Layout,
     alloc::{AllocError, Allocator},
-    sync::Arc,
+    mem::MaybeUninit,
+    ops::Deref,
+    ptr::NonNull,
 };
+
+use alloc::sync::Arc;
 use once_init::OnceInit;
 use ov6_kernel_params::NFILE;
 use slab_allocator::{ArcInnerLayout, SlabAllocator};
 
-use crate::{error::Error, sync::SpinLock};
+use crate::{error::KernelError, sync::SpinLock};
 
 use super::FileData;
 
@@ -57,8 +60,9 @@ impl Deref for FileDataArc {
 }
 
 impl FileDataArc {
-    pub(super) fn try_new(data: FileData) -> Result<Self, Error> {
-        let data = Arc::try_new_in(data, FileAllocator).map_err(|AllocError| Error::Unknown)?;
-        Ok(FileDataArc(data))
+    pub(super) fn try_new(data: FileData) -> Result<Self, KernelError> {
+        let data =
+            Arc::try_new_in(data, FileAllocator).map_err(|AllocError| KernelError::Unknown)?;
+        Ok(Self(data))
     }
 }

@@ -1,6 +1,7 @@
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {
+        #[expect(clippy::used_underscore_items)]
         $crate::io::_print(format_args!($($arg)*))
     };
 }
@@ -18,6 +19,7 @@ macro_rules! println {
 #[macro_export]
 macro_rules! eprint {
     ($($arg:tt)*) => {
+        #[expect(clippy::used_underscore_items)]
         $crate::io::_eprint(format_args!($($arg)*))
     };
 }

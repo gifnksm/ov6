@@ -3,7 +3,7 @@ use once_init::OnceInit;
 use riscv::{asm, register::satp};
 
 use crate::{
-    error::Error,
+    error::KernelError,
     interrupt::trampoline,
     memory::{
         PAGE_SIZE, PhysAddr, VirtAddr,
@@ -18,7 +18,7 @@ use super::{page::PageFrameAllocator, page_table::PageTable};
 /// The kernel's page table address.
 static KERNEL_PAGE_TABLE: OnceInit<KernelPageTable> = OnceInit::new();
 
-/// Initialize the one kernel_pagetable
+/// Initialize the one `KernelPageTable`
 pub fn init() {
     KERNEL_PAGE_TABLE.init(KernelPageTable::new());
 }
@@ -43,7 +43,7 @@ unsafe fn ident_map(
     addr: usize,
     size: usize,
     perm: PtEntryFlags,
-) -> Result<(), Error> {
+) -> Result<(), KernelError> {
     kpgtbl.map_pages(VirtAddr::new(addr), size, PhysAddr::new(addr), perm)
 }
 

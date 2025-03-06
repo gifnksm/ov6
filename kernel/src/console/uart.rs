@@ -57,9 +57,9 @@ unsafe fn write_reg(offset: usize, data: u8) {
 /// The transmit output buffer.
 struct TxBuffer {
     buf: [u8; 32],
-    /// Write next to buf[tx_w % buf.len()]
+    /// Write next to `buf[tx_w % buf.len()]`
     tx_w: usize,
-    /// Read next from buf[tx_w % buf.len()]
+    /// Read next from `buf[tx_w % buf.len()]`
     tx_r: usize,
 }
 
@@ -125,7 +125,7 @@ pub fn init() {
 /// Blocks if the output buffer is full.
 /// Because it may block, it can't be called
 /// from interrupts; it's only suitable for use
-/// by write().
+/// by `write()`.
 pub fn putc(c: char) {
     let mut buffer = TX_BUFFER.lock();
 
@@ -146,8 +146,8 @@ pub fn putc(c: char) {
 
 /// Sends a character to the UART synchronously.
 ///
-/// Alternate version of putc() that doesn't
-/// use interrupts, for use by kernel printf() and
+/// Alternate version of `putc()` that doesn't
+/// use interrupts, for use by kernel `printf()` and
 /// to echo characters.
 ///
 /// It spins waiting for the uart's
@@ -176,7 +176,7 @@ pub fn putc_sync(c: char) {
 /// If the UART is idle, and a character is waiting
 /// in the transmit buffer, send it.
 ///
-/// Caller must hold the TX_BUFFER lock.
+/// Caller must hold the `TX_BUFFER` lock.
 /// Called from both the top- and bottom-half.
 fn start(buffer: &mut TxBuffer) {
     loop {
@@ -210,19 +210,14 @@ fn start(buffer: &mut TxBuffer) {
 ///
 /// Returns None if none is waiting.
 fn getc() -> Option<u8> {
-    if (unsafe { read_reg(LSR) } & LSR_RX_READY) != 0 {
-        // input data is ready
-        Some(unsafe { read_reg(RHR) })
-    } else {
-        None
-    }
+    ((unsafe { read_reg(LSR) } & LSR_RX_READY) != 0).then(|| unsafe { read_reg(RHR) })
 }
 
 /// Handle a uart interrupt, raised because input
 /// has arrived, or the uart is ready for more output, or
 /// both.
 ///
-/// Called from devintr().
+/// Called from `devintr()`.
 pub fn handle_interrupt() {
     // read and process incoming characters.
     while let Some(c) = getc() {

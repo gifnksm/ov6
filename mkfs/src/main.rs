@@ -5,7 +5,7 @@
 use std::{
     env,
     fs::File,
-    io::{self, Read, Seek, SeekFrom, Write as _},
+    io::{self, Read as _, Seek as _, SeekFrom, Write as _},
     mem,
     path::Path,
     process,
@@ -83,7 +83,7 @@ struct FileSystem {
 impl FileSystem {
     fn new(image_file: &Path) -> io::Result<Self> {
         let total_blocks = u32::try_from(FS_SIZE).unwrap();
-        let mut fs = FileSystem {
+        let mut fs = Self {
             img: File::options()
                 .read(true)
                 .write(true)
@@ -112,7 +112,7 @@ impl FileSystem {
             nblocks: fs.num_blocks,
             ninodes: fs.num_inodes,
             nlog: fs.num_log_blocks,
-            logstart: 2u32,
+            logstart: 2_u32,
             inodestart: (2 + fs.num_log_blocks),
             bmapstart: (2 + fs.num_log_blocks + fs.num_inode_blocks),
         };
@@ -132,7 +132,7 @@ impl FileSystem {
 
     fn clear_all_sections(&mut self) -> io::Result<()> {
         for i in 0..self.total_blocks {
-            self.write_section(BlockNo::new(i), &[0u8; FS_BLOCK_SIZE])?;
+            self.write_section(BlockNo::new(i), &[0_u8; FS_BLOCK_SIZE])?;
         }
         Ok(())
     }
@@ -149,7 +149,7 @@ impl FileSystem {
             bmapstart: self.sb.bmapstart.to_le(),
         };
 
-        let mut buf = [0u8; FS_BLOCK_SIZE];
+        let mut buf = [0_u8; FS_BLOCK_SIZE];
         let sb_bytes = sb.as_bytes();
         buf[..sb_bytes.len()].copy_from_slice(sb_bytes);
         self.write_section(BlockNo::new(1), &buf)?;
@@ -187,7 +187,7 @@ impl FileSystem {
     }
 
     fn write_bitmap(&mut self) -> io::Result<()> {
-        let mut buf = [0u8; FS_BLOCK_SIZE];
+        let mut buf = [0_u8; FS_BLOCK_SIZE];
 
         let used = usize::try_from(self.next_free_block.value()).unwrap();
         println!("balloc: first {used} blocks have been allocated");
@@ -252,8 +252,8 @@ impl FileSystem {
 
         let inode = Inode {
             ty: ty.to_le(),
-            nlink: 1i16.to_le(),
-            size: 0u32.to_le(),
+            nlink: 1_i16.to_le(),
+            size: 0_u32.to_le(),
             ..Inode::zeroed()
         };
         self.write_inode(ino, &inode)?;
@@ -299,7 +299,7 @@ impl FileSystem {
                 BlockNo::new(u32::from_le(ind_buf[file_bidx - NUM_DIRECT_REFS]))
             };
 
-            let mut buf = [0u8; FS_BLOCK_SIZE];
+            let mut buf = [0_u8; FS_BLOCK_SIZE];
             self.read_section(bn, &mut buf)?;
 
             let block_start = file_bidx * FS_BLOCK_SIZE;

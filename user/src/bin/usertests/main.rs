@@ -10,7 +10,7 @@ use ov6_fs_types::FS_BLOCK_SIZE;
 use ov6_kernel_params::MAX_OP_BLOCKS;
 use ov6_user_lib::{
     env, eprint, eprintln,
-    io::{Read, Write},
+    io::{Read as _, Write as _},
     pipe,
     process::{self},
 };
@@ -177,11 +177,11 @@ enum Continuous {
 }
 
 impl Continuous {
-    fn judge_result<E>(&self, result: Result<(), E>) -> Result<(), E> {
+    fn judge_result<E>(self, result: Result<(), E>) -> Result<(), E> {
         match self {
-            Continuous::Once => result,
-            Continuous::UntilFailure => result,
-            Continuous::Forever => Ok(()),
+            Self::Once => result,
+            Self::UntilFailure => result,
+            Self::Forever => Ok(()),
         }
     }
 }
@@ -204,7 +204,7 @@ impl Param {
             Self::usage_and_exit();
         }
 
-        let mut param = Param {
+        let mut param = Self {
             run_quick_only: false,
             run_just_one: None,
             continuous: Continuous::Once,
@@ -215,7 +215,7 @@ impl Param {
                 "-q" => param.run_quick_only = true,
                 "-c" => param.continuous = Continuous::UntilFailure,
                 "-C" => param.continuous = Continuous::Forever,
-                _ if !arg.starts_with("-") => param.run_just_one = Some(arg.to_owned()),
+                _ if !arg.starts_with('-') => param.run_just_one = Some(arg.to_owned()),
                 _ => Self::usage_and_exit(),
             }
         }

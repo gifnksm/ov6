@@ -3,7 +3,7 @@
 use ov6_user_lib::{
     env,
     fs::File,
-    io::{self, Read, Write},
+    io::{self, Read, Write as _},
     process,
 };
 use user::try_or_exit;

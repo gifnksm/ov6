@@ -1,15 +1,17 @@
-use core::{alloc::Layout, mem::MaybeUninit, ops::Deref, ptr::NonNull};
-
-use alloc::{
-    alloc::{AllocError, Allocator},
-    sync::{Arc, Weak},
+use core::{
+    alloc::{AllocError, Allocator, Layout},
+    mem::MaybeUninit,
+    ops::Deref,
+    ptr::NonNull,
 };
+
+use alloc::sync::{Arc, Weak};
 use once_init::OnceInit;
 use ov6_kernel_params::NINODE;
 use slab_allocator::{ArcInnerLayout, SlabAllocator};
 
 use crate::{
-    error::Error,
+    error::KernelError,
     sync::{SleepLock, SpinLock},
 };
 
@@ -62,9 +64,9 @@ impl Deref for InodeDataArc {
 }
 
 impl InodeDataArc {
-    pub(super) fn try_new(data: SleepLock<Option<InodeData>>) -> Result<Self, Error> {
+    pub(super) fn try_new(data: SleepLock<Option<InodeData>>) -> Result<Self, KernelError> {
         let data =
-            Arc::try_new_in(data, InodeDataAllocator).map_err(|AllocError| Error::Unknown)?;
+            Arc::try_new_in(data, InodeDataAllocator).map_err(|AllocError| KernelError::Unknown)?;
         Ok(Self(data))
     }
 

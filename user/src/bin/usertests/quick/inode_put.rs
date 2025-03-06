@@ -2,7 +2,7 @@ use core::ffi::CStr;
 
 use ov6_user_lib::{
     env,
-    error::Error,
+    error::Ov6Error,
     fs::{self, File},
     process, thread,
 };
@@ -12,10 +12,10 @@ use crate::{ROOT_DIR_PATH, expect};
 const IPUTDIR_PATH: &CStr = c"iputdir";
 const OIDIR_PATH: &CStr = c"oidir";
 
-/// does the error path in open() for attempt to write a
-/// directory call Inode::put() in a transaction?
-/// needs a hacked kernel that pauses just after the namei()
-/// call in sys_open():
+/// does the error path in `open()` for attempt to write a
+/// directory call `Inode::put()` in a transaction?
+/// needs a hacked kernel that pauses just after the `namei()`
+/// call in `sys_open()`:
 ///
 /// ```c
 /// if((ip = namei(path)) == 0)
@@ -32,7 +32,7 @@ pub fn open_test() {
     let child = process::fork_fn(|| {
         expect!(
             File::options().read(true).write(true).open(OIDIR_PATH),
-            Err(Error::Unknown),
+            Err(Ov6Error::Unknown),
         );
         process::exit(0);
     })
@@ -45,7 +45,7 @@ pub fn open_test() {
     assert!(status.success());
 }
 
-/// does exit() call Inode::put(p->cwd) in a transaction?
+/// does `exit()` call `Inode::put(p->cwd)` in a transaction?
 pub fn exit_test() {
     let status = process::fork_fn(|| {
         fs::create_dir(IPUTDIR_PATH).unwrap();
@@ -59,7 +59,7 @@ pub fn exit_test() {
     assert!(status.success());
 }
 
-/// does chdir() call Inode::put(p->cwd) in a transaction?
+/// does `chdir()` call `Inode::put(p->cwd)` in a transaction?
 pub fn chdir_test() {
     fs::create_dir(IPUTDIR_PATH).unwrap();
     env::set_current_directory(IPUTDIR_PATH).unwrap();

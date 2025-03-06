@@ -39,14 +39,18 @@ macro_rules! syscall {
 #[cfg(not(target_arch = "riscv64"))]
 macro_rules! syscall {
     ($ty:expr => $(#[$attr:meta])* fn $name:ident($($params:tt)*) -> $ret:ty) => {
+        #[allow(clippy::allow_attributes)]
         #[allow(unused_variables)]
+        #[allow(clippy::must_use_candidate)]
         $(#[$attr])*
         pub extern "C" fn $name($($params)*) -> $ret {
             panic!();
         }
     };
     ($ty:expr => $(#[$attr:meta])* unsafe fn $name:ident($($params:tt)*) -> $ret:ty) => {
+        #[allow(clippy::allow_attributes)]
         #[allow(unused_variables)]
+        #[allow(clippy::must_use_candidate)]
         $(#[$attr])*
         pub unsafe extern "C" fn $name($($params)*) -> $ret {
             panic!();

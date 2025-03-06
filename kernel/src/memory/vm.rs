@@ -1,7 +1,7 @@
 use core::{mem, ptr, slice};
 
 use crate::{
-    error::Error,
+    error::KernelError,
     memory::{PAGE_SIZE, PageRound as _, VirtAddr, page_table::PtEntryFlags},
 };
 
@@ -10,7 +10,11 @@ use super::user::UserPageTable;
 /// Copies from user to kernel.
 ///
 /// Copies from `src` to virtual address `dst_va` in a given page table.
-pub fn copy_out<T>(pagetable: &mut UserPageTable, dst_va: VirtAddr, src: &T) -> Result<(), Error> {
+pub fn copy_out<T>(
+    pagetable: &mut UserPageTable,
+    dst_va: VirtAddr,
+    src: &T,
+) -> Result<(), KernelError> {
     let src = unsafe { slice::from_raw_parts(ptr::from_ref(src).cast(), mem::size_of::<T>()) };
     copy_out_bytes(pagetable, dst_va, src)
 }
@@ -22,11 +26,11 @@ pub fn copy_out_bytes(
     pagetable: &mut UserPageTable,
     mut dst_va: VirtAddr,
     mut src: &[u8],
-) -> Result<(), Error> {
+) -> Result<(), KernelError> {
     while !src.is_empty() {
         let va0 = dst_va.page_rounddown();
         if va0 >= VirtAddr::MAX {
-            return Err(Error::Unknown);
+            return Err(KernelError::Unknown);
         }
         let offset = dst_va.addr() - va0.addr();
         let mut n = PAGE_SIZE - offset;
@@ -47,7 +51,7 @@ pub fn copy_out_bytes(
 /// Copies from user to kernel.
 ///
 /// Returns the copy from virtual address `src_va` in a given page table.
-pub fn copy_in<T>(pagetable: &UserPageTable, src_va: VirtAddr) -> Result<T, Error> {
+pub fn copy_in<T>(pagetable: &UserPageTable, src_va: VirtAddr) -> Result<T, KernelError> {
     let mut dst = mem::MaybeUninit::<T>::uninit();
     copy_in_raw(pagetable, dst.as_mut_ptr().cast(), size_of::<T>(), src_va)?;
     Ok(unsafe { dst.assume_init() })
@@ -67,7 +71,7 @@ pub fn copy_in_bytes(
     pagetable: &UserPageTable,
     dst: &mut [u8],
     src_va: VirtAddr,
-) -> Result<(), Error> {
+) -> Result<(), KernelError> {
     copy_in_raw(pagetable, dst.as_mut_ptr(), dst.len(), src_va)
 }
 
@@ -79,7 +83,7 @@ pub fn copy_in_raw(
     mut dst: *mut u8,
     mut dst_size: usize,
     mut src_va: VirtAddr,
-) -> Result<(), Error> {
+) -> Result<(), KernelError> {
     while dst_size > 0 {
         let va0 = src_va.page_rounddown();
         let offset = src_va.addr() - va0.addr();
@@ -108,7 +112,7 @@ pub fn copy_in_str(
     pagetable: &UserPageTable,
     mut dst: &mut [u8],
     mut src_va: VirtAddr,
-) -> Result<(), Error> {
+) -> Result<(), KernelError> {
     while !dst.is_empty() {
         let va0 = src_va.page_rounddown();
         let src_page = pagetable.fetch_page(va0, PtEntryFlags::UR)?;
@@ -133,5 +137,5 @@ pub fn copy_in_str(
 
         src_va = va0.byte_add(PAGE_SIZE);
     }
-    Err(Error::Unknown)
+    Err(KernelError::Unknown)
 }

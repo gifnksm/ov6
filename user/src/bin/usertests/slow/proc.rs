@@ -4,7 +4,7 @@ use ov6_user_lib::{io::STDOUT_FD, os::ov6::syscall, process};
 
 use crate::{ECHO_PATH, PAGE_SIZE};
 
-/// test the exec() code that cleans up if it runs out
+/// test the `exec()` code that cleans up if it runs out
 /// of memory. it's really a test that such a condition
 /// doesn't cause a panic.
 pub fn execout() {
@@ -15,7 +15,9 @@ pub fn execout() {
                 let Ok(a) = process::grow_break(PAGE_SIZE) else {
                     break;
                 };
-                unsafe { a.add(PAGE_SIZE - 1).write_volatile(1) };
+                unsafe {
+                    a.add(PAGE_SIZE - 1).write_volatile(1);
+                }
             }
 
             // free a few pages, in order to let exec() make some

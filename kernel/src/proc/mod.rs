@@ -1,4 +1,5 @@
 use core::{
+    alloc::AllocError,
     cell::UnsafeCell,
     char, cmp,
     ffi::c_void,
@@ -9,14 +10,14 @@ use core::{
     sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, Ordering},
 };
 
-use alloc::{alloc::AllocError, boxed::Box};
+use alloc::boxed::Box;
 use arrayvec::ArrayString;
 use dataview::{Pod, PodMethods as _};
 use once_init::OnceInit;
 
 use crate::{
     cpu::Cpu,
-    error::Error,
+    error::KernelError,
     file::File,
     fs::{self, DeviceNo, Inode},
     interrupt::{self, trap},
@@ -57,13 +58,13 @@ impl fmt::Display for ProcId {
 }
 
 impl ProcId {
-    pub const INVALID: Self = ProcId(-1);
+    pub const INVALID: Self = Self(-1);
 
     pub const fn new(pid: i32) -> Self {
         Self(pid)
     }
 
-    pub fn get(&self) -> i32 {
+    pub fn get(self) -> i32 {
         self.0
     }
 }
@@ -75,7 +76,7 @@ pub struct TrapFrame {
     pub kernel_satp: usize, // 0
     /// Top of process's kernel stack.
     pub kernel_sp: usize, // 8
-    /// Usertrap().
+    /// usertrap.
     pub kernel_trap: usize, // 16
     /// Saved user program counter.
     pub epc: usize, // 24
@@ -169,7 +170,7 @@ impl ProcSharedData {
         self.killed = true;
     }
 
-    pub fn killed(&mut self) -> bool {
+    pub fn killed(&self) -> bool {
         self.killed
     }
 }
@@ -200,7 +201,7 @@ impl ProcShared {
         self.0.lock()
     }
 
-    pub fn try_lock(&self) -> Result<SpinLockGuard<ProcSharedData>, Error> {
+    pub fn try_lock(&self) -> Result<SpinLockGuard<ProcSharedData>, KernelError> {
         self.0.try_lock()
     }
 
@@ -262,16 +263,16 @@ impl ProcPrivateData {
     }
 
     pub fn ofile(&self, fd: usize) -> Option<&File> {
-        self.ofile.get(fd).and_then(|p| p.as_ref())
+        self.ofile.get(fd)?.as_ref()
     }
 
-    pub fn add_ofile(&mut self, file: File) -> Result<usize, Error> {
+    pub fn add_ofile(&mut self, file: File) -> Result<usize, KernelError> {
         let (fd, slot) = self
             .ofile
             .iter_mut()
             .enumerate()
             .find(|(_, slot)| slot.is_none())
-            .ok_or(Error::Unknown)?;
+            .ok_or(KernelError::Unknown)?;
         assert!(slot.replace(file).is_none());
         Ok(fd)
     }
@@ -288,13 +289,13 @@ impl ProcPrivateData {
         self.cwd.replace(cwd).unwrap()
     }
 
-    pub fn validate_addr(&self, addr_range: Range<VirtAddr>) -> Result<(), Error> {
+    pub fn validate_addr(&self, addr_range: Range<VirtAddr>) -> Result<(), KernelError> {
         let end = VirtAddr::new(self.pagetable().unwrap().size());
         // both tests needed, in case of overflow
         if addr_range.start < end && addr_range.end <= end {
             Ok(())
         } else {
-            Err(Error::Unknown)
+            Err(KernelError::Unknown)
         }
     }
 }
@@ -387,12 +388,11 @@ impl Proc {
     fn is_child_of(&self, parent: &Self, wait_lock: &mut SpinLockGuard<WaitLock>) -> bool {
         self.parent
             .get(wait_lock)
-            .map(|pp| ptr::eq(parent, pp))
-            .unwrap_or(false)
+            .is_some_and(|pp| ptr::eq(parent, pp))
     }
 
-    fn set_parent(&self, parent: &'static Proc, _wait_lock: &mut SpinLockGuard<WaitLock>) {
-        self.parent.set(parent, _wait_lock);
+    fn set_parent(&self, parent: &'static Self, wait_lock: &mut SpinLockGuard<WaitLock>) {
+        self.parent.set(parent, wait_lock);
     }
 
     fn allocate_pid() -> ProcId {
@@ -434,11 +434,11 @@ impl Proc {
         shared.state = ProcState::Used;
         let mut private = p.take_private();
 
-        let res: Result<(), Error> = (|| {
+        let res: Result<(), KernelError> = (|| {
             // Allocate a trapframe page.
             private.trapframe = Some(
                 Box::try_new_in(TrapFrame::zeroed(), PageFrameAllocator)
-                    .map_err(|AllocError| Error::Unknown)?,
+                    .map_err(|AllocError| KernelError::Unknown)?,
             );
             // An empty user page table.
             private.pagetable = Some(UserPageTable::new(private.trapframe().unwrap())?);
@@ -470,7 +470,9 @@ impl Proc {
         if let Some(pt) = private.pagetable.take() {
             drop(pt);
         }
-        unsafe { self.parent.reset() };
+        unsafe {
+            self.parent.reset();
+        }
         shared.pid = ProcId::INVALID;
         shared.name.clear();
         shared.killed = false;
@@ -481,7 +483,7 @@ impl Proc {
     }
 }
 
-/// ALlocates a page for each process's kernel stack.
+/// Allocates a page for each process's kernel stack.
 ///
 /// Map it high in memory, followed by an invalid
 /// guard page.
@@ -543,7 +545,7 @@ pub fn user_init() {
 }
 
 /// Grows or shrink user memory by nBytes.
-pub fn grow_proc(private: &mut ProcPrivateData, n: isize) -> Result<(), Error> {
+pub fn grow_proc(private: &mut ProcPrivateData, n: isize) -> Result<(), KernelError> {
     let pagetable = private.pagetable_mut().unwrap();
     let old_sz = pagetable.size();
     let new_sz = (old_sz as isize + n) as usize;
@@ -552,7 +554,7 @@ pub fn grow_proc(private: &mut ProcPrivateData, n: isize) -> Result<(), Error> {
         cmp::Ordering::Equal => {}
         cmp::Ordering::Less => pagetable.shrink(new_sz),
         cmp::Ordering::Greater => pagetable.grow(new_sz, PtEntryFlags::W)?,
-    };
+    }
 
     Ok(())
 }
@@ -590,7 +592,7 @@ pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Option<ProcId> {
             *nof = Some(of.dup());
         }
     }
-    np_private.cwd = p_private.cwd.clone();
+    np_private.cwd.clone_from(&p_private.cwd);
     np_shared.name = parent_name;
 
     let pid = np_shared.pid;
@@ -672,7 +674,11 @@ pub fn exit(p: &Proc, mut p_private: ProcPrivateDataGuard, status: i32) -> ! {
 /// Waits for a child process to exit and return its pid.
 ///
 /// Returns `Err` if this process has no children.
-pub fn wait(p: &Proc, p_private: &mut ProcPrivateData, addr: VirtAddr) -> Result<ProcId, Error> {
+pub fn wait(
+    p: &Proc,
+    p_private: &mut ProcPrivateData,
+    addr: VirtAddr,
+) -> Result<ProcId, KernelError> {
     let mut wait_lock = wait_lock::lock();
 
     loop {
@@ -696,7 +702,7 @@ pub fn wait(p: &Proc, p_private: &mut ProcPrivateData, addr: VirtAddr) -> Result
                 {
                     drop(pp_shared);
                     drop(wait_lock);
-                    return Err(Error::Unknown);
+                    return Err(KernelError::Unknown);
                 }
                 pp.free(pp_private, &mut pp_shared);
                 drop(pp_shared);
@@ -709,7 +715,7 @@ pub fn wait(p: &Proc, p_private: &mut ProcPrivateData, addr: VirtAddr) -> Result
         // No point waiting if we don't have any children.
         if !have_kids || p.shared.lock().killed() {
             drop(wait_lock);
-            return Err(Error::Unknown);
+            return Err(KernelError::Unknown);
         }
 
         // Wait for a child to exit.
@@ -747,7 +753,7 @@ extern "C" fn forkret() {
     trap::trap_user_ret(private);
 }
 
-/// Automatically releases `lock` and sleeps on `chan``.
+/// Automatically releases `lock` and sleeps on `chan`.
 ///
 /// Reacquires lock when awakened.
 pub fn sleep<T>(chan: *const c_void, guard: SpinLockGuard<'_, T>) -> SpinLockGuard<'_, T> {
@@ -790,7 +796,7 @@ pub fn wakeup(chan: *const c_void) {
 ///
 /// The victim won't exit until it tries to return
 /// to user spaec (see `usertrap()`).
-pub fn kill(pid: ProcId) -> Result<(), Error> {
+pub fn kill(pid: ProcId) -> Result<(), KernelError> {
     for p in &PROC {
         let mut shared = p.shared.lock();
         if shared.pid == pid {
@@ -804,7 +810,7 @@ pub fn kill(pid: ProcId) -> Result<(), Error> {
         }
         drop(shared);
     }
-    Err(Error::Unknown)
+    Err(KernelError::Unknown)
 }
 
 /// Copies to either a user address, or kernel address,
@@ -814,7 +820,7 @@ pub fn either_copy_out_bytes(
     user_dst: bool,
     dst: usize,
     src: &[u8],
-) -> Result<(), Error> {
+) -> Result<(), KernelError> {
     if user_dst {
         return vm::copy_out_bytes(p_private.pagetable_mut().unwrap(), VirtAddr::new(dst), src);
     }
@@ -834,7 +840,7 @@ pub fn either_copy_in_bytes(
     dst: &mut [u8],
     user_src: bool,
     src: usize,
-) -> Result<(), Error> {
+) -> Result<(), KernelError> {
     if user_src {
         return vm::copy_in_bytes(p_private.pagetable().unwrap(), dst, VirtAddr::new(src));
     }

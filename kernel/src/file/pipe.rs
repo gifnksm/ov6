@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 
 use crate::{
-    error::Error,
+    error::KernelError,
     memory::{VirtAddr, page::PageFrameAllocator, vm},
     proc::{Proc, ProcPrivateData},
     sync::{SpinLock, SpinLockCondVar},
@@ -32,7 +32,7 @@ struct PipeDataLocked {
     write_open: bool,
 }
 
-pub(super) fn new_file() -> Result<(File, File), Error> {
+pub(super) fn new_file() -> Result<(File, File), KernelError> {
     let pipe = PipeFile(Arc::new_in(
         PipeData {
             reader_cond: SpinLockCondVar::new(),
@@ -84,13 +84,13 @@ impl PipeFile {
         private: &ProcPrivateData,
         addr: VirtAddr,
         n: usize,
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, KernelError> {
         let mut i = 0;
 
         let mut pipe = self.0.data.lock();
         while i < n {
             if !pipe.read_open || p.shared().lock().killed() {
-                return Err(Error::Unknown);
+                return Err(KernelError::Unknown);
             }
             if pipe.nwrite == pipe.nread + PIPE_SIZE {
                 self.0.reader_cond.notify();
@@ -116,11 +116,11 @@ impl PipeFile {
         private: &mut ProcPrivateData,
         addr: VirtAddr,
         n: usize,
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, KernelError> {
         let mut pipe = self.0.data.lock();
         while pipe.nread == pipe.nwrite && pipe.write_open {
             if p.shared().lock().killed() {
-                return Err(Error::Unknown);
+                return Err(KernelError::Unknown);
             }
             pipe = self.0.reader_cond.wait(pipe);
         }

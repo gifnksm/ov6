@@ -4,7 +4,7 @@ use core::{
     sync::atomic::{AtomicPtr, AtomicUsize, Ordering},
 };
 
-use crate::{error::Error, os::ov6::syscall};
+use crate::{error::Ov6Error, os::ov6::syscall};
 
 pub(crate) static ARGC: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static ARGV: AtomicPtr<*const c_char> = AtomicPtr::new(core::ptr::null_mut());
@@ -25,11 +25,13 @@ fn argv() -> &'static [*const c_char] {
     unsafe { slice::from_raw_parts(argv, argc) }
 }
 
+#[must_use]
 pub fn arg0() -> &'static str {
     let arg0 = argv().first().expect("argc should be greater than 1");
     unsafe { CStr::from_ptr(*arg0).to_str().unwrap() }
 }
 
+#[must_use]
 pub fn args() -> Args {
     let args = argv();
     let mut iter = args.iter();
@@ -37,6 +39,7 @@ pub fn args() -> Args {
     Args { iter }
 }
 
+#[must_use]
 pub fn args_cstr() -> ArgsCStr {
     let args = argv();
     let mut iter = args.iter();
@@ -82,6 +85,6 @@ impl ExactSizeIterator for ArgsCStr {
     }
 }
 
-pub fn set_current_directory(path: &CStr) -> Result<(), Error> {
+pub fn set_current_directory(path: &CStr) -> Result<(), Ov6Error> {
     syscall::chdir(path)
 }

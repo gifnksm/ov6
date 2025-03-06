@@ -62,10 +62,7 @@ impl Command<'_> {
                 let argv_cstring: [Option<CString>; 10] =
                     array::from_fn(|i| argv[i].map(|s| CString::new(s).unwrap()));
                 let argv_ptr: [*const c_char; 10] = array::from_fn(|i| {
-                    argv_cstring[i]
-                        .as_ref()
-                        .map(|s| s.as_ptr())
-                        .unwrap_or(ptr::null())
+                    argv_cstring[i].as_ref().map_or(ptr::null(), |s| s.as_ptr())
                 });
                 try_or_exit!(
                     process::exec(argv_cstring[0].as_ref().unwrap(), &argv_ptr),
@@ -103,7 +100,9 @@ impl Command<'_> {
                 );
 
                 let ForkResult::Parent { child: left } = util::fork_or_exit() else {
-                    unsafe { util::close_or_exit(STDOUT_FD, "stdout") };
+                    unsafe {
+                        util::close_or_exit(STDOUT_FD, "stdout");
+                    }
                     let _stdout = try_or_exit!(
                         tx.try_clone(),
                         e => "cloning pipe failed: {e}",
@@ -114,7 +113,9 @@ impl Command<'_> {
                 };
 
                 let ForkResult::Parent { child: right } = util::fork_or_exit() else {
-                    unsafe { util::close_or_exit(STDIN_FD, "stdin") };
+                    unsafe {
+                        util::close_or_exit(STDIN_FD, "stdin");
+                    }
                     let _stdin = try_or_exit!(
                         rx.try_clone(),
                         e => "cloning pipe failed: {e}",

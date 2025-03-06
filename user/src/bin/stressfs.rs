@@ -1,7 +1,5 @@
 #![no_std]
 
-extern crate alloc;
-
 use core::ffi::CStr;
 
 use ov6_user_lib::{
@@ -28,7 +26,7 @@ fn main() {
         }
     }
 
-    path[8] += idx as u8;
+    path[8] += idx;
     let path = CStr::from_bytes_until_nul(&path).unwrap();
 
     let mut data = [b'a'; 512];

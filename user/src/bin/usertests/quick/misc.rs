@@ -1,5 +1,4 @@
 use core::{
-    arch::asm,
     cell::UnsafeCell,
     ffi::{CStr, c_char},
     mem::MaybeUninit,
@@ -8,7 +7,7 @@ use core::{
 
 use ov6_kernel_params::{MAX_ARG, USER_STACK};
 use ov6_user_lib::{
-    error::Error,
+    error::Ov6Error,
     fs::{self, File},
     io::{Read as _, Write as _},
     process,
@@ -24,7 +23,7 @@ pub fn validate() {
             let s = &*{
                 ptr::slice_from_raw_parts(ptr::with_exposed_provenance::<u8>(p), 10) as *const CStr
             };
-            expect!(fs::link(c"nosuchfile", s), Err(Error::Unknown));
+            expect!(fs::link(c"nosuchfile", s), Err(Ov6Error::Unknown));
         }
     }
 }
@@ -62,7 +61,7 @@ pub fn big_arg() {
         args[MAX_ARG - 1] = ptr::null();
         // this exec() should fail (and return) because the
         // arguments are too large.
-        expect!(process::exec(FILE_PATH, args), Err(Error::Unknown));
+        expect!(process::exec(FILE_PATH, args), Err(Ov6Error::Unknown));
         let _ = File::create(FILE_PATH).unwrap();
         process::exit(0);
     })
@@ -80,7 +79,7 @@ pub fn fs_full() {
     let buf = unsafe { (&raw mut BUF).as_mut() }.unwrap();
     let mut nfiles = 0;
     for n in 0.. {
-        let mut name = [0u8; 6];
+        let mut name = [0_u8; 6];
         name[0] = b'f';
         name[1] = b'0' + u8::try_from(n / 1000).unwrap();
         name[2] = b'0' + u8::try_from((n % 1000) / 100).unwrap();
@@ -108,7 +107,7 @@ pub fn fs_full() {
     }
 
     for n in 0..nfiles {
-        let mut name = [0u8; 6];
+        let mut name = [0_u8; 6];
         name[0] = b'f';
         name[1] = b'0' + u8::try_from(n / 1000).unwrap();
         name[2] = b'0' + u8::try_from((n % 1000) / 100).unwrap();
@@ -124,18 +123,28 @@ pub fn argp() {
     let mut file = File::open(c"init").unwrap();
     unsafe {
         let p = slice::from_raw_parts_mut(process::current_break().sub(1), usize::MAX);
-        expect!(file.read(p), Err(Error::Unknown));
+        expect!(file.read(p), Err(Ov6Error::Unknown));
     }
 }
 
 /// check that there's an invalid page beneath
 /// the user stack, to catch stack overflow.
 pub fn stack() {
-    let status = process::fork_fn(|| {
+    #[cfg(target_arch = "riscv64")]
+    fn get_sp() -> usize {
         let mut sp: usize;
         unsafe {
-            asm!("mv {}, sp", out(reg) sp);
+            core::arch::asm!("mv {}, sp", out(reg) sp);
         }
+        sp
+    }
+    #[cfg(not(target_arch = "riscv64"))]
+    fn get_sp() -> usize {
+        panic!("not riscv64");
+    }
+
+    let status = process::fork_fn(|| {
+        let mut sp = get_sp();
         sp -= USER_STACK * PAGE_SIZE;
         // the sp should cause a trap
         let v = unsafe { ptr::with_exposed_provenance::<u8>(sp).read() };
@@ -152,11 +161,11 @@ pub fn stack() {
 pub fn no_write() {
     let addrs = &[
         0,
-        0x80000000,
-        0x3fffffe000,
-        0x3ffffff000,
-        0x4000000000,
-        0xffffffffffffffff,
+        0x8000_0000,
+        0x3f_ffff_e000,
+        0x3f_ffff_f000,
+        0x40_0000_0000,
+        0xffff_ffff_ffff_ffff,
     ];
 
     for &a in addrs {
@@ -172,17 +181,17 @@ pub fn no_write() {
     }
 }
 
-/// regression test. copyin(), copyout(), and copyinstr() used to cast
+/// regression test. `copyin()`, `copyout()`, and `copyinstr()` used to cast
 /// the virtual page address to uint, which (with certain wild system
 /// call arguments) resulted in a kernel page faults.
 pub fn pg_bug() {
-    let big = ptr::with_exposed_provenance::<u8>(0xeaeb0b5b00002f5e);
+    let big = ptr::with_exposed_provenance::<u8>(0xeaeb_0b5b_0000_2f5e);
     let argv = &[ptr::null()];
     let path = unsafe { &*(ptr::slice_from_raw_parts(big, 10) as *const CStr) };
-    expect!(process::exec(path, argv), Err(Error::Unknown));
+    expect!(process::exec(path, argv), Err(Ov6Error::Unknown));
 }
 
-/// regression test. does the kernel panic if a process sbrk()s its
+/// regression test. does the kernel panic if a process `sbrk()`s its
 /// size to be less than a page, or zero, or reduces the break by an
 /// amount too small to cause a page to be freed?
 pub fn sbrk_bugs() {
@@ -234,7 +243,7 @@ pub fn sbrk_bugs() {
 
 /// if process size was somewhat more than a page boundary, and then
 /// shrunk to be somewhat less than that page boundary, can the kernel
-/// still copyin() from addresses in the last page?
+/// still `copyin()` from addresses in the last page?
 pub fn sbrk_last() {
     let top = process::current_break().addr();
     if (top % PAGE_SIZE) != 0 {
@@ -269,11 +278,11 @@ pub fn sbrk8000() {
     }
 }
 
-/// regression test. test whether exec() leaks memory if one of the
+/// regression test. test whether `exec()` leaks memory if one of the
 /// arguments is invalid. the test passes if the kernel doesn't panic.
 pub fn bad_arg() {
     for _ in 0..50000 {
         let argv = [ptr::with_exposed_provenance(0xffff_ffff), ptr::null()];
-        expect!(process::exec(ECHO_PATH, &argv), Err(Error::Unknown));
+        expect!(process::exec(ECHO_PATH, &argv), Err(Ov6Error::Unknown));
     }
 }
