@@ -30,17 +30,15 @@ impl<const PAGE_SIZE: usize> PageFrameAllocator<PAGE_SIZE> {
         assert_eq!(heap.end.addr() % PAGE_SIZE, 0);
 
         let mut free_list = None;
-        let mut p = heap.start;
+        let mut p = heap.end;
 
-        while p < heap.end {
+        while p > heap.start {
+            p = unsafe { p.byte_sub(PAGE_SIZE) };
             let mut run = NonNull::new(p).unwrap().cast::<Run>();
             unsafe {
                 run.as_mut().next = free_list;
             }
             free_list = Some(run);
-            unsafe {
-                p = p.byte_add(PAGE_SIZE);
-            }
         }
 
         Self { heap, free_list }
