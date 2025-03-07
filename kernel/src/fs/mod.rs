@@ -20,7 +20,7 @@ pub use {
         inode::{Inode, LockedTxInode},
         log::{Tx, begin_readonly_tx, begin_tx},
     },
-    repr::{BlockNo, DIR_SIZE, FS_BLOCK_SIZE, InodeNo, T_DEVICE, T_DIR, T_FILE},
+    repr::{BlockNo, FS_BLOCK_SIZE, InodeNo, T_DEVICE, T_DIR, T_FILE},
 };
 
 mod block_io;

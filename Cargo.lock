@@ -97,6 +97,7 @@ dependencies = [
  "dataview",
  "ov6_fs_types",
  "ov6_kernel_params",
+ "ov6_types",
 ]
 
 [[package]]
@@ -115,6 +116,7 @@ name = "ov6_fs_types"
 version = "0.1.0"
 dependencies = [
  "dataview",
+ "ov6_types",
 ]
 
 [[package]]

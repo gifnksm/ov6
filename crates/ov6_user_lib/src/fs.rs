@@ -1,6 +1,7 @@
 use core::ffi::CStr;
 
 use dataview::PodMethods as _;
+use ov6_types::os_str::OsStr;
 
 use crate::{
     error::Ov6Error,
@@ -276,7 +277,7 @@ pub struct DirEntry {
 
 impl DirEntry {
     #[must_use]
-    pub fn name(&self) -> &str {
-        str::from_utf8(self.ent.name()).unwrap()
+    pub fn name(&self) -> &OsStr {
+        self.ent.name()
     }
 }

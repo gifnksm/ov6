@@ -1,7 +1,7 @@
 use core::{
     alloc::AllocError,
     cell::UnsafeCell,
-    char, cmp,
+    cmp,
     ffi::c_void,
     fmt,
     ops::{Deref, DerefMut, Range},
@@ -11,9 +11,10 @@ use core::{
 };
 
 use alloc::boxed::Box;
-use arrayvec::ArrayString;
+use arrayvec::ArrayVec;
 use dataview::{Pod, PodMethods as _};
 use once_init::OnceInit;
+use ov6_types::{os_str::OsStr, path::Path};
 
 use crate::{
     cpu::Cpu,
@@ -130,7 +131,7 @@ pub struct ProcSharedData {
     /// Process ID
     pid: ProcId,
     /// Process name (for debugging)
-    name: ArrayString<16>,
+    name: ArrayVec<u8, 16>,
     /// Process State
     state: ProcState,
     /// Process is killed
@@ -146,24 +147,16 @@ impl ProcSharedData {
         self.pid
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
+    pub fn name(&self) -> &OsStr {
+        OsStr::from_bytes(&self.name)
     }
 
-    pub fn set_name(&mut self, name: &[u8]) {
+    pub fn set_name(&mut self, name: &OsStr) {
         self.name.clear();
-        'outer: for chunk in name.utf8_chunks() {
-            for ch in chunk.valid().chars() {
-                if self.name.try_push(ch).is_err() {
-                    break 'outer;
-                }
-            }
-            if !chunk.invalid().is_empty()
-                && self.name.try_push(char::REPLACEMENT_CHARACTER).is_err()
-            {
-                break 'outer;
-            }
-        }
+        let len = usize::min(self.name.capacity(), name.len());
+        self.name
+            .try_extend_from_slice(&name.as_bytes()[..len])
+            .unwrap();
     }
 
     pub fn kill(&mut self) {
@@ -181,7 +174,7 @@ impl ProcShared {
     const fn new() -> Self {
         Self(SpinLock::new(ProcSharedData {
             pid: ProcId::INVALID,
-            name: ArrayString::new_const(),
+            name: ArrayVec::new_const(),
             state: ProcState::Unused,
             killed: false,
             context: Context::zeroed(),
@@ -535,10 +528,10 @@ pub fn user_init() {
 
     let tx = fs::begin_readonly_tx();
     private.cwd = Some(Inode::from_tx(
-        &fs::path::resolve(&tx, &mut private, b"/").unwrap(),
+        &fs::path::resolve(&tx, &mut private, Path::new("/")).unwrap(),
     ));
     tx.end();
-    shared.name = "initcode".try_into().unwrap();
+    shared.set_name(OsStr::new("initcode"));
     shared.state = ProcState::Runnable;
 
     drop(shared);
@@ -563,7 +556,7 @@ pub fn grow_proc(private: &mut ProcPrivateData, n: isize) -> Result<(), KernelEr
 ///
 /// Sets up child kernel stack to return as if from `fork()` system call.
 pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Option<ProcId> {
-    let parent_name = p.shared().lock().name;
+    let parent_name = p.shared().lock().name.clone();
 
     // Allocate process.
     let (np, mut np_shared, mut np_private) = Proc::allocate()?;
@@ -862,7 +855,7 @@ pub fn dump() {
         let shared = p.shared.lock();
         let pid = shared.pid;
         let state = shared.state;
-        let name = shared.name;
+        let name = shared.name.clone();
         drop(shared);
         if state == ProcState::Unused {
             continue;
@@ -877,6 +870,7 @@ pub fn dump() {
             ProcState::Zombie { .. } => "zombie",
         };
 
+        let name = OsStr::from_bytes(&name).display();
         println!("{pid:5} {state:<10} {name}");
     }
 }

@@ -77,7 +77,7 @@ pub fn syscall(p: &'static Proc, private: &mut Option<ProcPrivateDataGuard>) {
     let Some(ty) = SyscallType::from_repr(n) else {
         let shared = p.shared().lock();
         let pid = shared.pid();
-        let name = shared.name();
+        let name = shared.name().display();
         println!("{pid} {name}: unknown sys call {n}");
         private_ref.trapframe_mut().unwrap().a0 = usize::MAX;
         return;

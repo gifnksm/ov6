@@ -101,5 +101,5 @@ pub const fn kstack(p: usize) -> VirtAddr {
     TRAPFRAME.byte_sub((1 + (p + 1) * (KSTACK_GUARD_PAGES + KSTACK_PAGES)) * PAGE_SIZE)
 }
 
-pub const KSTACK_PAGES: usize = 1;
+pub const KSTACK_PAGES: usize = 2;
 pub const KSTACK_GUARD_PAGES: usize = 1;

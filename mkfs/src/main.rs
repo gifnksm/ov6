@@ -17,6 +17,7 @@ use ov6_fs_types::{
     MAX_FILE, NUM_DIRECT_REFS, NUM_INDIRECT_REFS, SuperBlock, T_DIR, T_FILE,
 };
 use ov6_kernel_params::{FS_LOG_SIZE, FS_SIZE, NUM_FS_INODES};
+use ov6_types::os_str::OsStr;
 
 const _: () = const {
     assert!(FS_BLOCK_SIZE % size_of::<Inode>() == 0);
@@ -172,16 +173,15 @@ impl FileSystem {
         Ok(ino)
     }
 
-    fn add_directory_entry(
-        &mut self,
-        dir_ino: InodeNo,
-        ino: InodeNo,
-        name: &str,
-    ) -> io::Result<()> {
+    fn add_directory_entry<S>(&mut self, dir_ino: InodeNo, ino: InodeNo, name: S) -> io::Result<()>
+    where
+        S: AsRef<OsStr>,
+    {
+        let name = name.as_ref();
         assert!(name.len() < DIR_SIZE);
         let mut de = DirEntry::zeroed();
         de.set_ino(Some(InodeNo::new(ino.value().to_le())));
-        de.set_name(name.as_bytes());
+        de.set_name(name);
         self.append_inode(dir_ino, &de)?;
         Ok(())
     }

@@ -1,6 +1,7 @@
 //! Directories
 
 use dataview::PodMethods as _;
+use ov6_types::os_str::OsStr;
 
 use crate::{
     error::KernelError,
@@ -67,7 +68,7 @@ impl<'tx, const READ_ONLY: bool> DirInode<'tx, '_, '_, READ_ONLY> {
     pub fn lookup(
         &mut self,
         private: &mut ProcPrivateData,
-        name: &[u8],
+        name: &OsStr,
     ) -> Option<(TxInode<'tx, READ_ONLY>, usize)> {
         for off in (0..self.0.data().size as usize).step_by(size_of::<repr::DirEntry>()) {
             let de = self.0.read_as::<repr::DirEntry>(private, off).unwrap();
@@ -87,7 +88,7 @@ impl DirInode<'_, '_, '_, false> {
     pub fn link(
         &mut self,
         private: &mut ProcPrivateData,
-        name: &[u8],
+        name: &OsStr,
         ino: InodeNo,
     ) -> Result<(), KernelError> {
         // Check that name is not present.

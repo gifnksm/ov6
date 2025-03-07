@@ -79,7 +79,7 @@ extern "C" fn trap_user() {
         Trap::Exception(e) => {
             let mut shared = p.shared().lock();
             let pid = shared.pid();
-            let name = shared.name();
+            let name = shared.name().display();
             let sepc = sepc::read();
             let stval = stval::read();
             println!("usertrap: exception {e:?} pid={pid} name={name}");
@@ -91,7 +91,7 @@ extern "C" fn trap_user() {
             if which_dev == IntrKind::NotRecognized {
                 let mut shared = p.shared().lock();
                 let pid = shared.pid();
-                let name = shared.name();
+                let name = shared.name().display();
                 let sepc = sepc::read();
                 let stval = stval::read();
                 println!("usertrap: unexpected interrupt {int:?} pid={pid} name={name}");

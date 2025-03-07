@@ -16,6 +16,7 @@
 use core::{fmt, mem};
 
 use dataview::{Pod, PodMethods as _};
+use ov6_types::os_str::OsStr;
 
 /// Block size.
 pub const FS_BLOCK_SIZE: usize = 1024;
@@ -345,24 +346,24 @@ impl DirEntry {
     }
 
     #[must_use]
-    pub fn name(&self) -> &[u8] {
+    pub fn name(&self) -> &OsStr {
         let len = self
             .name
             .iter()
             .position(|&c| c == 0)
             .unwrap_or(self.name.len());
-        &self.name[..len]
+        OsStr::from_bytes(&self.name[..len])
     }
 
     #[must_use]
-    pub fn is_same_name(&self, name: &[u8]) -> bool {
+    pub fn is_same_name(&self, name: &OsStr) -> bool {
         let len = usize::min(name.len(), DIR_SIZE);
-        self.name() == &name[..len]
+        self.name().as_bytes() == &name.as_bytes()[..len]
     }
 
-    pub fn set_name(&mut self, name: &[u8]) {
+    pub fn set_name(&mut self, name: &OsStr) {
         let len = usize::min(name.len(), self.name.len());
-        self.name[..len].copy_from_slice(&name[..len]);
+        self.name[..len].copy_from_slice(&name.as_bytes()[..len]);
         self.name[len..].fill(0);
     }
 }

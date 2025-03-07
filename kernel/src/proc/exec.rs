@@ -1,5 +1,7 @@
 use core::{ffi::CStr, slice};
 
+use ov6_types::path::Path;
+
 use crate::{
     error::KernelError,
     fs::{self, LockedTxInode},
@@ -29,7 +31,7 @@ fn flags2perm(flags: u32) -> PtEntryFlags {
 pub fn exec(
     p: &Proc,
     private: &mut ProcPrivateData,
-    path: &[u8],
+    path: &Path,
     argv: *const *const u8,
 ) -> Result<usize, KernelError> {
     let tx = fs::begin_tx();
@@ -85,10 +87,7 @@ pub fn exec(
     private.trapframe_mut().unwrap().a1 = sp;
 
     // Save program name for debugging.
-    let name = path
-        .iter()
-        .position(|&c| c == b'/')
-        .map_or(path, |i| &path[i..]);
+    let name = path.file_name().unwrap();
     p.shared().lock().set_name(name);
 
     // Commit to the user image.

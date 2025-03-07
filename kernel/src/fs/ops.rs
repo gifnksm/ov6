@@ -1,9 +1,10 @@
 use dataview::PodMethods as _;
+use ov6_types::{os_str::OsStr, path::Path};
 
 use crate::{error::KernelError, fs::repr, proc::ProcPrivateData};
 
 use super::{
-    DIR_SIZE, DeviceNo, Tx,
+    DeviceNo, Tx,
     inode::TxInode,
     path,
     repr::{T_DEVICE, T_FILE},
@@ -12,44 +13,45 @@ use super::{
 pub fn unlink(
     tx: &Tx<false>,
     private: &mut ProcPrivateData,
-    path: &[u8],
+    path: &Path,
 ) -> Result<(), KernelError> {
-    let mut name = [0; DIR_SIZE];
-    let (mut parent_ip, name) = path::resolve_parent(tx, private, path, &mut name)?;
+    let dir_path = path.parent().ok_or(KernelError::Unknown)?;
+    let file_name = path.file_name().ok_or(KernelError::Unknown)?;
+    let mut dir_ip = path::resolve(tx, private, dir_path)?;
 
     // Cannot unlink "." of "..".
-    if name == b".." || name == b"." {
+    if file_name == ".." || file_name == "." {
         return Err(KernelError::Unknown);
     }
 
-    let mut parent_lip = parent_ip.lock();
-    let mut parent_dp = parent_lip.as_dir().ok_or(KernelError::Unknown)?;
+    let mut dir_lip = dir_ip.lock();
+    let mut dir_dp = dir_lip.as_dir().ok_or(KernelError::Unknown)?;
 
-    let (mut child_ip, off) = parent_dp
-        .lookup(private, name)
+    let (mut file_ip, off) = dir_dp
+        .lookup(private, file_name)
         .ok_or(KernelError::Unknown)?;
-    let mut child_lip = child_ip.lock();
+    let mut file_lip = file_ip.lock();
 
-    assert!(child_lip.data().nlink > 0);
-    if let Some(mut child_dp) = child_lip.as_dir() {
-        if !child_dp.is_empty(private) {
+    assert!(file_lip.data().nlink > 0);
+    if let Some(mut file_dp) = file_lip.as_dir() {
+        if !file_dp.is_empty(private) {
             return Err(KernelError::Unknown);
         }
     }
 
     let de = repr::DirEntry::zeroed();
-    parent_dp.get_inner().write_data(private, off, &de).unwrap();
+    dir_dp.get_inner().write_data(private, off, &de).unwrap();
 
-    if child_lip.is_dir() {
+    if file_lip.is_dir() {
         // decrement reference to parent directory.
-        parent_dp.get_inner().data_mut().nlink -= 1;
-        parent_dp.get_inner().update();
+        dir_dp.get_inner().data_mut().nlink -= 1;
+        dir_dp.get_inner().update();
     }
-    parent_lip.unlock();
-    parent_ip.put();
+    dir_lip.unlock();
+    dir_ip.put();
 
-    child_lip.data_mut().nlink -= 1;
-    child_lip.update();
+    file_lip.data_mut().nlink -= 1;
+    file_lip.update();
 
     Ok(())
 }
@@ -57,62 +59,66 @@ pub fn unlink(
 pub fn create<'tx>(
     tx: &'tx Tx<'tx, false>,
     private: &mut ProcPrivateData,
-    path: &[u8],
+    path: &Path,
     ty: i16,
     major: DeviceNo,
     minor: i16,
 ) -> Result<TxInode<'tx, false>, KernelError> {
-    let mut name = [0; DIR_SIZE];
-    let (mut parent_ip, name) = path::resolve_parent(tx, private, path, &mut name)?;
+    let dir_path = path.parent().ok_or(KernelError::Unknown)?;
+    let file_name = path.file_name().ok_or(KernelError::Unknown)?;
+    let mut dir_ip = path::resolve(tx, private, dir_path)?;
 
-    let mut parent_lip = parent_ip.lock();
-    let Some(mut parent_dp) = parent_lip.as_dir() else {
+    let mut dir_lip = dir_ip.lock();
+    let Some(mut dir_dp) = dir_lip.as_dir() else {
         return Err(KernelError::Unknown);
     };
 
-    if let Some((mut child_ip, _off)) = parent_dp.lookup(private, name) {
-        let lip = child_ip.lock();
-        if ty == T_FILE && (lip.data().ty == T_FILE || lip.data().ty == T_DEVICE) {
-            drop(lip);
-            return Ok(child_ip);
+    if let Some((mut file_ip, _off)) = dir_dp.lookup(private, file_name) {
+        let file_lip = file_ip.lock();
+        if ty == T_FILE && (file_lip.data().ty == T_FILE || file_lip.data().ty == T_DEVICE) {
+            drop(file_lip);
+            return Ok(file_ip);
         }
         return Err(KernelError::Unknown);
     }
 
-    let mut child_ip = TxInode::alloc(tx, parent_dp.dev(), ty)?;
-    let mut child_lip = child_ip.lock();
-    child_lip.data_mut().major = major;
-    child_lip.data_mut().minor = minor;
-    child_lip.data_mut().nlink = 0; // update after
-    child_lip.update();
+    let mut file_ip = TxInode::alloc(tx, dir_dp.dev(), ty)?;
+    let mut file_lip = file_ip.lock();
+    file_lip.data_mut().major = major;
+    file_lip.data_mut().minor = minor;
+    file_lip.data_mut().nlink = 0; // update after
+    file_lip.update();
 
-    if let Some(mut child_dp) = child_lip.as_dir() {
+    if let Some(mut child_dp) = file_lip.as_dir() {
         // Create "." and ".." entries
-        child_dp.link(private, b".", child_dp.ino())?;
-        child_dp.link(private, b"..", parent_dp.ino())?;
+        child_dp.link(private, OsStr::new("."), child_dp.ino())?;
+        child_dp.link(private, OsStr::new(".."), dir_dp.ino())?;
     }
 
-    parent_dp.link(private, name, child_lip.ino())?;
+    dir_dp.link(private, file_name, file_lip.ino())?;
 
-    if child_lip.is_dir() {
+    if file_lip.is_dir() {
         // now that success is guaranteed:
-        parent_lip.data_mut().nlink += 1; // for ".."
-        parent_lip.update();
+        dir_lip.data_mut().nlink += 1; // for ".."
+        dir_lip.update();
     }
 
-    child_lip.data_mut().nlink = 1;
-    child_lip.update();
+    file_lip.data_mut().nlink = 1;
+    file_lip.update();
 
-    drop(child_lip);
-    Ok(child_ip)
+    drop(file_lip);
+    Ok(file_ip)
 }
 
 pub fn link(
     tx: &Tx<false>,
     private: &mut ProcPrivateData,
-    old_path: &[u8],
-    new_path: &[u8],
+    old_path: &Path,
+    new_path: &Path,
 ) -> Result<(), KernelError> {
+    let new_dir_path = new_path.parent().ok_or(KernelError::Unknown)?;
+    let new_file_name = new_path.file_name().ok_or(KernelError::Unknown)?;
+
     let mut old_ip = path::resolve(tx, private, old_path)?;
     let old_lip = old_ip.lock();
     if old_lip.is_dir() {
@@ -120,16 +126,15 @@ pub fn link(
     }
     old_lip.unlock();
 
-    let mut name = [0; DIR_SIZE];
-    let (mut parent_ip, name) = path::resolve_parent(tx, private, new_path, &mut name)?;
-    let mut parent_lip = parent_ip.lock();
-    if parent_lip.dev() != old_ip.dev() {
+    let mut new_dir_ip = path::resolve(tx, private, new_dir_path)?;
+    let mut new_dir_lip = new_dir_ip.lock();
+    if new_dir_lip.dev() != old_ip.dev() {
         return Err(KernelError::Unknown);
     }
-    let Some(mut parent_dp) = parent_lip.as_dir() else {
+    let Some(mut new_dir_dp) = new_dir_lip.as_dir() else {
         return Err(KernelError::Unknown);
     };
-    parent_dp.link(private, name, old_ip.ino())?;
+    new_dir_dp.link(private, new_file_name, old_ip.ino())?;
 
     let mut old_lip = old_ip.lock();
     old_lip.data_mut().nlink += 1;

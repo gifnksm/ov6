@@ -1,4 +1,5 @@
 use ov6_syscall::OpenFlags;
+use ov6_types::{os_str::OsStr, path::Path};
 
 use crate::{
     error::KernelError,
@@ -91,6 +92,9 @@ pub fn sys_link(
     let old = syscall::arg_str(private, 0, &mut old)?;
     let new = syscall::arg_str(private, 1, &mut new)?;
 
+    let old = Path::new(OsStr::from_bytes(old));
+    let new = Path::new(OsStr::from_bytes(new));
+
     let tx = fs::begin_tx();
     fs::ops::link(&tx, private, old, new)?;
     Ok(0)
@@ -103,6 +107,7 @@ pub fn sys_unlink(
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
+    let path = Path::new(OsStr::from_bytes(path));
 
     let tx = fs::begin_tx();
     fs::ops::unlink(&tx, private, path)?;
@@ -117,6 +122,7 @@ pub fn sys_open(
     let mode = OpenFlags::from_bits_retain(syscall::arg_int(private, 1));
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
+    let path = Path::new(OsStr::from_bytes(path));
 
     let tx = fs::begin_tx();
     let mut ip = if mode.contains(OpenFlags::CREATE) {
@@ -157,6 +163,7 @@ pub fn sys_mkdir(
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
+    let path = Path::new(OsStr::from_bytes(path));
 
     let tx = fs::begin_tx();
     let _ip = fs::ops::create(&tx, private, path, T_DIR, DeviceNo::ROOT, 0)?;
@@ -171,6 +178,7 @@ pub fn sys_mknod(
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
+    let path = Path::new(OsStr::from_bytes(path));
     let major = u32::try_from(syscall::arg_int(private, 1)).unwrap();
     let minor = i16::try_from(syscall::arg_int(private, 2)).unwrap();
 
@@ -187,6 +195,7 @@ pub fn sys_chdir(
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
+    let path = Path::new(OsStr::from_bytes(path));
 
     let tx = fs::begin_tx();
     let mut ip = fs::path::resolve(&tx, private, path)?;
@@ -206,6 +215,7 @@ pub fn sys_exec(
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
+    let path = Path::new(OsStr::from_bytes(path));
     let uargv = syscall::arg_addr(private, 1);
 
     let mut argv = [None; MAX_ARG];

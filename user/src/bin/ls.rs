@@ -5,17 +5,24 @@ use core::ffi::CStr;
 use ov6_user_lib::{
     env,
     fs::{self, Metadata, StatType},
+    os_str::OsStr,
     println, process,
 };
 use user::{ensure_or, try_or};
 
-fn print_entry(name: &str, meta: &Metadata) {
+fn print_entry(name: &OsStr, meta: &Metadata) {
     let ty = match meta.ty() {
         StatType::Dir => "dir",
         StatType::File => "file",
         StatType::Dev => "dev",
     };
-    println!("{:16} {:4} {:6} {:12}", name, ty, meta.ino(), meta.size(),)
+    println!(
+        "{:16} {:4} {:6} {:12}",
+        name.display(),
+        ty,
+        meta.ino(),
+        meta.size(),
+    )
 }
 
 fn ls(path: &CStr) {
@@ -26,7 +33,7 @@ fn ls(path: &CStr) {
     );
 
     match meta.ty() {
-        StatType::File | StatType::Dev => print_entry(path.to_str().unwrap(), &meta),
+        StatType::File | StatType::Dev => print_entry(OsStr::new(path.to_str().unwrap()), &meta),
         StatType::Dir => {
             let entries = try_or!(
                 fs::read_dir(path),
