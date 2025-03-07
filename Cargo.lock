@@ -69,6 +69,7 @@ dependencies = [
  "ov6_fs_types",
  "ov6_kernel_params",
  "ov6_syscall",
+ "ov6_types",
  "page_alloc",
  "riscv",
  "slab_allocator",
@@ -130,6 +131,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ov6_types"
+version = "0.1.0"
+
+[[package]]
 name = "ov6_user_lib"
 version = "0.1.0"
 dependencies = [
@@ -138,6 +143,7 @@ dependencies = [
  "once_init",
  "ov6_fs_types",
  "ov6_syscall",
+ "ov6_types",
  "strum",
  "thiserror",
 ]

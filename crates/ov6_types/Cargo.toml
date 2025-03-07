@@ -1,5 +1,5 @@
 [package]
-name = "ov6_user_lib"
+name = "ov6_types"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -14,15 +14,6 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-dataview.workspace = true
-memchr.workspace = true
-once_init.workspace = true
-ov6_fs_types.workspace = true
-ov6_syscall.workspace = true
-ov6_types = { workspace = true, features = ["alloc"] }
-strum.workspace = true
-thiserror.workspace = true
 
 [features]
-default = []
-std = []
+alloc = []

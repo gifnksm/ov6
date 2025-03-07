@@ -7,6 +7,7 @@ members = [
     "crates/ov6_fs_types",
     "crates/ov6_kernel_params",
     "crates/ov6_syscall",
+    "crates/ov6_types",
     "crates/ov6_user_lib",
     "crates/page_alloc",
     "crates/slab_allocator",
@@ -43,6 +44,7 @@ once_init = { path = "crates/once_init" }
 ov6_fs_types = { path = "crates/ov6_fs_types" }
 ov6_kernel_params = { path = "crates/ov6_kernel_params" }
 ov6_syscall = { path = "crates/ov6_syscall" }
+ov6_types = { path = "crates/ov6_types" }
 ov6_user_lib = { path = "crates/ov6_user_lib" }
 page_alloc = { path = "crates/page_alloc" }
 slab_allocator = { path = "crates/slab_allocator" }

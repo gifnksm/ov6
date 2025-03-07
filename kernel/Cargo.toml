@@ -32,6 +32,7 @@ once_init.workspace = true
 ov6_fs_types.workspace = true
 ov6_kernel_params.workspace = true
 ov6_syscall.workspace = true
+ov6_types.workspace = true
 page_alloc.workspace = true
 riscv.workspace = true
 slab_allocator.workspace = true
