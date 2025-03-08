@@ -33,7 +33,7 @@ arrayvec = { version = "0.7.6", default-features = false }
 bitflags = "2.9.0"
 dataview = "1.0.1"
 memchr = { version = "2.7.4", default-features = false, features = ["alloc"] }
-riscv = "0.12.1"
+riscv = "0.13.0"
 strum = { version = "0.27.1", default-features = false, features = ["derive"] }
 thiserror = { version = "2.0.12", default-features = false }
 

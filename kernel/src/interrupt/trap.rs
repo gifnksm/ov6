@@ -9,7 +9,7 @@ use riscv::{
         satp, scause, sepc,
         sstatus::{self, SPP},
         stval,
-        stvec::{self, TrapMode},
+        stvec::{self, Stvec, TrapMode},
     },
 };
 
@@ -31,8 +31,11 @@ pub static TICKS: SpinLock<u64> = SpinLock::new(0);
 pub static TICKS_UPDATED: SpinLockCondVar = SpinLockCondVar::new();
 
 pub fn init_hart() {
+    let mut stvec = stvec::Stvec::from_bits(0);
+    stvec.set_address(kernel_vec::kernel_vec as usize);
+    stvec.set_trap_mode(TrapMode::Direct);
     unsafe {
-        stvec::write(kernel_vec::kernel_vec as usize, TrapMode::Direct);
+        stvec::write(stvec);
     }
 }
 
@@ -44,8 +47,11 @@ extern "C" fn trap_user() {
 
     // send interrupts and exceptions to kerneltrap(),
     // since we're now in the kernel.
+    let mut stvec = stvec::Stvec::from_bits(0);
+    stvec.set_address(kernel_vec::kernel_vec as usize);
+    stvec.set_trap_mode(TrapMode::Direct);
     unsafe {
-        stvec::write(kernel_vec::kernel_vec as usize, TrapMode::Direct);
+        stvec::write(stvec);
     }
 
     let p = Proc::current();
@@ -121,8 +127,11 @@ pub fn trap_user_ret(mut private: ProcPrivateDataGuard) {
 
     // send syscalls, interrupts, and exceptions to uservec in trampoline.S
     let trampoline_uservec = trampoline::user_vec_addr();
+    let mut stvec = Stvec::from_bits(0);
+    stvec.set_address(trampoline_uservec.addr());
+    stvec.set_trap_mode(TrapMode::Direct);
     unsafe {
-        stvec::write(trampoline_uservec.addr(), TrapMode::Direct);
+        stvec::write(stvec);
     }
 
     // set up trapframe values that uservec will need when
@@ -148,7 +157,9 @@ pub fn trap_user_ret(mut private: ProcPrivateDataGuard) {
     }
 
     // set S Exception Program Counter to the saved user pc.
-    sepc::write(private.trapframe().unwrap().epc);
+    unsafe {
+        sepc::write(private.trapframe().unwrap().epc);
+    }
 
     // tell trampoline.S the user page table to switch to.
     let satp = (8 << 60) | (private.pagetable().unwrap().phys_page_num().value());
@@ -169,10 +180,6 @@ pub fn trap_user_ret(mut private: ProcPrivateDataGuard) {
 pub extern "C" fn trap_kernel() {
     let sepc = sepc::read();
     let sstatus = sstatus::read();
-    let sstatus_bits: usize;
-    unsafe {
-        asm!("csrr {}, sstatus", out(reg) sstatus_bits);
-    }
     let scause: Trap<Interrupt, Exception> = scause::read().cause().try_into().unwrap();
 
     assert_eq!(sstatus.spp(), SPP::Supervisor, "from supervisor mode");
@@ -206,9 +213,11 @@ pub extern "C" fn trap_kernel() {
 
     // the yield_() may have caused some traps to occur,
     // so restore trap registers for use by kernelvec's sepc instruction.
-    sepc::write(sepc);
     unsafe {
-        asm!("csrw sstatus, {}", in(reg) sstatus_bits);
+        sepc::write(sepc);
+    }
+    unsafe {
+        sstatus::write(sstatus);
     }
 }
 

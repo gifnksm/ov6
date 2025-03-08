@@ -1,6 +1,10 @@
 use core::arch::asm;
 
-use riscv::register::{mcounteren, mepc, mhartid, mie, mstatus, pmpaddr0, pmpcfg0, satp, sie};
+use riscv::register::{
+    mcounteren, mepc, mhartid, mie, mstatus, pmpaddr0, pmpcfg0,
+    satp::{self, Satp},
+    sie,
+};
 
 use crate::{cpu, main, param::NCPU};
 
@@ -17,10 +21,15 @@ pub extern "C" fn start() -> ! {
 
     // set M Exception Program Counter to main, for mret.
     // requires gcc -mcmodel=medany
-    mepc::write(main as usize);
+    unsafe {
+        mepc::write(main as usize);
+    }
 
     // disable paging for now.
-    satp::write(0);
+    let satp = Satp::from_bits(0);
+    unsafe {
+        satp::write(satp);
+    }
 
     // delegate all interrupts and exceptions to supervisor mode.
     unsafe {
@@ -33,8 +42,12 @@ pub extern "C" fn start() -> ! {
 
     // configure Physical Memory Protection to give supervisor mode
     // access to all of physical memory.
-    pmpaddr0::write(0x3f_ffff_ffff_ffff);
-    pmpcfg0::write(0xf);
+    unsafe {
+        pmpaddr0::write(0x3f_ffff_ffff_ffff);
+    }
+    unsafe {
+        pmpcfg0::write(0xf);
+    }
 
     // ask for clock interrupts;
     timerinit();
