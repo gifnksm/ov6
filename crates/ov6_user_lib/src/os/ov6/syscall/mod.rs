@@ -5,7 +5,8 @@ use core::{
     ptr,
 };
 
-pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallType};
+pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
+use ov6_syscall::{Ret1, SyscallError};
 
 use crate::{
     error::Ov6Error,
@@ -15,18 +16,16 @@ use crate::{
 
 pub mod ffi;
 
-fn to_result<T>(res: isize) -> Result<T, Ov6Error>
+fn to_result<T>(res: Ret1<Result<usize, SyscallError>>) -> Result<T, Ov6Error>
 where
-    T: TryFrom<isize>,
+    T: TryFrom<usize>,
 {
-    if res < 0 {
-        return Err(ov6_syscall::Error::from_repr(res).map_or(Ov6Error::Unknown, Ov6Error::from));
-    }
+    let res = res.decode()?;
     res.try_into().or(Err(Ov6Error::Unknown))
 }
 
-fn to_result_zero(res: isize) -> Result<(), Ov6Error> {
-    if to_result::<isize>(res)? != 0 {
+fn to_result_zero(res: Ret1<Result<usize, SyscallError>>) -> Result<(), Ov6Error> {
+    if to_result::<usize>(res)? != 0 {
         Err(Ov6Error::Unknown)
     } else {
         Ok(())
@@ -43,7 +42,8 @@ pub fn fork() -> Result<ForkResult, Ov6Error> {
 }
 
 pub fn exit(status: i32) -> ! {
-    ffi::exit(status)
+    ffi::exit(status);
+    unreachable!()
 }
 
 pub fn wait() -> Result<(u32, ExitStatus), Ov6Error> {

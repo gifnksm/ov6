@@ -1,3 +1,5 @@
+use ov6_syscall::SyscallError;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Ov6Error {
     #[error("stream did not contain valid UTF-8")]
@@ -19,10 +21,10 @@ impl Ov6Error {
     }
 }
 
-impl From<ov6_syscall::Error> for Ov6Error {
-    fn from(value: ov6_syscall::Error) -> Self {
+impl From<SyscallError> for Ov6Error {
+    fn from(value: SyscallError) -> Self {
         match value {
-            ov6_syscall::Error::Unknown => Self::Unknown,
+            SyscallError::Unknown => Self::Unknown,
         }
     }
 }

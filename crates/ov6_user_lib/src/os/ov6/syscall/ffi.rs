@@ -1,6 +1,7 @@
 use core::ffi::c_char;
 
-pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallType};
+pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
+use ov6_syscall::{ReturnTypeRepr, syscall};
 
 #[cfg(target_arch = "riscv64")]
 macro_rules! syscall {
@@ -58,98 +59,98 @@ macro_rules! syscall {
     };
 }
 
-syscall!(SyscallType::Fork => fn fork() -> isize);
-syscall!(SyscallType::Exit => fn exit(status: i32) -> !);
+syscall!(SyscallCode::Fork => fn fork() -> ReturnTypeRepr<syscall::Fork>);
+syscall!(SyscallCode::Exit => fn exit(status: i32) -> ReturnTypeRepr<syscall::Exit>);
 syscall!(
-    SyscallType::Wait =>
+    SyscallCode::Wait =>
     /// # Safety
     ///
     /// `wstatus` must be a valid pointer to an `i32`.
-    unsafe fn wait(wstatus: *mut i32) -> isize
+    unsafe fn wait(wstatus: *mut i32) -> ReturnTypeRepr<syscall::Wait>
 );
 syscall!(
-    SyscallType::Pipe =>
+    SyscallCode::Pipe =>
     /// # Safety
     ///
     /// `pipefd` must be a valid pointer to an array of 2 `i32`s.
-    unsafe fn pipe(pipefd: *mut i32) -> isize
+    unsafe fn pipe(pipefd: *mut i32) -> ReturnTypeRepr<syscall::Pipe>
 );
 syscall!(
-    SyscallType::Write =>
+    SyscallCode::Write =>
     /// # Safety
     ///
     /// `buf` must be a valid pointer to an array of `i32`s with a length of `count`.
-    unsafe fn write(fd: i32, buf: *const u8, count: usize) -> isize
+    unsafe fn write(fd: i32, buf: *const u8, count: usize) -> ReturnTypeRepr<syscall::Write>
 );
 syscall!(
-    SyscallType::Read =>
+    SyscallCode::Read =>
     /// # Safety
     ///
     /// `buf` must be a valid pointer to an array of `i32`s with a length of `count`.
-    unsafe fn read(fd: i32, buf: *mut u8, count: usize) -> isize
+    unsafe fn read(fd: i32, buf: *mut u8, count: usize) -> ReturnTypeRepr<syscall::Read>
 );
-syscall!(SyscallType::Close => fn close(fd: i32) -> isize);
-syscall!(SyscallType::Kill => fn kill(pid: u32) -> isize);
+syscall!(SyscallCode::Close => fn close(fd: i32) -> ReturnTypeRepr<syscall::Close>);
+syscall!(SyscallCode::Kill => fn kill(pid: u32) -> ReturnTypeRepr<syscall::Kill>);
 syscall!(
-    SyscallType::Exec =>
+    SyscallCode::Exec =>
     /// # Safety
     ///
     /// `path` must be a valid pointer to a null-terminated string.
     /// `argv` must be a valid pointer to an array of null-terminated strings.
     /// The last element of `argv` must be a null pointer.
-    unsafe fn exec(path: *const c_char, argv: *const *const c_char) -> isize
+    unsafe fn exec(path: *const c_char, argv: *const *const c_char) -> ReturnTypeRepr<syscall::Exec>
 );
 syscall!(
-    SyscallType::Open =>
+    SyscallCode::Open =>
     /// # Safety
     ///
     /// `path` must be a valid pointer to a null-terminated string.
-    unsafe fn open(path: *const c_char, flags: OpenFlags) -> isize
+    unsafe fn open(path: *const c_char, flags: OpenFlags) -> ReturnTypeRepr<syscall::Open>
 );
 syscall!(
-    SyscallType::Mknod =>
+    SyscallCode::Mknod =>
     /// # Safety
     ///
     /// `path` must be a valid pointer to a null-terminated string.
-    unsafe fn mknod(path: *const c_char, major: i16, minor: i16) -> isize
+    unsafe fn mknod(path: *const c_char, major: i16, minor: i16) -> ReturnTypeRepr<syscall::Mknod>
 );
 syscall!(
-    SyscallType::Unlink =>
+    SyscallCode::Unlink =>
     /// # Safety
     ///
     /// `path` must be a valid pointer to a null-terminated string.
-    unsafe fn unlink(path: *const c_char) -> isize
+    unsafe fn unlink(path: *const c_char) -> ReturnTypeRepr<syscall::Unlink>
 );
 syscall!(
-    SyscallType::Fstat =>
+    SyscallCode::Fstat =>
     /// # Safety
     ///
     /// `stat` must be a valid pointer to a `Stat` struct.
-    unsafe fn fstat(fd: i32, stat: *mut Stat) -> isize
+    unsafe fn fstat(fd: i32, stat: *mut Stat) -> ReturnTypeRepr<syscall::Fstat>
 );
 syscall!(
-    SyscallType::Link =>
+    SyscallCode::Link =>
     /// # Safety
     ///
     /// `oldpath` and `newpath` must be valid pointers to null-terminated strings.
-    unsafe fn link(oldpath: *const c_char, newpath: *const c_char) -> isize
+    unsafe fn link(oldpath: *const c_char, newpath: *const c_char) -> ReturnTypeRepr<syscall::Link>
 );
 syscall!(
-    SyscallType::Mkdir =>
+    SyscallCode::Mkdir =>
     /// # Safety
     ///
     /// `path` must be a valid pointer to a null-terminated string.
-    unsafe fn mkdir(path: *const c_char) -> isize
+    unsafe fn mkdir(path: *const c_char) -> ReturnTypeRepr<syscall::Mkdir>
 );
 syscall!(
-    SyscallType::Chdir =>
+    SyscallCode::Chdir =>
     /// # Safety
     ///
     /// `path` must be a valid pointer to a null-terminated string.
-    unsafe fn chdir(path: *const c_char) -> isize
+    unsafe fn chdir(path: *const c_char) -> ReturnTypeRepr<syscall::Chdir>
 );
-syscall!(SyscallType::Dup => fn dup(fd: i32) -> isize);
-syscall!(SyscallType::Getpid => fn getpid() -> isize);
-syscall!(SyscallType::Sbrk => fn sbrk(incr: isize) -> isize);
-syscall!(SyscallType::Sleep => fn sleep(n: i32) -> isize);
-syscall!(SyscallType::Uptime => fn uptime() -> isize);
+syscall!(SyscallCode::Dup => fn dup(fd: i32) -> ReturnTypeRepr<syscall::Dup>);
+syscall!(SyscallCode::Getpid => fn getpid() -> ReturnTypeRepr<syscall::Getpid>);
+syscall!(SyscallCode::Sbrk => fn sbrk(incr: isize) -> ReturnTypeRepr<syscall::Sbrk>);
+syscall!(SyscallCode::Sleep => fn sleep(n: i32) -> ReturnTypeRepr<syscall::Sleep>);
+syscall!(SyscallCode::Uptime => fn uptime() -> ReturnTypeRepr<syscall::Uptime>);

@@ -1,4 +1,4 @@
-use ov6_syscall::OpenFlags;
+use ov6_syscall::{OpenFlags, ReturnType, SyscallError, syscall as sys};
 use ov6_types::{os_str::OsStr, path::Path};
 
 use crate::{
@@ -29,7 +29,7 @@ fn fd_alloc(private: &mut ProcPrivateData, file: File) -> Result<usize, KernelEr
 pub fn sys_dup(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, KernelError> {
+) -> ReturnType<sys::Dup> {
     let private = private.as_mut().unwrap();
     let (_fd, f) = arg_fd(private, 0)?;
     let f = f.clone();
@@ -40,29 +40,31 @@ pub fn sys_dup(
 pub fn sys_read(
     p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, KernelError> {
+) -> ReturnType<sys::Read> {
     let private = private.as_mut().unwrap();
     let va = syscall::arg_addr(private, 1);
     let n = syscall::arg_int(private, 2);
     let (_fd, f) = arg_fd(private, 0)?;
-    f.clone().read(p, private, va, n)
+    let n = f.clone().read(p, private, va, n)?;
+    Ok(n)
 }
 
 pub fn sys_write(
     p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, KernelError> {
+) -> ReturnType<sys::Write> {
     let private = private.as_mut().unwrap();
     let va = syscall::arg_addr(private, 1);
     let n = syscall::arg_int(private, 2);
     let (_fd, f) = arg_fd(private, 0)?;
-    f.clone().write(p, private, va, n)
+    let n = f.clone().write(p, private, va, n)?;
+    Ok(n)
 }
 
 pub fn sys_close(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, KernelError> {
+) -> ReturnType<sys::Close> {
     let private = private.as_mut().unwrap();
     let (fd, _f) = arg_fd(private, 0)?;
     private.unset_ofile(fd);
@@ -72,7 +74,7 @@ pub fn sys_close(
 pub fn sys_fstat(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, KernelError> {
+) -> ReturnType<sys::Fstat> {
     let private = private.as_mut().unwrap();
     let va = syscall::arg_addr(private, 1);
     let (_fd, f) = arg_fd(private, 0)?;
@@ -84,7 +86,7 @@ pub fn sys_fstat(
 pub fn sys_link(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, KernelError> {
+) -> ReturnType<sys::Link> {
     let private = private.as_mut().unwrap();
     let mut new = [0; MAX_PATH];
     let mut old = [0; MAX_PATH];
@@ -103,7 +105,7 @@ pub fn sys_link(
 pub fn sys_unlink(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, KernelError> {
+) -> ReturnType<sys::Unlink> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
@@ -117,7 +119,7 @@ pub fn sys_unlink(
 pub fn sys_open(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, KernelError> {
+) -> ReturnType<sys::Open> {
     let private = private.as_mut().unwrap();
     let mode = OpenFlags::from_bits_retain(syscall::arg_int(private, 1));
     let mut path = [0; MAX_PATH];
@@ -131,7 +133,7 @@ pub fn sys_open(
         let mut ip = fs::path::resolve(&tx, private, path)?;
         let lip = ip.lock();
         if lip.is_dir() && mode != OpenFlags::READ_ONLY {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::Unknown.into());
         }
         lip.unlock();
         ip
@@ -159,7 +161,7 @@ pub fn sys_open(
 pub fn sys_mkdir(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, KernelError> {
+) -> ReturnType<sys::Mkdir> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
@@ -174,7 +176,7 @@ pub fn sys_mkdir(
 pub fn sys_mknod(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, KernelError> {
+) -> ReturnType<sys::Mknod> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
@@ -191,7 +193,7 @@ pub fn sys_mknod(
 pub fn sys_chdir(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, KernelError> {
+) -> ReturnType<sys::Chdir> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
@@ -200,7 +202,7 @@ pub fn sys_chdir(
     let tx = fs::begin_tx();
     let mut ip = fs::path::resolve(&tx, private, path)?;
     if !ip.lock().is_dir() {
-        return Err(KernelError::Unknown);
+        return Err(KernelError::Unknown.into());
     }
     let old = private.update_cwd(Inode::from_tx(&ip));
     old.into_tx(&tx).put();
@@ -211,7 +213,7 @@ pub fn sys_chdir(
 pub fn sys_exec(
     p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, KernelError> {
+) -> ReturnType<sys::Exec> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
@@ -244,7 +246,7 @@ pub fn sys_exec(
                 page::free_page(arg);
             }
         }
-        return Err(KernelError::Unknown);
+        return Err(KernelError::Unknown.into());
     }
 
     let ret = exec::exec(p, private, path, argv.as_ptr().cast());
@@ -255,31 +257,31 @@ pub fn sys_exec(
         }
     }
 
-    ret
+    ret.map_err(SyscallError::from)
 }
 
 pub fn sys_pipe(
     _p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<usize, KernelError> {
+) -> ReturnType<sys::Pipe> {
     let private = private.as_mut().unwrap();
     let fd_array = syscall::arg_addr(private, 0);
 
     let (rf, wf) = File::new_pipe()?;
 
     let Ok(rfd) = fd_alloc(private, rf) else {
-        return Err(KernelError::Unknown);
+        return Err(KernelError::Unknown.into());
     };
     let Ok(wfd) = fd_alloc(private, wf) else {
         private.unset_ofile(rfd);
-        return Err(KernelError::Unknown);
+        return Err(KernelError::Unknown.into());
     };
 
     let fds = [i32::try_from(rfd).unwrap(), i32::try_from(wfd).unwrap()];
     if vm::copy_out(private.pagetable_mut().unwrap(), fd_array, &fds).is_err() {
         private.unset_ofile(rfd);
         private.unset_ofile(wfd);
-        return Err(KernelError::Unknown);
+        return Err(KernelError::Unknown.into());
     }
 
     Ok(0)

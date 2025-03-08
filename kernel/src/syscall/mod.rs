@@ -1,12 +1,12 @@
 use core::panic;
 
-use ov6_syscall::SyscallType;
+use ov6_syscall::{Ret1, RetInfailible, ReturnValueConvert as _, SyscallCode};
 
 use crate::{
     error::KernelError,
     memory::{VirtAddr, vm},
     println,
-    proc::{Proc, ProcPrivateData, ProcPrivateDataGuard},
+    proc::{Proc, ProcPrivateData, ProcPrivateDataGuard, TrapFrame},
 };
 
 mod file;
@@ -71,10 +71,38 @@ pub fn arg_str<'a>(
     fetch_str(private, addr, buf)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReturnValue {
+    Ret0,
+    Ret1(usize),
+}
+
+impl From<RetInfailible> for ReturnValue {
+    fn from(_: RetInfailible) -> Self {
+        Self::Ret0
+    }
+}
+
+impl<T> From<Ret1<T>> for ReturnValue {
+    fn from(value: Ret1<T>) -> Self {
+        Self::Ret1(value.a0)
+    }
+}
+
+impl ReturnValue {
+    fn store(self, tf: &mut TrapFrame) {
+        let a0 = match self {
+            Self::Ret0 => 0,
+            Self::Ret1(a) => a,
+        };
+        tf.a0 = a0;
+    }
+}
+
 pub fn syscall(p: &'static Proc, private: &mut Option<ProcPrivateDataGuard>) {
     let private_ref = private.as_mut().unwrap();
     let n = private_ref.trapframe().unwrap().a7;
-    let Some(ty) = SyscallType::from_repr(n) else {
+    let Some(ty) = SyscallCode::from_repr(n) else {
         let shared = p.shared().lock();
         let pid = shared.pid();
         let name = shared.name().display();
@@ -82,38 +110,32 @@ pub fn syscall(p: &'static Proc, private: &mut Option<ProcPrivateDataGuard>) {
         private_ref.trapframe_mut().unwrap().a0 = usize::MAX;
         return;
     };
-    let f = match ty {
-        SyscallType::Fork => self::proc::sys_fork,
-        SyscallType::Exit => self::proc::sys_exit,
-        SyscallType::Wait => self::proc::sys_wait,
-        SyscallType::Pipe => self::file::sys_pipe,
-        SyscallType::Read => self::file::sys_read,
-        SyscallType::Kill => self::proc::sys_kill,
-        SyscallType::Exec => self::file::sys_exec,
-        SyscallType::Fstat => self::file::sys_fstat,
-        SyscallType::Chdir => self::file::sys_chdir,
-        SyscallType::Dup => self::file::sys_dup,
-        SyscallType::Getpid => self::proc::sys_getpid,
-        SyscallType::Sbrk => self::proc::sys_sbrk,
-        SyscallType::Sleep => self::proc::sys_sleep,
-        SyscallType::Uptime => self::proc::sys_uptime,
-        SyscallType::Open => self::file::sys_open,
-        SyscallType::Write => self::file::sys_write,
-        SyscallType::Mknod => self::file::sys_mknod,
-        SyscallType::Unlink => self::file::sys_unlink,
-        SyscallType::Link => self::file::sys_link,
-        SyscallType::Mkdir => self::file::sys_mkdir,
-        SyscallType::Close => self::file::sys_close,
-    };
     let _ = private_ref;
-    let ret = match f(p, private) {
-        Ok(ret) => ret.cast_signed(),
-        Err(e) => {
-            let v = ov6_syscall::Error::from(e) as isize;
-            assert!(v < 0);
-            v
-        }
+
+    let f: &dyn Fn(&'static Proc, &mut Option<ProcPrivateDataGuard>) -> ReturnValue = match ty {
+        SyscallCode::Fork => &|p, private| self::proc::sys_fork(p, private).encode().into(),
+        SyscallCode::Exit => &|p, private| self::proc::sys_exit(p, private).encode().into(),
+        SyscallCode::Wait => &|p, private| self::proc::sys_wait(p, private).encode().into(),
+        SyscallCode::Pipe => &|p, private| self::file::sys_pipe(p, private).encode().into(),
+        SyscallCode::Read => &|p, private| self::file::sys_read(p, private).encode().into(),
+        SyscallCode::Kill => &|p, private| self::proc::sys_kill(p, private).encode().into(),
+        SyscallCode::Exec => &|p, private| self::file::sys_exec(p, private).encode().into(),
+        SyscallCode::Fstat => &|p, private| self::file::sys_fstat(p, private).encode().into(),
+        SyscallCode::Chdir => &|p, private| self::file::sys_chdir(p, private).encode().into(),
+        SyscallCode::Dup => &|p, private| self::file::sys_dup(p, private).encode().into(),
+        SyscallCode::Getpid => &|p, private| self::proc::sys_getpid(p, private).encode().into(),
+        SyscallCode::Sbrk => &|p, private| self::proc::sys_sbrk(p, private).encode().into(),
+        SyscallCode::Sleep => &|p, private| self::proc::sys_sleep(p, private).encode().into(),
+        SyscallCode::Uptime => &|p, private| self::proc::sys_uptime(p, private).encode().into(),
+        SyscallCode::Open => &|p, private| self::file::sys_open(p, private).encode().into(),
+        SyscallCode::Write => &|p, private| self::file::sys_write(p, private).encode().into(),
+        SyscallCode::Mknod => &|p, private| self::file::sys_mknod(p, private).encode().into(),
+        SyscallCode::Unlink => &|p, private| self::file::sys_unlink(p, private).encode().into(),
+        SyscallCode::Link => &|p, private| self::file::sys_link(p, private).encode().into(),
+        SyscallCode::Mkdir => &|p, private| self::file::sys_mkdir(p, private).encode().into(),
+        SyscallCode::Close => &|p, private| self::file::sys_close(p, private).encode().into(),
     };
+    let ret = f(p, private);
     let private_ref = private.as_mut().unwrap();
-    private_ref.trapframe_mut().unwrap().a0 = ret.cast_unsigned();
+    ret.store(private_ref.trapframe_mut().unwrap());
 }
