@@ -19,7 +19,7 @@ use crate::{
     cpu, fs, interrupt,
     memory::{
         PAGE_SIZE,
-        layout::{UART0_IRQ, VIRTIO0_IRQ},
+        layout::{KSTACK_PAGES, UART0_IRQ, VIRTIO0_IRQ},
     },
     println,
     proc::{self, Proc, ProcPrivateDataGuard},
@@ -139,7 +139,7 @@ pub fn trap_user_ret(mut private: ProcPrivateDataGuard) {
     let kstack = private.kstack();
     let tf = private.trapframe_mut().unwrap();
     tf.kernel_satp = satp::read().bits(); // kernel page table
-    tf.kernel_sp = kstack.byte_add(PAGE_SIZE).addr(); // process's kernel stack
+    tf.kernel_sp = kstack.byte_add(KSTACK_PAGES * PAGE_SIZE).addr(); // process's kernel stack
     tf.kernel_trap = trap_user as usize;
     let hartid: usize;
     unsafe {
