@@ -19,9 +19,9 @@ pub fn _eprint(args: fmt::Arguments) {
     stderr().write_fmt(args).unwrap();
 }
 
-pub const STDIN_FD: RawFd = 0;
-pub const STDOUT_FD: RawFd = 1;
-pub const STDERR_FD: RawFd = 2;
+pub const STDIN_FD: RawFd = RawFd::new(0);
+pub const STDOUT_FD: RawFd = RawFd::new(1);
+pub const STDERR_FD: RawFd = RawFd::new(2);
 
 struct StdinRaw {}
 

@@ -1,9 +1,12 @@
+use core::num::NonZero;
+
 use ov6_syscall::{ReturnType, syscall as sys};
+use ov6_types::process::ProcId;
 
 use crate::{
     error::KernelError,
     interrupt::trap::{TICKS, TICKS_UPDATED},
-    proc::{self, Proc, ProcId, ProcPrivateDataGuard},
+    proc::{self, Proc, ProcPrivateDataGuard},
     syscall,
 };
 
@@ -12,10 +15,8 @@ pub fn sys_fork(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Fork> {
     let private = private.as_mut().unwrap();
-    let pid = proc::fork(p, private)
-        .map(|pid| pid.get().try_into().unwrap())
-        .ok_or(KernelError::Unknown)?;
-    Ok(pid)
+    let pid = proc::fork(p, private)?;
+    Ok(Some(pid))
 }
 
 pub fn sys_exit(
@@ -34,7 +35,7 @@ pub fn sys_wait(
     let private = private.as_mut().unwrap();
     let addr = syscall::arg_addr(private, 0);
     let pid = proc::wait(p, private, addr)?;
-    Ok(pid.get().try_into().unwrap())
+    Ok(pid)
 }
 
 pub fn sys_kill(
@@ -43,16 +44,17 @@ pub fn sys_kill(
 ) -> ReturnType<sys::Kill> {
     let private = private.as_mut().unwrap();
     let pid = syscall::arg_int(private, 0);
-    proc::kill(ProcId::new(i32::try_from(pid).unwrap()))?;
-    Ok(0)
+    let pid = u32::try_from(pid).map_err(|_| KernelError::Unknown)?;
+    let pid = NonZero::new(pid).ok_or(KernelError::Unknown)?;
+    proc::kill(ProcId::new(pid))?;
+    Ok(())
 }
 
 pub fn sys_getpid(
     p: &'static Proc,
     _private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Getpid> {
-    let pid = p.shared().lock().pid();
-    Ok(pid.get().try_into().unwrap())
+    p.shared().lock().pid()
 }
 
 pub fn sys_sbrk(
@@ -76,17 +78,16 @@ pub fn sys_sleep(
     let ticks0 = *ticks;
     while *ticks - ticks0 < n {
         if p.shared().lock().killed() {
-            return Err(KernelError::Unknown.into());
+            // process is killed, so return value will never read.
+            return;
         }
         ticks = TICKS_UPDATED.wait(ticks);
     }
-    drop(ticks);
-    Ok(0)
 }
 
 pub fn sys_uptime(
     _p: &'static Proc,
     _private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Uptime> {
-    Ok(usize::try_from(*TICKS.lock()).unwrap())
+    *TICKS.lock()
 }

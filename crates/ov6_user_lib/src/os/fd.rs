@@ -1,9 +1,9 @@
 use core::{fmt, marker::PhantomData};
 
+pub use ov6_types::fs::RawFd;
+
 use super::ov6::syscall;
 use crate::error::Ov6Error;
-
-pub type RawFd = i32;
 
 pub struct OwnedFd {
     fd: RawFd,

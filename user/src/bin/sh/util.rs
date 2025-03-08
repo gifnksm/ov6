@@ -2,7 +2,7 @@ use core::convert::Infallible;
 
 use ov6_user_lib::{
     os::{fd::AsRawFd, ov6::syscall},
-    process::{self, ExitStatus, ForkFnHandle, ForkResult},
+    process::{self, ExitStatus, ForkFnHandle, ForkResult, ProcId},
 };
 use user::{ensure_or_exit, message, try_or_exit};
 
@@ -23,7 +23,7 @@ where
     )
 }
 
-pub(super) fn wait_or_exit(expected_pids: &[u32]) -> (u32, ExitStatus) {
+pub(super) fn wait_or_exit(expected_pids: &[ProcId]) -> (ProcId, ExitStatus) {
     let (pid, status) = try_or_exit!(
         process::wait(),
         e => "wait child process failed: {e}"

@@ -1,5 +1,5 @@
 use ov6_syscall::{OpenFlags, ReturnType, SyscallError, syscall as sys};
-use ov6_types::{os_str::OsStr, path::Path};
+use ov6_types::{fs::RawFd, os_str::OsStr, path::Path};
 
 use crate::{
     error::KernelError,
@@ -13,8 +13,8 @@ use crate::{
 
 /// Fetches the nth word-sized system call argument as a file descriptor
 /// and returns the descriptor and the corresponding `File`.
-fn arg_fd(private: &ProcPrivateData, n: usize) -> Result<(usize, &File), KernelError> {
-    let fd = syscall::arg_int(private, n);
+fn arg_fd(private: &ProcPrivateData, n: usize) -> Result<(RawFd, &File), KernelError> {
+    let fd = RawFd::new(syscall::arg_int(private, n));
     let file = private.ofile(fd).ok_or(KernelError::Unknown)?;
     Ok((fd, file))
 }
@@ -22,7 +22,7 @@ fn arg_fd(private: &ProcPrivateData, n: usize) -> Result<(usize, &File), KernelE
 /// Allocates a file descriptor for the given `File`.
 ///
 /// Takes over file reference from caller on success.
-fn fd_alloc(private: &mut ProcPrivateData, file: File) -> Result<usize, KernelError> {
+fn fd_alloc(private: &mut ProcPrivateData, file: File) -> Result<RawFd, KernelError> {
     private.add_ofile(file)
 }
 
@@ -68,7 +68,7 @@ pub fn sys_close(
     let private = private.as_mut().unwrap();
     let (fd, _f) = arg_fd(private, 0)?;
     private.unset_ofile(fd);
-    Ok(0)
+    Ok(())
 }
 
 pub fn sys_fstat(
@@ -79,7 +79,7 @@ pub fn sys_fstat(
     let va = syscall::arg_addr(private, 1);
     let (_fd, f) = arg_fd(private, 0)?;
     f.clone().stat(private, va)?;
-    Ok(0)
+    Ok(())
 }
 
 /// Creates the path `new` as a link to the same inode as `old`.
@@ -99,7 +99,7 @@ pub fn sys_link(
 
     let tx = fs::begin_tx();
     fs::ops::link(&tx, private, old, new)?;
-    Ok(0)
+    Ok(())
 }
 
 pub fn sys_unlink(
@@ -113,7 +113,7 @@ pub fn sys_unlink(
 
     let tx = fs::begin_tx();
     fs::ops::unlink(&tx, private, path)?;
-    Ok(0)
+    Ok(())
 }
 
 pub fn sys_open(
@@ -170,7 +170,7 @@ pub fn sys_mkdir(
     let tx = fs::begin_tx();
     let _ip = fs::ops::create(&tx, private, path, T_DIR, DeviceNo::ROOT, 0)?;
 
-    Ok(0)
+    Ok(())
 }
 
 pub fn sys_mknod(
@@ -187,7 +187,7 @@ pub fn sys_mknod(
     let tx = fs::begin_tx();
     let _ip = fs::ops::create(&tx, private, path, T_DEVICE, DeviceNo::new(major), minor)?;
 
-    Ok(0)
+    Ok(())
 }
 
 pub fn sys_chdir(
@@ -207,13 +207,13 @@ pub fn sys_chdir(
     let old = private.update_cwd(Inode::from_tx(&ip));
     old.into_tx(&tx).put();
 
-    Ok(0)
+    Ok(())
 }
 
 pub fn sys_exec(
     p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> ReturnType<sys::Exec> {
+) -> Result<(usize, usize), SyscallError> {
     let private = private.as_mut().unwrap();
     let mut path = [0; MAX_PATH];
     let path = syscall::arg_str(private, 0, &mut path)?;
@@ -257,7 +257,8 @@ pub fn sys_exec(
         }
     }
 
-    ret.map_err(SyscallError::from)
+    let (argc, argv) = ret.map_err(SyscallError::from)?;
+    Ok((argc, argv))
 }
 
 pub fn sys_pipe(
@@ -277,12 +278,12 @@ pub fn sys_pipe(
         return Err(KernelError::Unknown.into());
     };
 
-    let fds = [i32::try_from(rfd).unwrap(), i32::try_from(wfd).unwrap()];
+    let fds = [rfd, wfd];
     if vm::copy_out(private.pagetable_mut().unwrap(), fd_array, &fds).is_err() {
         private.unset_ofile(rfd);
         private.unset_ofile(wfd);
         return Err(KernelError::Unknown.into());
     }
 
-    Ok(0)
+    Ok(())
 }

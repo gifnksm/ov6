@@ -32,7 +32,7 @@ pub fn exec(
     private: &mut ProcPrivateData,
     path: &Path,
     argv: *const *const u8,
-) -> Result<usize, KernelError> {
+) -> Result<(usize, usize), KernelError> {
     let tx = fs::begin_tx();
     let mut ip = fs::path::resolve(&tx, private, path)?;
     let mut lip = ip.lock();
@@ -80,10 +80,7 @@ pub fn exec(
         return Err(KernelError::Unknown);
     };
 
-    // arguments to user main(argc, argv).
-    // argc is returned via the system call return
-    // value, which goes in a0.
-    private.trapframe_mut().unwrap().a1 = sp;
+    let argv = sp;
 
     // Save program name for debugging.
     let name = path.file_name().unwrap();
@@ -94,7 +91,7 @@ pub fn exec(
     private.trapframe_mut().unwrap().epc = elf.entry.try_into().unwrap(); // initial pogram counter = main
     private.trapframe_mut().unwrap().sp = sp; // initial stack pointer
 
-    Ok(argc)
+    Ok((argc, argv))
 }
 
 fn load_segments<const READ_ONLY: bool>(

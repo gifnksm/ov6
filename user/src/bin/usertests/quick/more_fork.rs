@@ -170,7 +170,7 @@ pub fn sbrk_fail() {
     const BIG: usize = 100 * 1024 * 1024;
 
     let (mut rx, mut tx) = pipe::pipe().unwrap();
-    let mut pids = [0; 10];
+    let mut pids = [None; 10];
 
     for pid in &mut pids {
         let Some(p) = process::fork().unwrap().as_parent() else {
@@ -181,14 +181,14 @@ pub fn sbrk_fail() {
                 thread::sleep(1000);
             }
         };
-        *pid = p;
+        *pid = Some(p);
         rx.read_exact(&mut [0]).unwrap();
     }
 
     // if those failed allocations freed up the pages they did allocate,
     // we'll be able to allocate here
     process::grow_break(PAGE_SIZE).unwrap();
-    for &pid in &pids {
+    for &pid in pids.iter().flatten() {
         process::kill(pid).unwrap();
         process::wait().unwrap();
     }

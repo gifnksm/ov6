@@ -4,17 +4,18 @@ use core::{
     cell::UnsafeCell,
     cmp,
     ffi::c_void,
-    fmt,
+    num::NonZero,
     ops::{Deref, DerefMut, Range},
     panic::Location,
     ptr, slice,
-    sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, Ordering},
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
 };
 
 use arrayvec::ArrayVec;
 use dataview::{Pod, PodMethods as _};
 use once_init::OnceInit;
-use ov6_types::{os_str::OsStr, path::Path};
+use ov6_syscall::{ReturnType, ReturnValueConvert as _, syscall as sys};
+use ov6_types::{fs::RawFd, os_str::OsStr, path::Path, process::ProcId};
 
 use self::{
     scheduler::Context,
@@ -37,6 +38,7 @@ use crate::{
     param::{NOFILE, NPROC},
     println,
     sync::{SpinLock, SpinLockCondVar, SpinLockGuard},
+    syscall::ReturnValue,
 };
 
 mod elf;
@@ -46,28 +48,6 @@ mod wait_lock;
 
 static PROC: [Proc; NPROC] = [const { Proc::new() }; NPROC];
 static INIT_PROC: OnceInit<&'static Proc> = OnceInit::new();
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct ProcId(i32);
-
-impl fmt::Display for ProcId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
-    }
-}
-
-impl ProcId {
-    pub const INVALID: Self = Self(-1);
-
-    pub const fn new(pid: i32) -> Self {
-        Self(pid)
-    }
-
-    pub fn get(self) -> i32 {
-        self.0
-    }
-}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod)]
@@ -128,7 +108,7 @@ enum ProcState {
 /// Per-process state that can be accessed from other processes.
 pub struct ProcSharedData {
     /// Process ID
-    pid: ProcId,
+    pid: Option<ProcId>,
     /// Process name (for debugging)
     name: ArrayVec<u8, 16>,
     /// Process State
@@ -143,7 +123,7 @@ pub struct ProcSharedData {
 
 impl ProcSharedData {
     pub fn pid(&self) -> ProcId {
-        self.pid
+        self.pid.unwrap()
     }
 
     pub fn name(&self) -> &OsStr {
@@ -172,7 +152,7 @@ pub struct ProcShared(SpinLock<ProcSharedData>);
 impl ProcShared {
     const fn new() -> Self {
         Self(SpinLock::new(ProcSharedData {
-            pid: ProcId::INVALID,
+            pid: None,
             name: ArrayVec::new_const(),
             state: ProcState::Unused,
             killed: false,
@@ -254,11 +234,11 @@ impl ProcPrivateData {
         self.trapframe.as_deref_mut()
     }
 
-    pub fn ofile(&self, fd: usize) -> Option<&File> {
-        self.ofile.get(fd)?.as_ref()
+    pub fn ofile(&self, fd: RawFd) -> Option<&File> {
+        self.ofile.get(fd.get())?.as_ref()
     }
 
-    pub fn add_ofile(&mut self, file: File) -> Result<usize, KernelError> {
+    pub fn add_ofile(&mut self, file: File) -> Result<RawFd, KernelError> {
         let (fd, slot) = self
             .ofile
             .iter_mut()
@@ -266,11 +246,11 @@ impl ProcPrivateData {
             .find(|(_, slot)| slot.is_none())
             .ok_or(KernelError::Unknown)?;
         assert!(slot.replace(file).is_none());
-        Ok(fd)
+        Ok(RawFd::new(fd))
     }
 
-    pub fn unset_ofile(&mut self, fd: usize) -> Option<File> {
-        self.ofile.get_mut(fd)?.take()
+    pub fn unset_ofile(&mut self, fd: RawFd) -> Option<File> {
+        self.ofile.get_mut(fd.get())?.take()
     }
 
     pub fn cwd(&self) -> Option<&Inode> {
@@ -388,9 +368,9 @@ impl Proc {
     }
 
     fn allocate_pid() -> ProcId {
-        static NEXT_PID: AtomicI32 = AtomicI32::new(1);
+        static NEXT_PID: AtomicU32 = AtomicU32::new(1);
         let pid = NEXT_PID.fetch_add(1, Ordering::Relaxed);
-        ProcId(pid)
+        ProcId::new(NonZero::new(pid).unwrap())
     }
 
     /// Returns UNUSED proc in the process table.
@@ -422,7 +402,7 @@ impl Proc {
     )> {
         let (p, mut shared) = Self::lock_unused_proc()?;
 
-        shared.pid = Self::allocate_pid();
+        shared.pid = Some(Self::allocate_pid());
         shared.state = ProcState::Used;
         let mut private = p.take_private();
 
@@ -465,7 +445,7 @@ impl Proc {
         unsafe {
             self.parent.reset();
         }
-        shared.pid = ProcId::INVALID;
+        shared.pid = None;
         shared.name.clear();
         shared.killed = false;
 
@@ -509,7 +489,7 @@ const _: () = const { assert!(INIT_CODE.len() < 128) };
 /// Set up first user process.
 pub fn user_init() {
     let (p, mut shared, mut private) = Proc::allocate().unwrap();
-    assert_eq!(shared.pid.0, 1);
+    assert_eq!(shared.pid.unwrap().get().get(), 1);
     INIT_PROC.init(p);
 
     // allocate one user page and copy initcode's instructions
@@ -554,11 +534,11 @@ pub fn grow_proc(private: &mut ProcPrivateData, n: isize) -> Result<(), KernelEr
 /// Creates a new process, copying the parent.
 ///
 /// Sets up child kernel stack to return as if from `fork()` system call.
-pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Option<ProcId> {
+pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Result<ProcId, KernelError> {
     let parent_name = p.shared().lock().name.clone();
 
     // Allocate process.
-    let (np, mut np_shared, mut np_private) = Proc::allocate()?;
+    let (np, mut np_shared, mut np_private) = Proc::allocate().ok_or(KernelError::Unknown)?;
 
     // Copy use memory from parent to child.
     if p_private
@@ -569,14 +549,15 @@ pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Option<ProcId> {
     {
         np.free(np_private, &mut np_shared);
         drop(np_shared);
-        return None;
+        return Err(KernelError::Unknown);
     }
 
     // Copy saved user registers.
     *np_private.trapframe_mut().unwrap() = *p_private.trapframe().unwrap();
 
     // Cause fork to return 0 in the child.
-    np_private.trapframe_mut().unwrap().a0 = 0;
+    let child_ret: ReturnType<sys::Fork> = Ok(None);
+    ReturnValue::from(child_ret.encode()).store(np_private.trapframe_mut().unwrap());
 
     // increment refereence counts on open file descriptors.
     for (of, nof) in p_private.ofile.iter().zip(&mut np_private.ofile) {
@@ -587,7 +568,7 @@ pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Option<ProcId> {
     np_private.cwd.clone_from(&p_private.cwd);
     np_shared.name = parent_name;
 
-    let pid = np_shared.pid;
+    let pid = np_shared.pid.unwrap();
     drop(np_shared);
 
     let mut wait_lock = wait_lock::lock();
@@ -600,7 +581,7 @@ pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Option<ProcId> {
     drop(np_private);
     np.shared.lock().state = ProcState::Runnable;
 
-    Some(pid)
+    Ok(pid)
 }
 
 /// Pass p's abandoned children to init.
@@ -689,7 +670,7 @@ pub fn wait(
                 // Found one.
                 let pp_private = pp.take_private();
 
-                let pid = pp_shared.pid;
+                let pid = pp_shared.pid.unwrap();
                 if addr.addr() != 0
                     && vm::copy_out(p_private.pagetable_mut().unwrap(), addr, &exit_status).is_err()
                 {
@@ -792,7 +773,7 @@ pub fn wakeup(chan: *const c_void) {
 pub fn kill(pid: ProcId) -> Result<(), KernelError> {
     for p in &PROC {
         let mut shared = p.shared.lock();
-        if shared.pid == pid {
+        if shared.pid == Some(pid) {
             shared.killed = true;
             if let ProcState::Sleeping { .. } = shared.state {
                 // Wake process from sleep().
@@ -870,6 +851,7 @@ pub fn dump() {
             ProcState::Zombie { .. } => "zombie",
         };
 
+        let pid = pid.unwrap();
         let name = OsStr::from_bytes(&name).display();
         println!("{pid:5} {state:<10} {name}");
     }

@@ -1,14 +1,14 @@
 use core::ffi::CStr;
 
 use dataview::PodMethods as _;
-use ov6_types::os_str::OsStr;
+use ov6_types::{fs::RawFd, os_str::OsStr};
 pub use syscall::StatType;
 
 use crate::{
     error::Ov6Error,
     io::{Read, Write},
     os::{
-        fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
+        fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
         ov6::syscall::{self, OpenFlags},
     },
 };

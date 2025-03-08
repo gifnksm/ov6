@@ -5,16 +5,13 @@ use core::{
 };
 
 use mutex_api::Mutex;
+use ov6_types::process::ProcId;
 
 use super::SpinLock;
-use crate::{
-    cpu::Cpu,
-    error::KernelError,
-    proc::{self, ProcId},
-};
+use crate::{cpu::Cpu, error::KernelError, proc};
 
 struct RawSleepLock {
-    locked: SpinLock<(bool, ProcId)>,
+    locked: SpinLock<(bool, Option<ProcId>)>,
 }
 
 impl Default for RawSleepLock {
@@ -26,7 +23,7 @@ impl Default for RawSleepLock {
 impl RawSleepLock {
     const fn new() -> Self {
         Self {
-            locked: SpinLock::new((false, ProcId::new(0))),
+            locked: SpinLock::new((false, None)),
         }
     }
 
@@ -53,7 +50,7 @@ impl RawSleepLock {
     fn release(&self) {
         let mut locked = self.locked.lock();
         locked.0 = false;
-        locked.1 = ProcId::INVALID;
+        locked.1 = None;
         proc::wakeup(ptr::from_ref(self).cast());
         drop(locked);
     }

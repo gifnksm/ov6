@@ -2,6 +2,7 @@ use core::ffi::c_char;
 
 pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
 use ov6_syscall::{ReturnTypeRepr, syscall};
+use ov6_types::fs::RawFd;
 
 #[cfg(target_arch = "riscv64")]
 macro_rules! syscall {
@@ -73,23 +74,23 @@ syscall!(
     /// # Safety
     ///
     /// `pipefd` must be a valid pointer to an array of 2 `i32`s.
-    unsafe fn pipe(pipefd: *mut i32) -> ReturnTypeRepr<syscall::Pipe>
+    unsafe fn pipe(pipefd: *mut RawFd) -> ReturnTypeRepr<syscall::Pipe>
 );
 syscall!(
     SyscallCode::Write =>
     /// # Safety
     ///
     /// `buf` must be a valid pointer to an array of `i32`s with a length of `count`.
-    unsafe fn write(fd: i32, buf: *const u8, count: usize) -> ReturnTypeRepr<syscall::Write>
+    unsafe fn write(fd: RawFd, buf: *const u8, count: usize) -> ReturnTypeRepr<syscall::Write>
 );
 syscall!(
     SyscallCode::Read =>
     /// # Safety
     ///
     /// `buf` must be a valid pointer to an array of `i32`s with a length of `count`.
-    unsafe fn read(fd: i32, buf: *mut u8, count: usize) -> ReturnTypeRepr<syscall::Read>
+    unsafe fn read(fd: RawFd, buf: *mut u8, count: usize) -> ReturnTypeRepr<syscall::Read>
 );
-syscall!(SyscallCode::Close => fn close(fd: i32) -> ReturnTypeRepr<syscall::Close>);
+syscall!(SyscallCode::Close => fn close(fd: RawFd) -> ReturnTypeRepr<syscall::Close>);
 syscall!(SyscallCode::Kill => fn kill(pid: u32) -> ReturnTypeRepr<syscall::Kill>);
 syscall!(
     SyscallCode::Exec =>
@@ -126,7 +127,7 @@ syscall!(
     /// # Safety
     ///
     /// `stat` must be a valid pointer to a `Stat` struct.
-    unsafe fn fstat(fd: i32, stat: *mut Stat) -> ReturnTypeRepr<syscall::Fstat>
+    unsafe fn fstat(fd: RawFd, stat: *mut Stat) -> ReturnTypeRepr<syscall::Fstat>
 );
 syscall!(
     SyscallCode::Link =>
@@ -149,7 +150,7 @@ syscall!(
     /// `path` must be a valid pointer to a null-terminated string.
     unsafe fn chdir(path: *const c_char) -> ReturnTypeRepr<syscall::Chdir>
 );
-syscall!(SyscallCode::Dup => fn dup(fd: i32) -> ReturnTypeRepr<syscall::Dup>);
+syscall!(SyscallCode::Dup => fn dup(fd: RawFd) -> ReturnTypeRepr<syscall::Dup>);
 syscall!(SyscallCode::Getpid => fn getpid() -> ReturnTypeRepr<syscall::Getpid>);
 syscall!(SyscallCode::Sbrk => fn sbrk(incr: isize) -> ReturnTypeRepr<syscall::Sbrk>);
 syscall!(SyscallCode::Sleep => fn sleep(n: i32) -> ReturnTypeRepr<syscall::Sleep>);

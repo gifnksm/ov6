@@ -1,5 +1,7 @@
 use core::convert::Infallible;
 
+pub use ov6_types::process::ProcId;
+
 pub use crate::os::ov6::syscall::{exec, exit, fork, kill, wait};
 use crate::{error::Ov6Error, os::ov6::syscall};
 
@@ -27,13 +29,13 @@ impl ExitStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ForkResult {
-    Parent { child: u32 },
+    Parent { child: ProcId },
     Child,
 }
 
 impl ForkResult {
     #[must_use]
-    pub fn as_parent(&self) -> Option<u32> {
+    pub fn as_parent(&self) -> Option<ProcId> {
         match self {
             Self::Parent { child } => Some(*child),
             Self::Child => None,
@@ -52,8 +54,8 @@ impl ForkResult {
 }
 
 #[must_use]
-pub fn id() -> u32 {
-    syscall::getpid().unwrap()
+pub fn id() -> ProcId {
+    syscall::getpid()
 }
 
 #[must_use]
@@ -74,12 +76,12 @@ pub unsafe fn shrink_break(size: usize) -> Result<*mut u8, Ov6Error> {
 }
 
 pub struct ForkFnHandle {
-    pid: u32,
+    pid: ProcId,
 }
 
 impl ForkFnHandle {
     #[must_use]
-    pub fn pid(&self) -> u32 {
+    pub fn pid(&self) -> ProcId {
         self.pid
     }
 

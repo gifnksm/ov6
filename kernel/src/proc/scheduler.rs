@@ -99,7 +99,7 @@ pub fn schedule() -> ! {
             // to release its lock and then reacquire it
             // before jumping back to us.
             shared.state = ProcState::Running;
-            cpu.set_proc(Some((shared.pid, p)));
+            cpu.set_proc(Some((shared.pid.unwrap(), p)));
             unsafe {
                 switch(&raw mut SCHED_CONTEXT[cpuid], &shared.context);
             }

@@ -32,7 +32,7 @@ fn get_cmd(buf: &mut String) -> Result<Option<&str>, Ov6Error> {
 fn main() {
     // Ensure that three file descriptors are open.
     while let Ok(file) = File::options().read(true).write(true).open(c"console") {
-        if file.as_raw_fd() < 3 {
+        if file.as_raw_fd().get() < 3 {
             mem::forget(file);
             continue;
         }

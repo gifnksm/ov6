@@ -12,5 +12,5 @@ extern "C" fn main() {
     let argv = [init.as_ptr().cast(), ptr::null()];
     let err = unsafe { ffi::exec(init.as_ptr().cast(), argv.as_ptr()) };
     #[expect(clippy::cast_possible_truncation)]
-    ffi::exit(err.a0 as i32);
+    let _ = ffi::exit(err.a0 as i32);
 }

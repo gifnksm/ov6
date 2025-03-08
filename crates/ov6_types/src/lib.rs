@@ -4,5 +4,7 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+pub mod fs;
 pub mod os_str;
 pub mod path;
+pub mod process;

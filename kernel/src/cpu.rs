@@ -1,18 +1,15 @@
 use core::{arch::asm, ptr::NonNull};
 
-use crate::{
-    interrupt,
-    param::NCPU,
-    proc::{Proc, ProcId},
-    sync::SpinLock,
-};
+use ov6_types::process::ProcId;
+
+use crate::{interrupt, param::NCPU, proc::Proc, sync::SpinLock};
 
 static CPUS: [Cpu; NCPU] = [const { Cpu::new() }; NCPU];
 
 /// Per-CPU state.
 pub struct Cpu {
     /// The process running on this Cpu.
-    proc: SpinLock<(ProcId, Option<NonNull<Proc>>)>,
+    proc: SpinLock<Option<(ProcId, NonNull<Proc>)>>,
 }
 
 unsafe impl Sync for Cpu {}
@@ -44,7 +41,7 @@ pub unsafe fn set_id(id: usize) {
 impl Cpu {
     const fn new() -> Self {
         Self {
-            proc: SpinLock::new((ProcId::INVALID, None)),
+            proc: SpinLock::new(None),
         }
     }
 
@@ -61,21 +58,18 @@ impl Cpu {
     pub fn set_proc(&self, p: Option<(ProcId, &Proc)>) {
         assert!(!interrupt::is_enabled());
 
-        *self.proc.try_lock().unwrap() = match p {
-            Some((pid, p)) => (pid, Some(NonNull::from(p))),
-            None => (ProcId::INVALID, None),
-        };
+        *self.proc.try_lock().unwrap() = p.map(|(pid, p)| (pid, NonNull::from(p)));
     }
 
-    pub fn pid(&self) -> ProcId {
+    pub fn pid(&self) -> Option<ProcId> {
         assert!(!interrupt::is_enabled());
 
-        self.proc.try_lock().unwrap().0
+        self.proc.try_lock().unwrap().map(|p| p.0)
     }
 
     pub fn proc(&self) -> Option<NonNull<Proc>> {
         assert!(!interrupt::is_enabled());
 
-        self.proc.try_lock().unwrap().1
+        self.proc.try_lock().unwrap().map(|p| p.1)
     }
 }

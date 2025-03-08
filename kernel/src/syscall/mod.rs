@@ -1,6 +1,6 @@
 use core::panic;
 
-use ov6_syscall::{Ret1, RetInfailible, ReturnValueConvert as _, SyscallCode};
+use ov6_syscall::{Ret0, Ret1, ReturnType, ReturnValueConvert, SyscallCode, syscall as sys};
 
 use crate::{
     error::KernelError,
@@ -72,13 +72,14 @@ pub fn arg_str<'a>(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ReturnValue {
+pub enum ReturnValue {
     Ret0,
     Ret1(usize),
+    Ret2(usize, usize),
 }
 
-impl From<RetInfailible> for ReturnValue {
-    fn from(_: RetInfailible) -> Self {
+impl<T> From<Ret0<T>> for ReturnValue {
+    fn from(_: Ret0<T>) -> Self {
         Self::Ret0
     }
 }
@@ -90,12 +91,16 @@ impl<T> From<Ret1<T>> for ReturnValue {
 }
 
 impl ReturnValue {
-    fn store(self, tf: &mut TrapFrame) {
-        let a0 = match self {
-            Self::Ret0 => 0,
-            Self::Ret1(a) => a,
+    pub fn store(self, tf: &mut TrapFrame) {
+        let (a0, a1) = match self {
+            Self::Ret0 => (0, None),
+            Self::Ret1(a0) => (a0, None),
+            Self::Ret2(a0, a1) => (a0, Some(a1)),
         };
         tf.a0 = a0;
+        if let Some(a1) = a1 {
+            tf.a1 = a1;
+        }
     }
 }
 
@@ -112,28 +117,43 @@ pub fn syscall(p: &'static Proc, private: &mut Option<ProcPrivateDataGuard>) {
     };
     let _ = private_ref;
 
+    fn call<T>(
+        f: fn(p: &'static Proc, private: &mut Option<ProcPrivateDataGuard>) -> T,
+        p: &'static Proc,
+        private: &mut Option<ProcPrivateDataGuard>,
+    ) -> ReturnValue
+    where
+        T: ReturnValueConvert,
+        T::Repr: Into<ReturnValue>,
+    {
+        f(p, private).encode().into()
+    }
+
     let f: &dyn Fn(&'static Proc, &mut Option<ProcPrivateDataGuard>) -> ReturnValue = match ty {
-        SyscallCode::Fork => &|p, private| self::proc::sys_fork(p, private).encode().into(),
-        SyscallCode::Exit => &|p, private| self::proc::sys_exit(p, private).encode().into(),
-        SyscallCode::Wait => &|p, private| self::proc::sys_wait(p, private).encode().into(),
-        SyscallCode::Pipe => &|p, private| self::file::sys_pipe(p, private).encode().into(),
-        SyscallCode::Read => &|p, private| self::file::sys_read(p, private).encode().into(),
-        SyscallCode::Kill => &|p, private| self::proc::sys_kill(p, private).encode().into(),
-        SyscallCode::Exec => &|p, private| self::file::sys_exec(p, private).encode().into(),
-        SyscallCode::Fstat => &|p, private| self::file::sys_fstat(p, private).encode().into(),
-        SyscallCode::Chdir => &|p, private| self::file::sys_chdir(p, private).encode().into(),
-        SyscallCode::Dup => &|p, private| self::file::sys_dup(p, private).encode().into(),
-        SyscallCode::Getpid => &|p, private| self::proc::sys_getpid(p, private).encode().into(),
-        SyscallCode::Sbrk => &|p, private| self::proc::sys_sbrk(p, private).encode().into(),
-        SyscallCode::Sleep => &|p, private| self::proc::sys_sleep(p, private).encode().into(),
-        SyscallCode::Uptime => &|p, private| self::proc::sys_uptime(p, private).encode().into(),
-        SyscallCode::Open => &|p, private| self::file::sys_open(p, private).encode().into(),
-        SyscallCode::Write => &|p, private| self::file::sys_write(p, private).encode().into(),
-        SyscallCode::Mknod => &|p, private| self::file::sys_mknod(p, private).encode().into(),
-        SyscallCode::Unlink => &|p, private| self::file::sys_unlink(p, private).encode().into(),
-        SyscallCode::Link => &|p, private| self::file::sys_link(p, private).encode().into(),
-        SyscallCode::Mkdir => &|p, private| self::file::sys_mkdir(p, private).encode().into(),
-        SyscallCode::Close => &|p, private| self::file::sys_close(p, private).encode().into(),
+        SyscallCode::Fork => &|p, private| call(self::proc::sys_fork, p, private),
+        SyscallCode::Exit => &|p, private| call(self::proc::sys_exit, p, private),
+        SyscallCode::Wait => &|p, private| call(self::proc::sys_wait, p, private),
+        SyscallCode::Pipe => &|p, private| call(self::file::sys_pipe, p, private),
+        SyscallCode::Read => &|p, private| call(self::file::sys_read, p, private),
+        SyscallCode::Kill => &|p, private| call(self::proc::sys_kill, p, private),
+        SyscallCode::Exec => &|p, private| match self::file::sys_exec(p, private) {
+            Ok((argc, argv)) => ReturnValue::Ret2(argc, argv),
+            Err(e) => ReturnType::<sys::Exec>::Err(e).encode().into(),
+        },
+        SyscallCode::Fstat => &|p, private| call(self::file::sys_fstat, p, private),
+        SyscallCode::Chdir => &|p, private| call(self::file::sys_chdir, p, private),
+        SyscallCode::Dup => &|p, private| call(self::file::sys_dup, p, private),
+        SyscallCode::Getpid => &|p, private| call(self::proc::sys_getpid, p, private),
+        SyscallCode::Sbrk => &|p, private| call(self::proc::sys_sbrk, p, private),
+        SyscallCode::Sleep => &|p, private| call(self::proc::sys_sleep, p, private),
+        SyscallCode::Uptime => &|p, private| call(self::proc::sys_uptime, p, private),
+        SyscallCode::Open => &|p, private| call(self::file::sys_open, p, private),
+        SyscallCode::Write => &|p, private| call(self::file::sys_write, p, private),
+        SyscallCode::Mknod => &|p, private| call(self::file::sys_mknod, p, private),
+        SyscallCode::Unlink => &|p, private| call(self::file::sys_unlink, p, private),
+        SyscallCode::Link => &|p, private| call(self::file::sys_link, p, private),
+        SyscallCode::Mkdir => &|p, private| call(self::file::sys_mkdir, p, private),
+        SyscallCode::Close => &|p, private| call(self::file::sys_close, p, private),
     };
     let ret = f(p, private);
     let private_ref = private.as_mut().unwrap();

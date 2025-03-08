@@ -129,6 +129,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags",
  "dataview",
+ "ov6_types",
  "strum",
 ]
 

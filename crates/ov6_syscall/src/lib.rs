@@ -1,9 +1,10 @@
 #![no_std]
 
-use core::{convert::Infallible, marker::PhantomData};
+use core::{convert::Infallible, marker::PhantomData, num::NonZero};
 
 use bitflags::bitflags;
 use dataview::Pod;
+use ov6_types::{fs::RawFd, process::ProcId};
 use strum::FromRepr;
 
 bitflags! {
@@ -89,29 +90,31 @@ pub type ReturnType<T> = <T as Syscall>::Return;
 pub type ReturnTypeRepr<T> = <<T as Syscall>::Return as ReturnValueConvert>::Repr;
 
 pub mod syscall {
+    use ov6_types::{fs::RawFd, process::ProcId};
+
     use super::*;
 
-    syscall!(Fork => fn(..) -> Result<usize, SyscallError>);
+    syscall!(Fork => fn(..) -> Result<Option<ProcId>, SyscallError>);
     syscall!(Exit => fn(..) -> Infallible);
-    syscall!(Wait => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Pipe => fn(..) -> Result<usize, SyscallError>);
+    syscall!(Wait => fn(..) -> Result<ProcId, SyscallError>);
+    syscall!(Pipe => fn(..) -> Result<(), SyscallError>);
     syscall!(Read => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Kill => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Exec => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Fstat => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Chdir => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Dup => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Getpid => fn(..) -> Result<usize, SyscallError>);
+    syscall!(Kill => fn(..) -> Result<(), SyscallError>);
+    syscall!(Exec => fn(..) -> Result<Infallible, SyscallError>);
+    syscall!(Fstat => fn(..) -> Result<(), SyscallError>);
+    syscall!(Chdir => fn(..) -> Result<(), SyscallError>);
+    syscall!(Dup => fn(..) -> Result<RawFd, SyscallError>);
+    syscall!(Getpid => fn(..) -> ProcId);
     syscall!(Sbrk => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Sleep => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Uptime => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Open => fn(..) -> Result<usize, SyscallError>);
+    syscall!(Sleep => fn(..) -> ());
+    syscall!(Uptime => fn(..) -> u64);
+    syscall!(Open => fn(..) -> Result<RawFd, SyscallError>);
     syscall!(Write => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Mknod => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Unlink => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Link => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Mkdir => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Close => fn(..) -> Result<usize, SyscallError>);
+    syscall!(Mknod => fn(..) -> Result<(), SyscallError>);
+    syscall!(Unlink => fn(..) -> Result<(), SyscallError>);
+    syscall!(Link => fn(..) -> Result<(), SyscallError>);
+    syscall!(Mkdir => fn(..) -> Result<(), SyscallError>);
+    syscall!(Close => fn(..) -> Result<(), SyscallError>);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr)]
@@ -120,12 +123,32 @@ pub enum SyscallError {
     Unknown = -1,
 }
 
+#[must_use]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RetInfailible {
+pub struct Ret0<T> {
     _dummy: usize, // zero-sized-type is not FFI-safe
+    _phantom: PhantomData<T>,
 }
 
+impl<T> Ret0<T> {
+    fn new() -> Self {
+        Self {
+            _dummy: 0,
+            _phantom: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn decode(self) -> T
+    where
+        T: ReturnValueConvert<Repr = Self>,
+    {
+        T::decode(self)
+    }
+}
+
+#[must_use]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ret1<T> {
@@ -157,6 +180,31 @@ pub trait ReturnValueConvert {
     fn decode(repr: Self::Repr) -> Self;
 }
 
+impl ReturnValueConvert for Result<(), SyscallError> {
+    type Repr = Ret1<Self>;
+
+    fn encode(self) -> Self::Repr {
+        match self {
+            Ok(()) => Ret1::new(0),
+            Err(e) => {
+                let e = e as isize;
+                assert!(e < 0);
+                Ret1::new(e.cast_unsigned())
+            }
+        }
+    }
+
+    fn decode(repr: Self::Repr) -> Self {
+        let s = repr.a0.cast_signed();
+        if s >= 0 {
+            assert_eq!(s, 0);
+            return Ok(());
+        }
+        let e = SyscallError::from_repr(s).ok_or(SyscallError::Unknown)?;
+        Err(e)
+    }
+}
+
 impl ReturnValueConvert for Result<usize, SyscallError> {
     type Repr = Ret1<Self>;
 
@@ -184,8 +232,107 @@ impl ReturnValueConvert for Result<usize, SyscallError> {
     }
 }
 
+impl ReturnValueConvert for Result<Option<ProcId>, SyscallError> {
+    type Repr = Ret1<Self>;
+
+    fn encode(self) -> Self::Repr {
+        match self {
+            Ok(Some(pid)) => Ret1::new(pid.get().get().try_into().unwrap()),
+            Ok(None) => Ret1::new(0),
+            Err(e) => {
+                let e = e as isize;
+                assert!(e < 0);
+                Ret1::new(e.cast_unsigned())
+            }
+        }
+    }
+
+    fn decode(repr: Self::Repr) -> Self {
+        let s = repr.a0.cast_signed();
+        if s >= 0 {
+            return Ok(NonZero::new(s.try_into().unwrap()).map(ProcId::new));
+        }
+        let e = SyscallError::from_repr(s).ok_or(SyscallError::Unknown)?;
+        Err(e)
+    }
+}
+
+impl ReturnValueConvert for Result<ProcId, SyscallError> {
+    type Repr = Ret1<Self>;
+
+    fn encode(self) -> Self::Repr {
+        match self {
+            Ok(pid) => Ret1::new(pid.get().get().try_into().unwrap()),
+            Err(e) => {
+                let e = e as isize;
+                assert!(e < 0);
+                Ret1::new(e.cast_unsigned())
+            }
+        }
+    }
+
+    fn decode(repr: Self::Repr) -> Self {
+        let s = repr.a0.cast_signed();
+        if s >= 0 {
+            return Ok(ProcId::new(
+                NonZero::new(u32::try_from(s).unwrap()).unwrap(),
+            ));
+        }
+        let e = SyscallError::from_repr(s).ok_or(SyscallError::Unknown)?;
+        Err(e)
+    }
+}
+
+impl ReturnValueConvert for Result<Infallible, SyscallError> {
+    type Repr = Ret1<Self>;
+
+    fn encode(self) -> Self::Repr {
+        match self {
+            Err(e) => {
+                let e = e as isize;
+                assert!(e < 0);
+                Ret1::new(e.cast_unsigned())
+            }
+        }
+    }
+
+    fn decode(repr: Self::Repr) -> Self {
+        let s = repr.a0.cast_signed();
+        assert!(s < 0);
+        let e = SyscallError::from_repr(s).ok_or(SyscallError::Unknown)?;
+        Err(e)
+    }
+}
+
+impl ReturnValueConvert for Result<RawFd, SyscallError> {
+    type Repr = Ret1<Self>;
+
+    fn encode(self) -> Self::Repr {
+        match self {
+            Ok(fd) => {
+                assert!(fd.get().cast_signed() >= 0);
+                Ret1::new(fd.get())
+            }
+            Err(e) => {
+                let e = e as isize;
+                assert!(e < 0);
+                Ret1::new(e.cast_unsigned())
+            }
+        }
+    }
+
+    fn decode(repr: Self::Repr) -> Self {
+        let s = repr.a0.cast_signed();
+        if s >= 0 {
+            return Ok(RawFd::new(repr.a0));
+        }
+        let e = SyscallError::from_repr(s).ok_or(SyscallError::Unknown)?;
+        Err(e)
+    }
+}
+
 impl ReturnValueConvert for Infallible {
-    type Repr = RetInfailible;
+    type Repr = Ret0<Self>;
 
     fn encode(self) -> Self::Repr {
         unreachable!()
@@ -193,5 +340,39 @@ impl ReturnValueConvert for Infallible {
 
     fn decode(_repr: Self::Repr) -> Self {
         unreachable!()
+    }
+}
+
+impl ReturnValueConvert for () {
+    type Repr = Ret0<()>;
+
+    fn encode(self) -> Self::Repr {
+        Ret0::new()
+    }
+
+    fn decode(_: Self::Repr) -> Self {}
+}
+
+impl ReturnValueConvert for u64 {
+    type Repr = Ret1<Self>;
+
+    fn encode(self) -> Self::Repr {
+        Ret1::new(self.try_into().unwrap())
+    }
+
+    fn decode(repr: Self::Repr) -> Self {
+        repr.a0.try_into().unwrap()
+    }
+}
+
+impl ReturnValueConvert for ProcId {
+    type Repr = Ret1<Self>;
+
+    fn encode(self) -> Self::Repr {
+        Ret1::new(self.get().get().try_into().unwrap())
+    }
+
+    fn decode(repr: Self::Repr) -> Self {
+        Self::new(NonZero::new(u32::try_from(repr.a0).unwrap()).unwrap())
     }
 }
