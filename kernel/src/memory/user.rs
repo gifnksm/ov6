@@ -1,8 +1,5 @@
-use core::{ptr, slice};
-
 use alloc::boxed::Box;
-
-use crate::{error::KernelError, interrupt::trampoline, proc::TrapFrame};
+use core::{ptr, slice};
 
 use super::{
     PAGE_SIZE, PageRound as _, PhysAddr, PhysPageNum, VirtAddr,
@@ -10,6 +7,7 @@ use super::{
     page::{self, PageFrameAllocator},
     page_table::{PageTable, PtEntryFlags},
 };
+use crate::{error::KernelError, interrupt::trampoline, proc::TrapFrame};
 
 pub struct UserPageTable {
     pt: Box<PageTable, PageFrameAllocator>,

@@ -9,6 +9,7 @@ use core::{mem::MaybeUninit, ptr};
 
 use dataview::Pod;
 
+use super::LockedTxInode;
 use crate::{
     error::KernelError,
     fs::{
@@ -18,8 +19,6 @@ use crate::{
     memory::VirtAddr,
     proc::{self, ProcPrivateData},
 };
-
-use super::LockedTxInode;
 
 impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
     /// Returns the disk block address of the `i`th **direct** block in inode.

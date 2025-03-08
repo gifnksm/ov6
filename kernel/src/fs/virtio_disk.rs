@@ -1,6 +1,6 @@
+use alloc::boxed::Box;
 use core::{array, mem, pin::Pin, ptr, sync::atomic::Ordering};
 
-use alloc::boxed::Box;
 use once_init::OnceInit;
 
 use crate::{
@@ -344,7 +344,8 @@ fn read_or_write(offset: usize, data: &[u8], write: bool) {
 
 #[expect(clippy::needless_pass_by_ref_mut)]
 pub(super) fn read(offset: usize, data: &mut [u8]) {
-    // FIXME: is it ok to pass data as &[u8], then hardware changes the contents of data?
+    // FIXME: is it ok to pass data as &[u8], then hardware changes the contents of
+    // data?
     read_or_write(offset, data, false);
 }
 

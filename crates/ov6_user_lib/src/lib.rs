@@ -7,8 +7,7 @@
 
 extern crate alloc as alloc_crate;
 
-pub use ov6_types::os_str;
-pub use ov6_types::path;
+pub use ov6_types::{os_str, path};
 
 #[macro_use]
 mod macros;

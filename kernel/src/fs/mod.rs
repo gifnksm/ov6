@@ -14,13 +14,11 @@
 use dataview::Pod;
 use once_init::OnceInit;
 use ov6_fs_types::{self as repr, SuperBlock};
+pub use repr::{BlockNo, FS_BLOCK_SIZE, InodeNo, T_DEVICE, T_DIR, T_FILE};
 
-pub use {
-    self::{
-        inode::{Inode, LockedTxInode},
-        log::{Tx, begin_readonly_tx, begin_tx},
-    },
-    repr::{BlockNo, FS_BLOCK_SIZE, InodeNo, T_DEVICE, T_DIR, T_FILE},
+pub use self::{
+    inode::{Inode, LockedTxInode},
+    log::{Tx, begin_readonly_tx, begin_tx},
 };
 
 mod block_io;
@@ -37,9 +35,9 @@ pub mod virtio_disk;
 pub struct DeviceNo(u32);
 
 impl DeviceNo {
+    pub const CONSOLE: Self = Self(1);
     /// Device number of file system root disk.
     pub const ROOT: Self = Self(0);
-    pub const CONSOLE: Self = Self(1);
 
     pub const fn new(n: u32) -> Self {
         Self(n)

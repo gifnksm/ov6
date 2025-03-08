@@ -1,9 +1,8 @@
+use self::buffer::Buffer;
 use crate::{
     error::Ov6Error,
     io::{BufRead, DEFAULT_BUF_SIZE, Read},
 };
-
-use self::buffer::Buffer;
 
 mod buffer;
 

@@ -1,8 +1,7 @@
 use ov6_types::path::{Component, Path};
 
-use crate::{error::KernelError, proc::ProcPrivateData};
-
 use super::{DeviceNo, InodeNo, Tx, inode::TxInode};
+use crate::{error::KernelError, proc::ProcPrivateData};
 
 /// Looks up and returns the inode for a given path.
 pub fn resolve<'a, const READ_ONLY: bool>(

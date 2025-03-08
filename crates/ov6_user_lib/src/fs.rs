@@ -2,6 +2,7 @@ use core::ffi::CStr;
 
 use dataview::PodMethods as _;
 use ov6_types::os_str::OsStr;
+pub use syscall::StatType;
 
 use crate::{
     error::Ov6Error,
@@ -11,8 +12,6 @@ use crate::{
         ov6::syscall::{self, OpenFlags},
     },
 };
-
-pub use syscall::StatType;
 
 pub struct Metadata {
     dev: u32,

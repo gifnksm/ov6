@@ -1,9 +1,8 @@
 use core::{cmp, error::Error, fmt, iter::FusedIterator, ptr};
 
-use crate::os_str::{self, OsStr};
-
 #[cfg(feature = "alloc")]
 pub use self::path_buf::PathBuf;
+use crate::os_str::{self, OsStr};
 
 #[cfg(feature = "alloc")]
 mod path_buf;
@@ -188,8 +187,8 @@ impl AsRef<Path> for str {
 }
 
 impl<'a> IntoIterator for &'a Path {
-    type Item = &'a OsStr;
     type IntoIter = Iter<'a>;
+    type Item = &'a OsStr;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()

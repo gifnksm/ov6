@@ -15,13 +15,15 @@ pub struct PageFrameAllocator<const PAGE_SIZE: usize> {
 }
 
 impl<const PAGE_SIZE: usize> PageFrameAllocator<PAGE_SIZE> {
-    /// Creates a new `PageAllocator` that manages the given range of physical memory.
+    /// Creates a new `PageAllocator` that manages the given range of physical
+    /// memory.
     ///
     /// The given range of physical memory must be page-aligned.
     ///
     /// # Safety
     ///
-    /// The given range of physical memory must be valid and not overlap with other memory regions.
+    /// The given range of physical memory must be valid and not overlap with
+    /// other memory regions.
     #[must_use]
     pub unsafe fn new(heap: Range<*mut u8>) -> Self {
         assert!(size_of::<Run>() <= PAGE_SIZE);
@@ -65,9 +67,9 @@ impl<const PAGE_SIZE: usize> PageFrameAllocator<PAGE_SIZE> {
     ///
     /// # Safety
     ///
-    /// The given page must have been previously allocated by this `PageAllocator`.
-    /// The page must not be accessed after it has been freed.
-    /// The page must not be freed more than once.
+    /// The given page must have been previously allocated by this
+    /// `PageAllocator`. The page must not be accessed after it has been
+    /// freed. The page must not be freed more than once.
     pub unsafe fn free(&mut self, page: NonNull<u8>) {
         assert!(self.heap.contains(&page.as_ptr()));
         assert_eq!(page.addr().get() % PAGE_SIZE, 0);

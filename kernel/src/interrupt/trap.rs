@@ -13,6 +13,7 @@ use riscv::{
     },
 };
 
+use super::{kernel_vec, plic, trampoline};
 use crate::{
     console::uart,
     cpu, fs, interrupt,
@@ -25,8 +26,6 @@ use crate::{
     sync::{SpinLock, SpinLockCondVar},
     syscall,
 };
-
-use super::{kernel_vec, plic, trampoline};
 
 pub static TICKS: SpinLock<u64> = SpinLock::new(0);
 pub static TICKS_UPDATED: SpinLockCondVar = SpinLockCondVar::new();

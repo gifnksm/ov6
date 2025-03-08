@@ -2,6 +2,7 @@ use core::{ffi::CStr, slice};
 
 use ov6_types::path::Path;
 
+use super::ProcPrivateData;
 use crate::{
     error::KernelError,
     fs::{self, LockedTxInode},
@@ -14,8 +15,6 @@ use crate::{
         elf::{ELF_MAGIC, ELF_PROG_LOAD, ElfHeader, ProgramHeader},
     },
 };
-
-use super::ProcPrivateData;
 
 fn flags2perm(flags: u32) -> PtEntryFlags {
     let mut perm = PtEntryFlags::empty();

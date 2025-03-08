@@ -1,13 +1,12 @@
 use alloc::sync::Arc;
 
+use super::{File, FileData, FileDataArc, SpecificData};
 use crate::{
     error::KernelError,
     memory::{VirtAddr, page::PageFrameAllocator, vm},
     proc::{Proc, ProcPrivateData},
     sync::{SpinLock, SpinLockCondVar},
 };
-
-use super::{File, FileData, FileDataArc, SpecificData};
 
 const PIPE_SIZE: usize = 512;
 

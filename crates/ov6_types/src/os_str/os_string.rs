@@ -1,16 +1,15 @@
+use alloc::{
+    borrow::{Cow, ToOwned},
+    collections::TryReserveError,
+    string::String,
+    vec::Vec,
+};
 use core::{
     borrow::Borrow,
     cmp,
     convert::Infallible,
     ops::{Deref, DerefMut, Index, IndexMut, RangeFull},
     str::{FromStr, Utf8Error},
-};
-
-use alloc::{
-    borrow::{Cow, ToOwned},
-    collections::TryReserveError,
-    string::String,
-    vec::Vec,
 };
 
 use super::OsStr;
@@ -263,7 +262,7 @@ impl<'a> From<&'a OsStr> for Cow<'a, OsStr> {
 }
 
 macro_rules! impl_cmp {
-    ($lhs:ty, $rhs: ty) => {
+    ($lhs:ty, $rhs:ty) => {
         impl<'a, 'b> PartialEq<$rhs> for $lhs {
             #[inline]
             fn eq(&self, other: &$rhs) -> bool {

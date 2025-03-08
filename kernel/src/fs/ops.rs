@@ -1,14 +1,13 @@
 use dataview::PodMethods as _;
 use ov6_types::{os_str::OsStr, path::Path};
 
-use crate::{error::KernelError, fs::repr, proc::ProcPrivateData};
-
 use super::{
     DeviceNo, Tx,
     inode::TxInode,
     path,
     repr::{T_DEVICE, T_FILE},
 };
+use crate::{error::KernelError, fs::repr, proc::ProcPrivateData};
 
 pub fn unlink(
     tx: &Tx<false>,

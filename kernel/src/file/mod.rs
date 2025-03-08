@@ -1,13 +1,11 @@
+pub use self::device::{Device, register_device};
+use self::{alloc::FileDataArc, device::DeviceFile, inode::InodeFile, pipe::PipeFile};
 use crate::{
     error::KernelError,
     fs::{DeviceNo, Inode},
     memory::VirtAddr,
     proc::{Proc, ProcPrivateData},
 };
-
-use self::{alloc::FileDataArc, device::DeviceFile, inode::InodeFile, pipe::PipeFile};
-
-pub use self::device::{Device, register_device};
 
 mod alloc;
 mod common;

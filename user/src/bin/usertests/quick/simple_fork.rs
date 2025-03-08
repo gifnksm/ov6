@@ -1,3 +1,4 @@
+use alloc::alloc::Global;
 use core::{
     alloc::{Allocator as _, Layout},
     ffi::CStr,
@@ -5,7 +6,6 @@ use core::{
     ptr::NonNull,
 };
 
-use alloc::alloc::Global;
 use ov6_user_lib::{
     eprint,
     fs::{self, File},

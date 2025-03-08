@@ -1,13 +1,12 @@
 use ov6_fs_types::InodeNo;
 use ov6_kernel_params::NINODE;
 
+use super::{InodeDataArc, InodeDataWeak};
 use crate::{
     error::KernelError,
     fs::DeviceNo,
     sync::{SleepLock, SpinLock, SpinLockGuard},
 };
-
-use super::{InodeDataArc, InodeDataWeak};
 
 static INODE_TABLE: SpinLock<InodeTable> = SpinLock::new(InodeTable::new());
 

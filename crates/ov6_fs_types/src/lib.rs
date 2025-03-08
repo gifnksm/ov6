@@ -111,7 +111,6 @@ pub struct SuperBlock {
 
 impl SuperBlock {
     pub const FS_MAGIC: u32 = 0x1020_3040;
-
     pub const SUPER_BLOCK_NO: BlockNo = BlockNo::new(1);
 
     /// Returns the block number that contains the specified inode.

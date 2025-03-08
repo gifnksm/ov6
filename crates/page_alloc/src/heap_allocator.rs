@@ -87,8 +87,10 @@ impl<const PAGE_SIZE: usize> HeapAllocator<PAGE_SIZE> {
     ///
     /// The caller must ensure:
     ///
-    /// * `ptr` is a block of memory currently allocated via this allocator, and,
-    /// * `layout` is the same layout that was used to allocate that block of memory.
+    /// * `ptr` is a block of memory currently allocated via this allocator,
+    ///   and,
+    /// * `layout` is the same layout that was used to allocate that block of
+    ///   memory.
     unsafe fn dealloc(&mut self, ptr: *mut u8, layout: Layout) {
         assert!(layout.size() <= PAGE_SIZE);
         assert!(layout.align() <= PAGE_SIZE);

@@ -11,9 +11,8 @@ use core::{
 
 use once_init::OnceInit;
 
-use crate::{memory::layout::PHYS_TOP, sync::SpinLock};
-
 use super::{PAGE_SIZE, PageRound as _, layout::KERNEL_END};
+use crate::{memory::layout::PHYS_TOP, sync::SpinLock};
 
 /// First address after kernel.
 fn end() -> NonNull<u8> {

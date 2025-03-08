@@ -35,8 +35,8 @@ impl RawSpinLock {
 
         assert!(!self.holding());
 
-        // `Ordering::Acquire` tells the compiler and the processor to not move loads or stores
-        // past this point, to ensure that the critical section's memory
+        // `Ordering::Acquire` tells the compiler and the processor to not move loads or
+        // stores past this point, to ensure that the critical section's memory
         // references happen strictly after the lock is acquired.
         // On RISC-V, this emits a fence instruction.
         if self.locked.swap(true, Ordering::Acquire) {
@@ -62,8 +62,8 @@ impl RawSpinLock {
 
         assert!(!self.holding());
 
-        // `Ordering::Acquire` tells the compiler and the processor to not move loads or stores
-        // past this point, to ensure that the critical section's memory
+        // `Ordering::Acquire` tells the compiler and the processor to not move loads or
+        // stores past this point, to ensure that the critical section's memory
         // references happen strictly after the lock is acquired.
         // On RISC-V, this emits a fence instruction.
         while self.locked.swap(true, Ordering::Acquire) {}
@@ -84,8 +84,8 @@ impl RawSpinLock {
             *self.cpuid.get() = INVALID_CPUID;
         }
 
-        // `Ordering::Release` tells the compiler and the CPU to not move loads or stores
-        // past this point, to ensure that all the stores in the critical
+        // `Ordering::Release` tells the compiler and the CPU to not move loads or
+        // stores past this point, to ensure that all the stores in the critical
         // section are visible to other CPUs before the lock is released,
         // and that loads in the critical section occur strictly before
         // the locks is released.

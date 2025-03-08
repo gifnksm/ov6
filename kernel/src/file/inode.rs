@@ -1,5 +1,6 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+use super::{File, FileData, FileDataArc, SpecificData};
 use crate::{
     error::KernelError,
     fs::{self, FS_BLOCK_SIZE, Inode},
@@ -7,8 +8,6 @@ use crate::{
     param::MAX_OP_BLOCKS,
     proc::ProcPrivateData,
 };
-
-use super::{File, FileData, FileDataArc, SpecificData};
 
 pub(super) struct InodeFile {
     inode: Inode,

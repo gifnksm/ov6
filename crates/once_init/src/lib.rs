@@ -98,8 +98,8 @@ impl<T> OnceInit<T> {
 
     /// Initializes the cell by reference.
     ///
-    /// This function is useful when the value is large and we want to avoid copying it.
-    /// Returns `Err()` if the cell already initialized.
+    /// This function is useful when the value is large and we want to avoid
+    /// copying it. Returns `Err()` if the cell already initialized.
     pub fn try_init_by_ref(&self, value: &T) -> Result<(), InitError>
     where
         T: Pod,
@@ -139,7 +139,8 @@ impl<T> OnceInit<T> {
 
     /// Initializes the cell by reference.
     ///
-    /// This function is useful when the value is large and we want to avoid copying it.
+    /// This function is useful when the value is large and we want to avoid
+    /// copying it.
     ///
     /// # Panics
     ///

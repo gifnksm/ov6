@@ -1,3 +1,8 @@
+use alloc::{
+    borrow::{Cow, ToOwned},
+    collections::TryReserveError,
+    string::String,
+};
 use core::{
     borrow::Borrow,
     cmp,
@@ -6,15 +11,8 @@ use core::{
     str::FromStr,
 };
 
-use alloc::{
-    borrow::{Cow, ToOwned},
-    collections::TryReserveError,
-    string::String,
-};
-
-use crate::os_str::{OsStr, OsString};
-
 use super::Path;
+use crate::os_str::{OsStr, OsString};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PathBuf {
@@ -278,8 +276,8 @@ impl FromStr for PathBuf {
 }
 
 impl<'a> IntoIterator for &'a PathBuf {
-    type Item = &'a OsStr;
     type IntoIter = super::Iter<'a>;
+    type Item = &'a OsStr;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()

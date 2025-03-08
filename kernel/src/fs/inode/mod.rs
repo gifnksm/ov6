@@ -19,28 +19,24 @@
 //! sequence of states before they can be used by the
 //! rest of the file system code.
 //!
-//! * Allocation: an inode is allocated if its type (on disk)
-//!   is non-zero. [`TxInode::alloc()`] allocates, and
-//!   [`TxInode::drop()`] (destructor) or [`TxInode::put()`] frees if
-//!   the reference and link counts have fallen to zero.
+//! * Allocation: an inode is allocated if its type (on disk) is non-zero.
+//!   [`TxInode::alloc()`] allocates, and [`TxInode::drop()`] (destructor) or
+//!   [`TxInode::put()`] frees if the reference and link counts have fallen to
+//!   zero.
 //!
-//! * Referencing in table: an entry in the inode table
-//!   is free if reference count is zero. Otherwise tracks
-//!   the number of in-memory pointers to the entry (open
-//!   files and current directories). [`TxInode::get()`] finds or
-//!   creates a table entry and increments its ref;
-//!   [`TxInode::drop()`] (destructor) or [`TxInode::put()`]
-//!   decrements ref.
+//! * Referencing in table: an entry in the inode table is free if reference
+//!   count is zero. Otherwise tracks the number of in-memory pointers to the
+//!   entry (open files and current directories). [`TxInode::get()`] finds or
+//!   creates a table entry and increments its ref; [`TxInode::drop()`]
+//!   (destructor) or [`TxInode::put()`] decrements ref.
 //!
-//! * Valid: the information (type, size, &c) in an inode
-//!   table entry is only correct when `data` is `Some`.
-//!   [`TxInode::lock()`] reads the inode from
+//! * Valid: the information (type, size, &c) in an inode table entry is only
+//!   correct when `data` is `Some`. [`TxInode::lock()`] reads the inode from
 //!   the disk and sets [`TxInode::data`], while [`TxInode::put()`] clears
 //!   [`TxInode::data`] if reference count has fallen to zero.
 //!
-//! * Locked: file system code may only examine and modify
-//!   the information in an inode and its content if it
-//!   has first locked the inode.
+//! * Locked: file system code may only examine and modify the information in an
+//!   inode and its content if it has first locked the inode.
 //!
 //! Thus a typical sequence is:
 //!
@@ -54,25 +50,23 @@
 //!   ip.put()
 //!    ```
 //!
-//! [`TxInode::lock()`] is separate from [`TxInode::get()`] so that system calls can
-//! get a long-term reference to an inode (as for an open file)
+//! [`TxInode::lock()`] is separate from [`TxInode::get()`] so that system calls
+//! can get a long-term reference to an inode (as for an open file)
 //! and only lock it for short periods (e.g., in `read()`).
 //! The separation also helps avoid deadlock and races during
-//! pathname lookup. [`TxInode::get()`] increments reference count so that the inode
-//! stays in the table and pointers to it remain valid.
+//! pathname lookup. [`TxInode::get()`] increments reference count so that the
+//! inode stays in the table and pointers to it remain valid.
 //!
 //! Many internal file system functions expect the caller to
 //! have locked the inodes involved; this lets callers create
 //! multi-step atomic operations.
 
-use crate::{error::KernelError, sync::SleepLockGuard};
-
 use self::alloc::{InodeDataArc, InodeDataWeak};
-
 use super::{
     BlockNo, DeviceNo, InodeNo, SUPER_BLOCK, Tx,
     repr::{self, NUM_DIRECT_REFS},
 };
+use crate::{error::KernelError, sync::SleepLockGuard};
 
 mod alloc;
 mod content;

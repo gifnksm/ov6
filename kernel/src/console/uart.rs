@@ -2,13 +2,12 @@
 
 use core::{hint, ptr, sync::atomic::Ordering};
 
+use super::print::PANICKED;
 use crate::{
     console, interrupt,
     memory::layout::UART0,
     sync::{SpinLock, SpinLockCondVar},
 };
-
-use super::print::PANICKED;
 
 unsafe fn reg(offset: usize) -> *mut u8 {
     unsafe { ptr::with_exposed_provenance_mut::<u8>(UART0).byte_add(offset) }

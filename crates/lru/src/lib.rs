@@ -5,9 +5,8 @@
 
 extern crate alloc;
 
-use core::{alloc::Allocator, ptr::NonNull, sync::atomic::AtomicUsize};
-
 use alloc::{alloc::Global, collections::LinkedList, sync::Arc};
+use core::{alloc::Allocator, ptr::NonNull, sync::atomic::AtomicUsize};
 
 use mutex_api::Mutex;
 
@@ -45,10 +44,12 @@ where
     /// Returns a reference to the cached value associated with the key.
     ///
     /// If the value is cached, returns a reference to it.
-    /// If the value is not cached, recycles the least recently used (LRU) unreferenced cache and returns a reference to it.
-    /// If all values are referenced, returns `None`.
+    /// If the value is not cached, recycles the least recently used (LRU)
+    /// unreferenced cache and returns a reference to it. If all values are
+    /// referenced, returns `None`.
     ///
-    /// When returned value is dropped, the key is promoted to the most recently used (MRU) position.
+    /// When returned value is dropped, the key is promoted to the most recently
+    /// used (MRU) position.
     pub fn get(&self, key: K) -> Option<LruValue<LruMutex, K, V, A>>
     where
         K: PartialEq + Clone,
@@ -118,10 +119,11 @@ where
     /// Returns a reference to the cached value associated with the key.
     ///
     /// If the value is cached, returns a reference to the value.
-    /// If the value is not cached, recycles the least recently used (LRU) value.
-    /// If all buffers are in use, returns `None`.
+    /// If the value is not cached, recycles the least recently used (LRU)
+    /// value. If all buffers are in use, returns `None`.
     ///
-    /// When returned value is dropped, the key is promoted to the most recently used (MRU) position.
+    /// When returned value is dropped, the key is promoted to the most recently
+    /// used (MRU) position.
     fn get<'a, LruMutex>(
         &mut self,
         key: K,
@@ -163,7 +165,8 @@ impl<K, V, A> LruMap<K, V, A>
 where
     A: Allocator,
 {
-    /// Promotes the cached value associated with the key to the most recently used (MRU) position.
+    /// Promotes the cached value associated with the key to the most recently
+    /// used (MRU) position.
     fn promote(&mut self, key: &K)
     where
         K: PartialEq,
@@ -245,9 +248,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::sync::Mutex;
+
+    use super::*;
 
     #[test]
     fn test_lru_new() {

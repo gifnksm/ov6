@@ -1,3 +1,4 @@
+use super::{File, FileData, FileDataArc, SpecificData};
 use crate::{
     error::KernelError,
     fs::{DeviceNo, Inode},
@@ -6,8 +7,6 @@ use crate::{
     proc::{Proc, ProcPrivateData},
     sync::SpinLock,
 };
-
-use super::{File, FileData, FileDataArc, SpecificData};
 
 pub struct Device {
     pub read: fn(

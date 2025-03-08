@@ -1,8 +1,7 @@
 use core::cell::UnsafeCell;
 
-use crate::sync::{SpinLock, SpinLockGuard};
-
 use super::Proc;
+use crate::sync::{SpinLock, SpinLockGuard};
 
 pub(super) struct WaitLock {}
 

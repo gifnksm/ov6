@@ -1,3 +1,4 @@
+use alloc::sync::{Arc, Weak};
 use core::{
     alloc::{AllocError, Allocator, Layout},
     mem::MaybeUninit,
@@ -5,17 +6,15 @@ use core::{
     ptr::NonNull,
 };
 
-use alloc::sync::{Arc, Weak};
 use once_init::OnceInit;
 use ov6_kernel_params::NINODE;
 use slab_allocator::{ArcInnerLayout, SlabAllocator};
 
+use super::InodeData;
 use crate::{
     error::KernelError,
     sync::{SleepLock, SpinLock},
 };
-
-use super::InodeData;
 
 type InodeDataLayout = ArcInnerLayout<SleepLock<Option<InodeData>>>;
 

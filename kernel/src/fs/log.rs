@@ -34,6 +34,10 @@ use arrayvec::ArrayVec;
 use once_init::OnceInit;
 use ov6_kernel_params::LOG_SIZE;
 
+use super::{
+    block_io::{BlockGuard, BlockRef},
+    repr,
+};
 use crate::{
     fs::{
         BlockNo, DeviceNo, SuperBlock,
@@ -41,11 +45,6 @@ use crate::{
     },
     param::MAX_OP_BLOCKS,
     sync::{SpinLock, SpinLockCondVar},
-};
-
-use super::{
-    block_io::{BlockGuard, BlockRef},
-    repr,
 };
 
 struct LogHeader {

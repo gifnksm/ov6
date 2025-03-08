@@ -6,6 +6,7 @@ extern crate alloc;
 
 use alloc::alloc::Global;
 use core::alloc::Allocator;
+
 use dataview::{Pod, PodMethods as _};
 use lru::Lru;
 use mutex_api::Mutex;
@@ -19,14 +20,18 @@ pub trait BlockDevice<const BLOCK_SIZE: usize> {
     /// The error type that can be returned by the block device operations.
     type Error;
 
-    /// Reads a block of data from the device at the specified index into the provided buffer.
+    /// Reads a block of data from the device at the specified index into the
+    /// provided buffer.
     ///
-    /// Returns `Ok(())` if the read operation is successful, or an error of type `Self::Error` if it fails.
+    /// Returns `Ok(())` if the read operation is successful, or an error of
+    /// type `Self::Error` if it fails.
     fn read(&self, block_index: usize, data: &mut [u8; BLOCK_SIZE]) -> Result<(), Self::Error>;
 
-    /// Writes a block of data to the device at the specified index from the provided buffer.
+    /// Writes a block of data to the device at the specified index from the
+    /// provided buffer.
     ///
-    /// Returns `Ok(())` if the write operation is successful, or an error of type `Self::Error` if it fails.
+    /// Returns `Ok(())` if the write operation is successful, or an error of
+    /// type `Self::Error` if it fails.
     fn write(&self, block_index: usize, data: &[u8; BLOCK_SIZE]) -> Result<(), Self::Error>;
 }
 
@@ -36,9 +41,11 @@ pub struct BlockIoCache<Device, LruMutex> {
     lru: Lru<LruMutex>,
 }
 
-/// A type alias for an LRU (Least Recently Used) map where the keys are block indices.
+/// A type alias for an LRU (Least Recently Used) map where the keys are block
+/// indices.
 ///
-/// This type alias simplifies the usage of the [`lru::LruMap`] type with block indices.
+/// This type alias simplifies the usage of the [`lru::LruMap`] type with block
+/// indices.
 ///
 /// # Type Parameters
 ///
@@ -50,7 +57,8 @@ pub type LruMapALlocLayout<BlockMutex, A = Global> = lru::LruMapAllocLayout<usiz
 
 /// A type alias for an LRU (Least Recently Used) value in the cache.
 ///
-/// This type alias simplifies the usage of the [`lru::LruValue`] type with block indices and block data.
+/// This type alias simplifies the usage of the [`lru::LruValue`] type with
+/// block indices and block data.
 ///
 /// # Type Parameters
 ///
@@ -153,7 +161,8 @@ where
     /// Returns a reference to the cached block with the given block index.
     ///
     /// If the block is cached, returns a reference to it.
-    /// Otherwise, the value is not cached, recycles the least recently used (LRU) unreferenced cache and returns a reference to it.
+    /// Otherwise, the value is not cached, recycles the least recently used
+    /// (LRU) unreferenced cache and returns a reference to it.
     /// If all caches are referenced, returns `None`.
     pub fn try_get(&self, index: usize) -> Option<BlockRef<'_, Device, LruMutex, BlockMutex, A>> {
         let block = self.lru.get(index)?;
@@ -167,7 +176,8 @@ where
     /// Returns a reference to the cached block with the given block index.
     ///
     /// If the block is cached, returns a reference to it.
-    /// Otherwise, the value is not cached, recycles the least recently used (LRU) unreferenced cache and returns a reference to it.
+    /// Otherwise, the value is not cached, recycles the least recently used
+    /// (LRU) unreferenced cache and returns a reference to it.
     /// If all caches are referenced, panics.
     ///
     /// # Panic
@@ -382,10 +392,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use core::{convert::Infallible, iter};
     use std::sync::{Arc, Mutex};
+
+    use super::*;
 
     const BLOCK_SIZE: usize = 512;
 

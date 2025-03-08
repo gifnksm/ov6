@@ -4,9 +4,8 @@ use core::{cmp, io::BorrowedCursor};
 
 use alloc_crate::{string::String, vec::Vec};
 
-use crate::error::Ov6Error;
-
 pub use self::{buffered::*, stdio::*};
+use crate::error::Ov6Error;
 
 const DEFAULT_BUF_SIZE: usize = 1024;
 

@@ -1,7 +1,9 @@
 use alloc::boxed::Box;
+
 use once_init::OnceInit;
 use riscv::{asm, register::satp};
 
+use super::{page::PageFrameAllocator, page_table::PageTable};
 use crate::{
     error::KernelError,
     interrupt::trampoline,
@@ -12,8 +14,6 @@ use crate::{
     },
     proc,
 };
-
-use super::{page::PageFrameAllocator, page_table::PageTable};
 
 /// The kernel's page table address.
 static KERNEL_PAGE_TABLE: OnceInit<KernelPageTable> = OnceInit::new();

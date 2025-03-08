@@ -5,13 +5,12 @@ use core::{
 
 use ov6_kernel_params::NCPU;
 
+use super::{PROC, ProcSharedData, ProcState};
 use crate::{
     cpu::{self, Cpu},
     interrupt,
     sync::SpinLockGuard,
 };
-
-use super::{PROC, ProcSharedData, ProcState};
 
 /// Scheduler context.
 ///
@@ -72,8 +71,8 @@ impl Context {
 ///
 /// - choose a process to run.
 /// - switch to start running that process.
-/// - eventually that process transfers control
-///   via switch back to the scheduler.
+/// - eventually that process transfers control via switch back to the
+///   scheduler.
 pub fn schedule() -> ! {
     let cpu = Cpu::current();
     cpu.set_proc(None);
@@ -126,9 +125,10 @@ pub fn schedule() -> ! {
 ///
 /// Must hold only `Proc::lock` and  have changed `proc->state`.
 ///
-/// Saves and restores `Cpu:intena` because `inteta` is a property of this kernel thread,
-/// not this CPU. It should be `Proc::intena` and `Proc::noff`, but that would break in the
-/// few places where a lock is held but there's no process.
+/// Saves and restores `Cpu:intena` because `inteta` is a property of this
+/// kernel thread, not this CPU. It should be `Proc::intena` and `Proc::noff`,
+/// but that would break in the few places where a lock is held but there's no
+/// process.
 pub(super) fn sched(shared: &mut SpinLockGuard<ProcSharedData>) {
     assert_eq!(interrupt::disabled_depth(), 1);
     assert_ne!(shared.state, ProcState::Running);

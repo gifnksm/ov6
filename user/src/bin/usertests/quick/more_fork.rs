@@ -1,6 +1,6 @@
+use alloc::slice;
 use core::ptr;
 
-use alloc::slice;
 use ov6_user_lib::{
     error::Ov6Error,
     fs::{self, File},

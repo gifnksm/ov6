@@ -20,7 +20,8 @@ impl<T> SlabAllocator<T> {
     ///
     /// # Safety
     ///
-    /// The given range of pointers must be valid and not overlap with other memory regions.
+    /// The given range of pointers must be valid and not overlap with other
+    /// memory regions.
     #[must_use]
     pub unsafe fn new(range: Range<*mut T>) -> Self {
         assert!(size_of::<Run>() <= size_of::<T>());
@@ -56,9 +57,9 @@ impl<T> SlabAllocator<T> {
     ///
     /// # Safety
     ///
-    /// The given address must have been previously allocated by this `SlabAlocater<T>`.
-    /// The memory must not be accessed after it has been freed.
-    /// The memory must not be deallocated more than once.
+    /// The given address must have been previously allocated by this
+    /// `SlabAlocater<T>`. The memory must not be accessed after it has been
+    /// freed. The memory must not be deallocated more than once.
     pub unsafe fn deallocate(&mut self, ptr: NonNull<T>) {
         assert!(self.range.contains(&ptr.as_ptr()));
         assert_eq!(ptr.addr().get() % align_of::<T>(), 0);
@@ -75,7 +76,8 @@ impl<T> SlabAllocator<T> {
 
 /// A layout of `ArcInner<T>`.
 ///
-/// This is a helper type to use [`SlabAllocator`] as custom `Allocator` for `Arc<T>`.
+/// This is a helper type to use [`SlabAllocator`] as custom `Allocator` for
+/// `Arc<T>`.
 pub struct ArcInnerLayout<T> {
     _strong: AtomicUsize,
     _weak: AtomicUsize,

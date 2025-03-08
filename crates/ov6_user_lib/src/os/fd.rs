@@ -1,8 +1,7 @@
 use core::{fmt, marker::PhantomData};
 
-use crate::error::Ov6Error;
-
 use super::ov6::syscall;
+use crate::error::Ov6Error;
 
 pub type RawFd = i32;
 
@@ -85,7 +84,8 @@ impl AsRawFd for RawFd {
 pub trait FromRawFd {
     /// # Safety
     ///
-    /// The `fd` passed in must be an [owned file descriptor][io-safety]; in particular, it must be open.
+    /// The `fd` passed in must be an [owned file descriptor][io-safety]; in
+    /// particular, it must be open.
     ///
     /// [io-safety]: https://doc.rust-lang.org/std/io/index.html#io-safety
     unsafe fn from_raw_fd(fd: RawFd) -> Self;

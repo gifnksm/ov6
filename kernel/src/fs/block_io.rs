@@ -12,12 +12,11 @@ use once_init::OnceInit;
 use ov6_kernel_params::LOG_SIZE;
 use slab_allocator::SlabAllocator;
 
+use super::{DeviceNo, repr::FS_BLOCK_SIZE, virtio_disk};
 use crate::{
     param::NBUF,
     sync::{SleepLock, SpinLock},
 };
-
-use super::{DeviceNo, repr::FS_BLOCK_SIZE, virtio_disk};
 
 pub(super) struct VirtioDiskDevice {}
 

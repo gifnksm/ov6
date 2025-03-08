@@ -3,14 +3,13 @@ use core::fmt::{self, Write as _};
 use alloc_crate::string::String;
 use once_init::OnceInit;
 
+use super::{BufRead, BufReader, Read, Write};
 use crate::{
     error::Ov6Error,
     io::DEFAULT_BUF_SIZE,
     os::{fd::RawFd, ov6::syscall},
     sync::spin::{Mutex, MutexGuard},
 };
-
-use super::{BufRead, BufReader, Read, Write};
 
 pub fn _print(args: fmt::Arguments) {
     stdout().write_fmt(args).unwrap();

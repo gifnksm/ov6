@@ -1,4 +1,5 @@
-// Workaround for `cargo doc --workspace --target riscv64gc-unknown-none-elf` to work
+// Workaround for `cargo doc --workspace --target riscv64gc-unknown-none-elf` to
+// work
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg(not(target_os = "none"))]
 
@@ -119,7 +120,8 @@ impl FileSystem {
         };
 
         eprintln!(
-            "nmeta {} (boot, super, log blocks {} inode blocsk {}, bitmap blocks {}) blocks {} total {}",
+            "nmeta {} (boot, super, log blocks {} inode blocsk {}, bitmap blocks {}) blocks {} \
+             total {}",
             fs.num_meta_blocks,
             fs.num_log_blocks,
             fs.num_inode_blocks,

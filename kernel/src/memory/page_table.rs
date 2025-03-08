@@ -1,15 +1,14 @@
+use alloc::boxed::Box;
 use core::{alloc::AllocError, ops::Range, ptr};
 
-use alloc::boxed::Box;
 use bitflags::bitflags;
 use dataview::Pod;
 
+use super::{PhysAddr, PhysPageNum, VirtAddr, page::PageFrameAllocator};
 use crate::{
     error::KernelError,
     memory::{PAGE_SHIFT, PAGE_SIZE, PageRound as _},
 };
-
-use super::{PhysAddr, PhysPageNum, VirtAddr, page::PageFrameAllocator};
 
 #[repr(transparent)]
 #[derive(Pod)]
@@ -46,7 +45,8 @@ impl PageTable {
         PhysAddr::new(ptr::from_ref(self).addr())
     }
 
-    /// Returns the physical page number of the physical page containing this page table
+    /// Returns the physical page number of the physical page containing this
+    /// page table
     pub(super) fn phys_page_num(&self) -> PhysPageNum {
         self.phys_addr().phys_page_num()
     }
@@ -134,7 +134,8 @@ impl PageTable {
         }
     }
 
-    /// Returns the leaf PTE in the page tables that corredponds to virtual address `va`.
+    /// Returns the leaf PTE in the page tables that corredponds to virtual
+    /// address `va`.
     pub(super) fn find_leaf_entry(&self, va: VirtAddr) -> Result<&PtEntry, KernelError> {
         assert!(va < VirtAddr::MAX);
 
@@ -152,9 +153,11 @@ impl PageTable {
         Ok(pte)
     }
 
-    /// Updates the level-0 PTE in the page tables that corredponds to virtual address `va`.
+    /// Updates the level-0 PTE in the page tables that corredponds to virtual
+    /// address `va`.
     ///
-    /// If `insert_new_table` is `true`, it will allocate new page-table pages if needed.
+    /// If `insert_new_table` is `true`, it will allocate new page-table pages
+    /// if needed.
     ///
     /// Updated PTE must be leaf PTE or invalid.
     pub(super) fn update_level0_entry<T, F>(

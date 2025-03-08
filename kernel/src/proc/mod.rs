@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use core::{
     alloc::AllocError,
     cell::UnsafeCell,
@@ -10,12 +11,15 @@ use core::{
     sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, Ordering},
 };
 
-use alloc::boxed::Box;
 use arrayvec::ArrayVec;
 use dataview::{Pod, PodMethods as _};
 use once_init::OnceInit;
 use ov6_types::{os_str::OsStr, path::Path};
 
+use self::{
+    scheduler::Context,
+    wait_lock::{Parent, WaitLock},
+};
 use crate::{
     cpu::Cpu,
     error::KernelError,
@@ -33,11 +37,6 @@ use crate::{
     param::{NOFILE, NPROC},
     println,
     sync::{SpinLock, SpinLockCondVar, SpinLockGuard},
-};
-
-use self::{
-    scheduler::Context,
-    wait_lock::{Parent, WaitLock},
 };
 
 mod elf;
@@ -595,8 +594,9 @@ pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Option<ProcId> {
     np.parent.set(p, &mut wait_lock);
     drop(wait_lock);
 
-    // After setting the state to Runnable, the scheduler can pick up `np` and the process context may start.
-    // The started process context (e.g., forkret) will refer to `ProcPrivateData`, so we must drop `np_private` here.
+    // After setting the state to Runnable, the scheduler can pick up `np` and the
+    // process context may start. The started process context (e.g., forkret)
+    // will refer to `ProcPrivateData`, so we must drop `np_private` here.
     drop(np_private);
     np.shared.lock().state = ProcState::Runnable;
 

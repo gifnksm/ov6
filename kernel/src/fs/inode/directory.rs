@@ -3,6 +3,7 @@
 use dataview::PodMethods as _;
 use ov6_types::os_str::OsStr;
 
+use super::{LockedTxInode, TxInode};
 use crate::{
     error::KernelError,
     fs::{
@@ -11,8 +12,6 @@ use crate::{
     },
     proc::ProcPrivateData,
 };
-
-use super::{LockedTxInode, TxInode};
 
 // TODO: refactoring. Add some utility methods to access DirEntry.
 
@@ -64,7 +63,8 @@ impl<const READ_ONLY: bool> DirInode<'_, '_, '_, READ_ONLY> {
 impl<'tx, const READ_ONLY: bool> DirInode<'tx, '_, '_, READ_ONLY> {
     /// Looks up for a directory entry by given `name`.
     ///
-    /// Returns a inode that contains the entry and its offset from inode data head.
+    /// Returns a inode that contains the entry and its offset from inode data
+    /// head.
     pub fn lookup(
         &mut self,
         private: &mut ProcPrivateData,

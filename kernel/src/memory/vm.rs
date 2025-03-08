@@ -1,11 +1,10 @@
 use core::{mem, ptr, slice};
 
+use super::user::UserPageTable;
 use crate::{
     error::KernelError,
     memory::{PAGE_SIZE, PageRound as _, VirtAddr, page_table::PtEntryFlags},
 };
-
-use super::user::UserPageTable;
 
 /// Copies from user to kernel.
 ///
@@ -60,9 +59,9 @@ pub fn copy_in<T>(pagetable: &UserPageTable, src_va: VirtAddr) -> Result<T, Kern
 // /// Copies from user to kernel.
 // ///
 // /// Copies to `dst` from virtual address `src_va` in a given page table.
-// pub fn copy_in_to<T>(pagetable: &mut UserPageTable, dst: &mut T, src_va: VirtAddr) -> Result<(), Error> {
-//     copy_in_raw(pagetable, ptr::from_mut(dst).cast(), size_of::<T>(), src_va)
-// }
+// pub fn copy_in_to<T>(pagetable: &mut UserPageTable, dst: &mut T, src_va:
+// VirtAddr) -> Result<(), Error> {     copy_in_raw(pagetable,
+// ptr::from_mut(dst).cast(), size_of::<T>(), src_va) }
 
 /// Copies from user to kernel.
 ///

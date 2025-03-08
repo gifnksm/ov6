@@ -6,13 +6,12 @@ use core::{
 
 use mutex_api::Mutex;
 
+use super::SpinLock;
 use crate::{
     cpu::Cpu,
     error::KernelError,
     proc::{self, ProcId},
 };
-
-use super::SpinLock;
 
 struct RawSleepLock {
     locked: SpinLock<(bool, ProcId)>,

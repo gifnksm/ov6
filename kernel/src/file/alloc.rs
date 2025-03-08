@@ -1,19 +1,17 @@
+use alloc::sync::Arc;
 use core::{
-    alloc::Layout,
-    alloc::{AllocError, Allocator},
+    alloc::{AllocError, Allocator, Layout},
     mem::MaybeUninit,
     ops::Deref,
     ptr::NonNull,
 };
 
-use alloc::sync::Arc;
 use once_init::OnceInit;
 use ov6_kernel_params::NFILE;
 use slab_allocator::{ArcInnerLayout, SlabAllocator};
 
-use crate::{error::KernelError, sync::SpinLock};
-
 use super::FileData;
+use crate::{error::KernelError, sync::SpinLock};
 
 type FileDataLayout = ArcInnerLayout<FileData>;
 
