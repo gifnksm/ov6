@@ -16,6 +16,7 @@ RN=target/$(PROFILE)
 
 RUST_CROSS_TARGET=riscv64gc-unknown-none-elf
 RX=target/$(RUST_CROSS_TARGET)/$(PROFILE)
+RXI=target/$(RUST_CROSS_TARGET)/initcode
 
 RUPROGS=\
 	cat\
@@ -87,7 +88,7 @@ target/%.rel.d: target/%.d
 -include $(RX)/kernel.rel.d
 -include $(addsuffix .rel.d,$(RX_RUPROGS))
 -include $(RN)/mkfs.rel.d
--include user/*.d
+-include $(RXI)/initcode.rel.d
 
 clean:
 	rm -f fs.img .gdbinit
