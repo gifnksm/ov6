@@ -1,6 +1,6 @@
 use core::panic;
 
-use ov6_syscall::{Ret0, Ret1, ReturnType, ReturnValueConvert, SyscallCode, syscall as sys};
+use ov6_syscall::{Register, RegisterValue, ReturnType, SyscallCode, syscall as sys};
 
 use crate::{
     error::KernelError,
@@ -78,15 +78,23 @@ pub enum ReturnValue {
     Ret2(usize, usize),
 }
 
-impl<T> From<Ret0<T>> for ReturnValue {
-    fn from(_: Ret0<T>) -> Self {
+impl<T> From<Register<T, 0>> for ReturnValue {
+    fn from(_: Register<T, 0>) -> Self {
         Self::Ret0
     }
 }
 
-impl<T> From<Ret1<T>> for ReturnValue {
-    fn from(value: Ret1<T>) -> Self {
-        Self::Ret1(value.a0)
+impl<T> From<Register<T, 1>> for ReturnValue {
+    fn from(value: Register<T, 1>) -> Self {
+        let [a0] = value.a;
+        Self::Ret1(a0)
+    }
+}
+
+impl<T> From<Register<T, 2>> for ReturnValue {
+    fn from(value: Register<T, 2>) -> Self {
+        let [a0, a1] = value.a;
+        Self::Ret2(a0, a1)
     }
 }
 
@@ -110,7 +118,7 @@ fn call<T>(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnValue
 where
-    T: ReturnValueConvert,
+    T: RegisterValue,
     T::Repr: Into<ReturnValue>,
 {
     f(p, private).encode().into()

@@ -1,11 +1,12 @@
 #![no_std]
 
-use core::{convert::Infallible, marker::PhantomData, num::NonZero};
+use core::marker::PhantomData;
 
 use bitflags::bitflags;
 use dataview::Pod;
-use ov6_types::{fs::RawFd, process::ProcId};
 use strum::FromRepr;
+
+mod register;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,11 +72,26 @@ pub enum SyscallCode {
 
 pub trait Syscall {
     const CODE: SyscallCode;
-    type Return: ReturnValueConvert;
+    type Return: RegisterValue;
 }
 
 pub type ReturnType<T> = <T as Syscall>::Return;
-pub type ReturnTypeRepr<T> = <<T as Syscall>::Return as ReturnValueConvert>::Repr;
+pub type ReturnTypeRepr<T> = <<T as Syscall>::Return as RegisterValue>::Repr;
+
+#[must_use]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Register<T, const N: usize> {
+    pub a: [usize; N],
+    _phantom: PhantomData<T>,
+}
+
+pub trait RegisterValue {
+    type Repr;
+
+    fn encode(self) -> Self::Repr;
+    fn decode(repr: Self::Repr) -> Self;
+}
 
 pub mod syscall {
     use core::convert::Infallible;
@@ -123,258 +139,4 @@ pub mod syscall {
 #[repr(isize)]
 pub enum SyscallError {
     Unknown = -1,
-}
-
-#[must_use]
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Ret0<T> {
-    _dummy: usize, // zero-sized-type is not FFI-safe
-    _phantom: PhantomData<T>,
-}
-
-impl<T> Ret0<T> {
-    fn new() -> Self {
-        Self {
-            _dummy: 0,
-            _phantom: PhantomData,
-        }
-    }
-
-    #[must_use]
-    pub fn decode(self) -> T
-    where
-        T: ReturnValueConvert<Repr = Self>,
-    {
-        T::decode(self)
-    }
-}
-
-#[must_use]
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Ret1<T> {
-    pub a0: usize,
-    _phantom: PhantomData<T>,
-}
-
-impl<T> Ret1<T> {
-    fn new(a0: usize) -> Self {
-        Self {
-            a0,
-            _phantom: PhantomData,
-        }
-    }
-
-    #[must_use]
-    pub fn decode(self) -> T
-    where
-        T: ReturnValueConvert<Repr = Self>,
-    {
-        T::decode(self)
-    }
-}
-
-pub trait ReturnValueConvert {
-    type Repr;
-
-    fn encode(self) -> Self::Repr;
-    fn decode(repr: Self::Repr) -> Self;
-}
-
-impl ReturnValueConvert for Result<(), SyscallError> {
-    type Repr = Ret1<Self>;
-
-    fn encode(self) -> Self::Repr {
-        match self {
-            Ok(()) => Ret1::new(0),
-            Err(e) => {
-                let e = e as isize;
-                assert!(e < 0);
-                Ret1::new(e.cast_unsigned())
-            }
-        }
-    }
-
-    fn decode(repr: Self::Repr) -> Self {
-        let s = repr.a0.cast_signed();
-        if s >= 0 {
-            assert_eq!(s, 0);
-            return Ok(());
-        }
-        let e = SyscallError::from_repr(s).ok_or(SyscallError::Unknown)?;
-        Err(e)
-    }
-}
-
-impl ReturnValueConvert for Result<usize, SyscallError> {
-    type Repr = Ret1<Self>;
-
-    fn encode(self) -> Self::Repr {
-        match self {
-            Ok(a) => {
-                assert!(a.cast_signed() >= 0);
-                Ret1::new(a)
-            }
-            Err(e) => {
-                let e = e as isize;
-                assert!(e < 0);
-                Ret1::new(e.cast_unsigned())
-            }
-        }
-    }
-
-    fn decode(repr: Self::Repr) -> Self {
-        let s = repr.a0.cast_signed();
-        if s >= 0 {
-            return Ok(repr.a0);
-        }
-        let e = SyscallError::from_repr(s).ok_or(SyscallError::Unknown)?;
-        Err(e)
-    }
-}
-
-impl ReturnValueConvert for Result<Option<ProcId>, SyscallError> {
-    type Repr = Ret1<Self>;
-
-    fn encode(self) -> Self::Repr {
-        match self {
-            Ok(Some(pid)) => Ret1::new(pid.get().get().try_into().unwrap()),
-            Ok(None) => Ret1::new(0),
-            Err(e) => {
-                let e = e as isize;
-                assert!(e < 0);
-                Ret1::new(e.cast_unsigned())
-            }
-        }
-    }
-
-    fn decode(repr: Self::Repr) -> Self {
-        let s = repr.a0.cast_signed();
-        if s >= 0 {
-            return Ok(NonZero::new(s.try_into().unwrap()).map(ProcId::new));
-        }
-        let e = SyscallError::from_repr(s).ok_or(SyscallError::Unknown)?;
-        Err(e)
-    }
-}
-
-impl ReturnValueConvert for Result<ProcId, SyscallError> {
-    type Repr = Ret1<Self>;
-
-    fn encode(self) -> Self::Repr {
-        match self {
-            Ok(pid) => Ret1::new(pid.get().get().try_into().unwrap()),
-            Err(e) => {
-                let e = e as isize;
-                assert!(e < 0);
-                Ret1::new(e.cast_unsigned())
-            }
-        }
-    }
-
-    fn decode(repr: Self::Repr) -> Self {
-        let s = repr.a0.cast_signed();
-        if s >= 0 {
-            return Ok(ProcId::new(
-                NonZero::new(u32::try_from(s).unwrap()).unwrap(),
-            ));
-        }
-        let e = SyscallError::from_repr(s).ok_or(SyscallError::Unknown)?;
-        Err(e)
-    }
-}
-
-impl ReturnValueConvert for Result<Infallible, SyscallError> {
-    type Repr = Ret1<Self>;
-
-    fn encode(self) -> Self::Repr {
-        match self {
-            Err(e) => {
-                let e = e as isize;
-                assert!(e < 0);
-                Ret1::new(e.cast_unsigned())
-            }
-        }
-    }
-
-    fn decode(repr: Self::Repr) -> Self {
-        let s = repr.a0.cast_signed();
-        assert!(s < 0);
-        let e = SyscallError::from_repr(s).ok_or(SyscallError::Unknown)?;
-        Err(e)
-    }
-}
-
-impl ReturnValueConvert for Result<RawFd, SyscallError> {
-    type Repr = Ret1<Self>;
-
-    fn encode(self) -> Self::Repr {
-        match self {
-            Ok(fd) => {
-                assert!(fd.get().cast_signed() >= 0);
-                Ret1::new(fd.get())
-            }
-            Err(e) => {
-                let e = e as isize;
-                assert!(e < 0);
-                Ret1::new(e.cast_unsigned())
-            }
-        }
-    }
-
-    fn decode(repr: Self::Repr) -> Self {
-        let s = repr.a0.cast_signed();
-        if s >= 0 {
-            return Ok(RawFd::new(repr.a0));
-        }
-        let e = SyscallError::from_repr(s).ok_or(SyscallError::Unknown)?;
-        Err(e)
-    }
-}
-
-impl ReturnValueConvert for Infallible {
-    type Repr = Ret0<Self>;
-
-    fn encode(self) -> Self::Repr {
-        unreachable!()
-    }
-
-    fn decode(_repr: Self::Repr) -> Self {
-        unreachable!()
-    }
-}
-
-impl ReturnValueConvert for () {
-    type Repr = Ret0<()>;
-
-    fn encode(self) -> Self::Repr {
-        Ret0::new()
-    }
-
-    fn decode(_: Self::Repr) -> Self {}
-}
-
-impl ReturnValueConvert for u64 {
-    type Repr = Ret1<Self>;
-
-    fn encode(self) -> Self::Repr {
-        Ret1::new(self.try_into().unwrap())
-    }
-
-    fn decode(repr: Self::Repr) -> Self {
-        repr.a0.try_into().unwrap()
-    }
-}
-
-impl ReturnValueConvert for ProcId {
-    type Repr = Ret1<Self>;
-
-    fn encode(self) -> Self::Repr {
-        Ret1::new(self.get().get().try_into().unwrap())
-    }
-
-    fn decode(repr: Self::Repr) -> Self {
-        Self::new(NonZero::new(u32::try_from(repr.a0).unwrap()).unwrap())
-    }
 }

@@ -6,7 +6,6 @@ use core::{
 };
 
 pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
-use ov6_syscall::{Ret1, SyscallError};
 use ov6_types::{fs::RawFd, process::ProcId};
 
 use crate::{
@@ -16,14 +15,6 @@ use crate::{
 };
 
 pub mod ffi;
-
-fn to_result<T>(res: Ret1<Result<usize, SyscallError>>) -> Result<T, Ov6Error>
-where
-    T: TryFrom<usize>,
-{
-    let res = res.decode()?;
-    res.try_into().or(Err(Ov6Error::Unknown))
-}
 
 pub fn fork() -> Result<ForkResult, Ov6Error> {
     Ok((ffi::fork().decode()?).map_or(ForkResult::Child, |pid| ForkResult::Parent { child: pid }))
@@ -153,7 +144,7 @@ pub fn getpid() -> ProcId {
 /// This function is unsafe because it may invalidate the region of memory that
 /// was previously allocated by the kernel.
 pub unsafe fn sbrk(n: isize) -> Result<*mut u8, Ov6Error> {
-    let addr: usize = to_result(ffi::sbrk(n))?;
+    let addr: usize = ffi::sbrk(n).decode()?;
     Ok(ptr::with_exposed_provenance_mut(addr))
 }
 

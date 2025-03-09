@@ -16,6 +16,18 @@ impl From<ProcId> for u32 {
     }
 }
 
+impl From<ProcId> for NonZero<u32> {
+    fn from(value: ProcId) -> Self {
+        value.0
+    }
+}
+
+impl From<NonZero<u32>> for ProcId {
+    fn from(value: NonZero<u32>) -> Self {
+        Self(value)
+    }
+}
+
 impl ProcId {
     #[must_use]
     pub const fn new(value: NonZero<u32>) -> Self {

@@ -14,7 +14,7 @@ use core::{
 use arrayvec::ArrayVec;
 use dataview::{Pod, PodMethods as _};
 use once_init::OnceInit;
-use ov6_syscall::{ReturnType, ReturnValueConvert as _, syscall as sys};
+use ov6_syscall::{ReturnType, RegisterValue as _, syscall as sys};
 use ov6_types::{fs::RawFd, os_str::OsStr, path::Path, process::ProcId};
 
 use self::{

@@ -10,8 +10,6 @@ use ov6_user_lib::os::ov6::syscall::ffi;
 extern "C" fn main() {
     let init = *b"/init\0";
     let argv = [init.as_ptr().cast(), ptr::null()];
-    let err = unsafe { ffi::exec(init.as_ptr().cast(), argv.as_ptr()) };
-    #[expect(clippy::cast_possible_truncation)]
-    #[expect(clippy::cast_possible_wrap)]
-    let _ = ffi::exit(err.a0 as i32);
+    let _ = unsafe { ffi::exec(init.as_ptr().cast(), argv.as_ptr()) };
+    let _ = ffi::exit(-1);
 }
