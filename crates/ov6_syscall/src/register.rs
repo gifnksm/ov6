@@ -2,7 +2,10 @@ use core::{convert::Infallible, marker::PhantomData, num::NonZero};
 
 use ov6_types::{fs::RawFd, process::ProcId};
 
-use crate::{Register, RegisterDecodeError, RegisterValue, SyscallError};
+use crate::{
+    Register, RegisterDecodeError, RegisterValue, SyscallError, UserMutRef, UserMutSlice, UserRef,
+    UserSlice,
+};
 
 impl<T, const N: usize> Register<T, N> {
     pub fn new(a: [usize; N]) -> Self {
@@ -219,7 +222,7 @@ impl RegisterValue for ProcId {
 }
 
 impl RegisterValue for RawFd {
-    type DecodeError = RegisterDecodeError;
+    type DecodeError = Infallible;
     type Repr = Register<Self, 1>;
 
     fn encode(self) -> Self::Repr {
@@ -229,6 +232,90 @@ impl RegisterValue for RawFd {
     fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
         let Ok(n) = repr.map_type().try_decode();
         Ok(Self::new(n))
+    }
+}
+
+impl<T> RegisterValue for UserRef<T>
+where
+    T: ?Sized,
+{
+    type DecodeError = Infallible;
+    type Repr = Register<Self, 1>;
+
+    fn encode(self) -> Self::Repr {
+        self.addr.encode().map_type()
+    }
+
+    fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
+        let Ok(addr) = repr.map_type().try_decode();
+        Ok(Self {
+            addr,
+            _phantom: PhantomData,
+        })
+    }
+}
+
+impl<T> RegisterValue for UserMutRef<T>
+where
+    T: ?Sized,
+{
+    type DecodeError = Infallible;
+    type Repr = Register<Self, 1>;
+
+    fn encode(self) -> Self::Repr {
+        self.addr.encode().map_type()
+    }
+
+    fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
+        let Ok(addr) = repr.map_type().try_decode();
+        Ok(Self {
+            addr,
+            _phantom: PhantomData,
+        })
+    }
+}
+
+impl<T> RegisterValue for UserSlice<T> {
+    type DecodeError = Infallible;
+    type Repr = Register<Self, 2>;
+
+    fn encode(self) -> Self::Repr {
+        let [a0] = self.addr.encode().a;
+        let [a1] = self.len.encode().a;
+        Self::Repr::new([a0, a1])
+    }
+
+    fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
+        let [a0, a1] = repr.a;
+        let Ok(addr) = Register::new([a0]).try_decode();
+        let Ok(len) = Register::new([a1]).try_decode();
+        Ok(Self {
+            addr,
+            len,
+            _phantom: PhantomData,
+        })
+    }
+}
+
+impl<T> RegisterValue for UserMutSlice<T> {
+    type DecodeError = Infallible;
+    type Repr = Register<Self, 2>;
+
+    fn encode(self) -> Self::Repr {
+        let [a0] = self.addr.encode().a;
+        let [a1] = self.len.encode().a;
+        Self::Repr::new([a0, a1])
+    }
+
+    fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
+        let [a0, a1] = repr.a;
+        let Ok(addr) = Register::new([a0]).try_decode();
+        let Ok(len) = Register::new([a1]).try_decode();
+        Ok(Self {
+            addr,
+            len,
+            _phantom: PhantomData,
+        })
     }
 }
 
@@ -330,3 +417,63 @@ impl_result1!(usize);
 impl_result1!(Option<ProcId>);
 impl_result1!(ProcId);
 impl_result1!(RawFd);
+
+impl<T> RegisterValue for (RawFd, UserMutSlice<T>) {
+    type DecodeError = Infallible;
+    type Repr = Register<Self, 3>;
+
+    fn encode(self) -> Self::Repr {
+        let (v0, v1) = self;
+        let [a0] = v0.encode().a;
+        let [a1, a2] = v1.encode().a;
+        Self::Repr::new([a0, a1, a2])
+    }
+
+    fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
+        let [a0, a1, a2] = repr.a;
+        let Ok(v0) = Register::new([a0]).try_decode();
+        let Ok(v1) = Register::new([a1, a2]).try_decode();
+        Ok((v0, v1))
+    }
+}
+
+impl<T> RegisterValue for (RawFd, UserSlice<T>) {
+    type DecodeError = Infallible;
+    type Repr = Register<Self, 3>;
+
+    fn encode(self) -> Self::Repr {
+        let (v0, v1) = self;
+        let [a0] = v0.encode().a;
+        let [a1, a2] = v1.encode().a;
+        Self::Repr::new([a0, a1, a2])
+    }
+
+    fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
+        let [a0, a1, a2] = repr.a;
+        let Ok(v0) = Register::new([a0]).try_decode();
+        let Ok(v1) = Register::new([a1, a2]).try_decode();
+        Ok((v0, v1))
+    }
+}
+
+impl<T, U> RegisterValue for (UserRef<T>, UserSlice<U>)
+where
+    T: ?Sized,
+{
+    type DecodeError = Infallible;
+    type Repr = Register<Self, 3>;
+
+    fn encode(self) -> Self::Repr {
+        let (v0, v1) = self;
+        let [a0] = v0.encode().a;
+        let [a1, a2] = v1.encode().a;
+        Self::Repr::new([a0, a1, a2])
+    }
+
+    fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
+        let [a0, a1, a2] = repr.a;
+        let Ok(v0) = Register::new([a0]).try_decode();
+        let Ok(v1) = Register::new([a1, a2]).try_decode();
+        Ok((v0, v1))
+    }
+}

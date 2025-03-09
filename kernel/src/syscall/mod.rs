@@ -86,6 +86,18 @@ where
     }
 }
 
+impl<T> Arg for Register<T, 3>
+where
+    T: RegisterValue<Repr = Self>,
+{
+    type DecodeError = T::DecodeError;
+    type Target = T;
+
+    fn decode_arg(tf: &TrapFrame) -> Result<Self::Target, Self::DecodeError> {
+        Self::new([tf.a0, tf.a1, tf.a2]).try_decode()
+    }
+}
+
 fn arg_raw(private: &ProcPrivateData, n: usize) -> usize {
     let tf = private.trapframe().unwrap();
     (match n {

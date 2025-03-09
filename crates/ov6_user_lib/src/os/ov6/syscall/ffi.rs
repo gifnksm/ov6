@@ -1,7 +1,7 @@
 use core::ffi::c_char;
 
-use ov6_syscall::{ArgTypeRepr, ReturnTypeRepr, syscall};
 pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
+use ov6_syscall::{ReturnTypeRepr, syscall};
 use ov6_types::fs::RawFd;
 
 #[cfg(target_arch = "riscv64")]
@@ -60,47 +60,15 @@ macro_rules! syscall {
     };
 }
 
-syscall!(SyscallCode::Fork => fn fork(arg: ArgTypeRepr<syscall::Fork>) -> ReturnTypeRepr<syscall::Fork>);
-syscall!(SyscallCode::Exit => fn exit(arg: ArgTypeRepr<syscall::Exit>) -> ReturnTypeRepr<syscall::Exit>);
-syscall!(
-    SyscallCode::Wait =>
-    /// # Safety
-    ///
-    /// `wstatus` must be a valid pointer to an `i32`.
-    unsafe fn wait(wstatus: *mut i32) -> ReturnTypeRepr<syscall::Wait>
-);
-syscall!(
-    SyscallCode::Pipe =>
-    /// # Safety
-    ///
-    /// `pipefd` must be a valid pointer to an array of 2 `i32`s.
-    unsafe fn pipe(pipefd: *mut RawFd) -> ReturnTypeRepr<syscall::Pipe>
-);
-syscall!(
-    SyscallCode::Write =>
-    /// # Safety
-    ///
-    /// `buf` must be a valid pointer to an array of `i32`s with a length of `count`.
-    unsafe fn write(fd: RawFd, buf: *const u8, count: usize) -> ReturnTypeRepr<syscall::Write>
-);
-syscall!(
-    SyscallCode::Read =>
-    /// # Safety
-    ///
-    /// `buf` must be a valid pointer to an array of `i32`s with a length of `count`.
-    unsafe fn read(fd: RawFd, buf: *mut u8, count: usize) -> ReturnTypeRepr<syscall::Read>
-);
+syscall!(SyscallCode::Fork => fn fork() -> ReturnTypeRepr<syscall::Fork>);
+syscall!(SyscallCode::Exit => fn exit(a0: usize) -> ReturnTypeRepr<syscall::Exit>);
+syscall!(SyscallCode::Wait => fn wait(a0: usize) -> ReturnTypeRepr<syscall::Wait>);
+syscall!(SyscallCode::Pipe => fn pipe(a0: usize) -> ReturnTypeRepr<syscall::Pipe>);
+syscall!(SyscallCode::Write => fn write(a0: usize, a1: usize, a2: usize) -> ReturnTypeRepr<syscall::Write>);
+syscall!(SyscallCode::Read => fn read(a0: usize, a1: usize, a2: usize) -> ReturnTypeRepr<syscall::Read>);
 syscall!(SyscallCode::Close => fn close(fd: RawFd) -> ReturnTypeRepr<syscall::Close>);
-syscall!(SyscallCode::Kill => fn kill(pid: u32) -> ReturnTypeRepr<syscall::Kill>);
-syscall!(
-    SyscallCode::Exec =>
-    /// # Safety
-    ///
-    /// `path` must be a valid pointer to a null-terminated string.
-    /// `argv` must be a valid pointer to an array of null-terminated strings.
-    /// The last element of `argv` must be a null pointer.
-    unsafe fn exec(path: *const c_char, argv: *const *const c_char) -> ReturnTypeRepr<syscall::Exec>
-);
+syscall!(SyscallCode::Kill => fn kill(a0: usize) -> ReturnTypeRepr<syscall::Kill>);
+syscall!(SyscallCode::Exec => fn exec(a0: usize, a1: usize, a2: usize) -> ReturnTypeRepr<syscall::Exec>);
 syscall!(
     SyscallCode::Open =>
     /// # Safety

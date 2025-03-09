@@ -5,7 +5,9 @@ use core::{
     ptr,
 };
 
-use ov6_syscall::{ArgType, RegisterValue as _, syscall};
+use ov6_syscall::{
+    ArgType, RegisterValue as _, UserMutRef, UserMutSlice, UserRef, UserSlice, syscall,
+};
 pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
 use ov6_types::{fs::RawFd, process::ProcId};
 
@@ -18,43 +20,41 @@ use crate::{
 pub mod ffi;
 
 pub fn fork() -> Result<ForkResult, Ov6Error> {
-    let arg = ArgType::<syscall::Fork>::encode(());
-    Ok((ffi::fork(arg).decode()?)
-        .map_or(ForkResult::Child, |pid| ForkResult::Parent { child: pid }))
+    let [] = ArgType::<syscall::Fork>::encode(()).a;
+    Ok((ffi::fork().decode()?).map_or(ForkResult::Child, |pid| ForkResult::Parent { child: pid }))
 }
 
 pub fn exit(status: i32) -> ! {
-    let arg = ArgType::<syscall::Exit>::encode((status,));
-    let _x: Infallible = ffi::exit(arg).decode();
+    let [a0] = ArgType::<syscall::Exit>::encode((status,)).a;
+    let _x: Infallible = ffi::exit(a0).decode();
     unreachable!()
 }
 
 pub fn wait() -> Result<(ProcId, ExitStatus), Ov6Error> {
     let mut status = 0;
-    let pid = unsafe { ffi::wait(&mut status) }.decode()?;
+    let [a0] = ArgType::<syscall::Wait>::encode((UserMutRef::new(&mut status),)).a;
+    let pid = ffi::wait(a0).decode()?;
     Ok((pid, ExitStatus::new(status)))
 }
 
 pub fn pipe() -> Result<(OwnedFd, OwnedFd), Ov6Error> {
-    unsafe {
-        let mut pipefd = [const { RawFd::new(0) }; 2];
-        ffi::pipe(pipefd.as_mut_ptr()).decode()?;
-        Ok((
-            OwnedFd::from_raw_fd(pipefd[0]),
-            OwnedFd::from_raw_fd(pipefd[1]),
-        ))
-    }
+    let mut pipefd = [const { RawFd::new(0) }; 2];
+    let [a0] = ArgType::<syscall::Pipe>::encode((UserMutRef::new(&mut pipefd),)).a;
+    ffi::pipe(a0).decode()?;
+    Ok((unsafe { OwnedFd::from_raw_fd(pipefd[0]) }, unsafe {
+        OwnedFd::from_raw_fd(pipefd[1])
+    }))
 }
 
 pub fn write(fd: impl AsRawFd, buf: &[u8]) -> Result<usize, Ov6Error> {
-    let count = buf.len();
-    let nwritten = unsafe { ffi::write(fd.as_raw_fd(), buf.as_ptr(), count) }.decode()?;
+    let [a0, a1, a2] = ArgType::<syscall::Write>::encode((fd.as_raw_fd(), UserSlice::new(buf))).a;
+    let nwritten = ffi::write(a0, a1, a2).decode()?;
     Ok(nwritten)
 }
 
 pub fn read(fd: impl AsRawFd, buf: &mut [u8]) -> Result<usize, Ov6Error> {
-    let count = buf.len();
-    let nread = unsafe { ffi::read(fd.as_raw_fd(), buf.as_mut_ptr(), count) }.decode()?;
+    let [a0, a1, a2] = ArgType::<syscall::Read>::encode((fd.as_raw_fd(), UserMutSlice::new(buf))).a;
+    let nread = ffi::read(a0, a1, a2).decode()?;
     Ok(nread)
 }
 
@@ -68,7 +68,8 @@ pub unsafe fn close(fd: impl AsRawFd) -> Result<(), Ov6Error> {
 }
 
 pub fn kill(pid: ProcId) -> Result<(), Ov6Error> {
-    ffi::kill(pid.get().get()).decode()?;
+    let [a0] = ArgType::<syscall::Kill>::encode((pid,)).a;
+    ffi::kill(a0).decode()?;
     Ok(())
 }
 
@@ -77,7 +78,9 @@ pub fn exec(path: &CStr, argv: &[*const c_char]) -> Result<Infallible, Ov6Error>
         argv.last().unwrap().is_null(),
         "last element of argv must be null"
     );
-    unsafe { ffi::exec(path.as_ptr(), argv.as_ptr()) }.decode()?;
+    let [a0, a1, a2] =
+        ArgType::<syscall::Exec>::encode((UserRef::new(path), UserSlice::new(argv))).a;
+    ffi::exec(a0, a1, a2).decode()?;
     unreachable!()
 }
 

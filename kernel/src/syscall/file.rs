@@ -5,7 +5,7 @@ use crate::{
     error::KernelError,
     file::File,
     fs::{self, DeviceNo, Inode, T_DEVICE, T_DIR, T_FILE},
-    memory::{PAGE_SIZE, page, vm},
+    memory::{PAGE_SIZE, VirtAddr, page, vm},
     param::{MAX_ARG, MAX_PATH},
     proc::{Proc, ProcPrivateData, ProcPrivateDataGuard, exec},
     syscall,
@@ -42,10 +42,12 @@ pub fn sys_read(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Read> {
     let private = private.as_mut().unwrap();
-    let va = syscall::arg_addr(private, 1);
-    let n = syscall::arg_int(private, 2);
-    let (_fd, f) = arg_fd(private, 0)?;
-    let n = f.clone().read(p, private, va, n)?;
+    let (fd, data) = super::decode_arg::<sys::Read>(private.trapframe().unwrap())
+        .map_err(|_| KernelError::Unknown)?;
+    let file = private.ofile(fd).ok_or(KernelError::Unknown)?;
+    let n = file
+        .clone()
+        .read(p, private, VirtAddr::new(data.addr()), data.len())?;
     Ok(n)
 }
 
@@ -54,10 +56,12 @@ pub fn sys_write(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Write> {
     let private = private.as_mut().unwrap();
-    let va = syscall::arg_addr(private, 1);
-    let n = syscall::arg_int(private, 2);
-    let (_fd, f) = arg_fd(private, 0)?;
-    let n = f.clone().write(p, private, va, n)?;
+    let (fd, data) = super::decode_arg::<sys::Read>(private.trapframe().unwrap())
+        .map_err(|_| KernelError::Unknown)?;
+    let file = private.ofile(fd).ok_or(KernelError::Unknown)?;
+    let n = file
+        .clone()
+        .write(p, private, VirtAddr::new(data.addr()), data.len())?;
     Ok(n)
 }
 
@@ -215,10 +219,12 @@ pub fn sys_exec(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> Result<(usize, usize), SyscallError> {
     let private = private.as_mut().unwrap();
+    let (path_ptr, argv_ptr) = super::decode_arg::<sys::Exec>(private.trapframe().unwrap())
+        .map_err(|_| KernelError::Unknown)?;
     let mut path = [0; MAX_PATH];
-    let path = syscall::arg_str(private, 0, &mut path)?;
+    let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
     let path = Path::new(OsStr::from_bytes(path));
-    let uargv = syscall::arg_addr(private, 1);
+    let uargv = VirtAddr::new(argv_ptr.addr());
 
     let mut argv = [None; MAX_ARG];
     let res = (|| {
@@ -266,7 +272,8 @@ pub fn sys_pipe(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Pipe> {
     let private = private.as_mut().unwrap();
-    let fd_array = syscall::arg_addr(private, 0);
+    let fd_array = super::decode_arg::<sys::Wait>(private.trapframe().unwrap())
+        .map_err(|_| SyscallError::Unknown)?;
 
     let (rf, wf) = File::new_pipe()?;
 
@@ -279,7 +286,13 @@ pub fn sys_pipe(
     };
 
     let fds = [rfd, wfd];
-    if vm::copy_out(private.pagetable_mut().unwrap(), fd_array, &fds).is_err() {
+    if vm::copy_out(
+        private.pagetable_mut().unwrap(),
+        VirtAddr::new(fd_array.addr()),
+        &fds,
+    )
+    .is_err()
+    {
         private.unset_ofile(rfd);
         private.unset_ofile(wfd);
         return Err(KernelError::Unknown.into());

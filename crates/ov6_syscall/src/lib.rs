@@ -1,6 +1,6 @@
 #![no_std]
 
-use core::{convert::Infallible, fmt, marker::PhantomData, num::TryFromIntError};
+use core::{convert::Infallible, fmt, marker::PhantomData, num::TryFromIntError, ptr};
 
 use bitflags::bitflags;
 use dataview::Pod;
@@ -76,6 +76,114 @@ pub trait Syscall {
     type Return: RegisterValue;
 }
 
+#[derive(Debug)]
+pub struct UserRef<T>
+where
+    T: ?Sized + 'static,
+{
+    addr: usize,
+    _phantom: PhantomData<&'static T>,
+}
+
+impl<T> UserRef<T>
+where
+    T: ?Sized,
+{
+    pub fn new(r: &T) -> Self {
+        Self {
+            addr: ptr::from_ref(r).addr(),
+            _phantom: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn addr(&self) -> usize {
+        self.addr
+    }
+}
+
+#[derive(Debug)]
+pub struct UserMutRef<T>
+where
+    T: ?Sized + 'static,
+{
+    addr: usize,
+    _phantom: PhantomData<&'static mut T>,
+}
+
+impl<T> UserMutRef<T>
+where
+    T: ?Sized,
+{
+    pub fn new(r: &mut T) -> Self {
+        Self {
+            addr: ptr::from_mut(r).addr(),
+            _phantom: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn addr(&self) -> usize {
+        self.addr
+    }
+}
+
+#[derive(Debug)]
+pub struct UserSlice<T> {
+    addr: usize,
+    len: usize,
+    _phantom: PhantomData<T>,
+}
+
+impl<T> UserSlice<T> {
+    pub fn new(s: &[T]) -> Self {
+        Self {
+            addr: s.as_ptr().addr(),
+            len: s.len(),
+            _phantom: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn addr(&self) -> usize {
+        self.addr
+    }
+
+    #[expect(clippy::len_without_is_empty)]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+}
+
+#[derive(Debug)]
+pub struct UserMutSlice<T> {
+    addr: usize,
+    len: usize,
+    _phantom: PhantomData<T>,
+}
+
+impl<T> UserMutSlice<T> {
+    pub fn new(s: &mut [T]) -> Self {
+        Self {
+            addr: s.as_mut_ptr().addr(),
+            len: s.len(),
+            _phantom: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn addr(&self) -> usize {
+        self.addr
+    }
+
+    #[expect(clippy::len_without_is_empty)]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+}
+
 pub type ArgType<T> = <T as Syscall>::Arg;
 pub type ArgTypeRepr<T> = <<T as Syscall>::Arg as RegisterValue>::Repr;
 pub type ReturnType<T> = <T as Syscall>::Return;
@@ -117,11 +225,14 @@ where
 }
 
 pub mod syscall {
-    use core::convert::Infallible;
+    use core::{
+        convert::Infallible,
+        ffi::{CStr, c_char},
+    };
 
     use ov6_types::{fs::RawFd, process::ProcId};
 
-    use crate::{Syscall, SyscallCode, SyscallError};
+    use crate::{Syscall, SyscallCode, SyscallError, UserMutRef, UserMutSlice, UserRef, UserSlice};
 
     macro_rules! syscall {
         ($name:ident => fn($arg:ty $(,)?) -> $ret:ty) => {
@@ -158,11 +269,11 @@ pub mod syscall {
 
     syscall!(Fork => fn() -> Result<Option<ProcId>, SyscallError>);
     syscall!(Exit => fn(i32) -> Infallible);
-    syscall!(Wait => fn(..) -> Result<ProcId, SyscallError>);
-    syscall!(Pipe => fn(..) -> Result<(), SyscallError>);
-    syscall!(Read => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Kill => fn(..) -> Result<(), SyscallError>);
-    syscall!(Exec => fn(..) -> Result<Infallible, SyscallError>);
+    syscall!(Wait => fn(UserMutRef<i32>) -> Result<ProcId, SyscallError>);
+    syscall!(Pipe => fn(UserMutRef<[RawFd; 2]>) -> Result<(), SyscallError>);
+    syscall!(Read => fn(RawFd, UserMutSlice<u8>) -> Result<usize, SyscallError>);
+    syscall!(Kill => fn(ProcId) -> Result<(), SyscallError>);
+    syscall!(Exec => fn(UserRef<CStr>, UserSlice<*const c_char>) -> Result<Infallible, SyscallError>);
     syscall!(Fstat => fn(..) -> Result<(), SyscallError>);
     syscall!(Chdir => fn(..) -> Result<(), SyscallError>);
     syscall!(Dup => fn(..) -> Result<RawFd, SyscallError>);
@@ -171,7 +282,7 @@ pub mod syscall {
     syscall!(Sleep => fn(..) -> ());
     syscall!(Uptime => fn(..) -> u64);
     syscall!(Open => fn(..) -> Result<RawFd, SyscallError>);
-    syscall!(Write => fn(..) -> Result<usize, SyscallError>);
+    syscall!(Write => fn(RawFd, UserSlice<u8>) -> Result<usize, SyscallError>);
     syscall!(Mknod => fn(..) -> Result<(), SyscallError>);
     syscall!(Unlink => fn(..) -> Result<(), SyscallError>);
     syscall!(Link => fn(..) -> Result<(), SyscallError>);

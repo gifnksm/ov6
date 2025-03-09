@@ -1,7 +1,4 @@
-use core::num::NonZero;
-
 use ov6_syscall::{ReturnType, syscall as sys};
-use ov6_types::process::ProcId;
 
 use crate::{
     error::KernelError,
@@ -37,7 +34,8 @@ pub fn sys_wait(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Wait> {
     let private = private.as_mut().unwrap();
-    let addr = syscall::arg_addr(private, 0);
+    let addr = super::decode_arg::<sys::Wait>(private.trapframe().unwrap())
+        .map_err(|_| KernelError::Unknown)?;
     let pid = proc::wait(p, private, addr)?;
     Ok(pid)
 }
@@ -47,10 +45,9 @@ pub fn sys_kill(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Kill> {
     let private = private.as_mut().unwrap();
-    let pid = syscall::arg_int(private, 0);
-    let pid = u32::try_from(pid).map_err(|_| KernelError::Unknown)?;
-    let pid = NonZero::new(pid).ok_or(KernelError::Unknown)?;
-    proc::kill(ProcId::new(pid))?;
+    let pid = super::decode_arg::<sys::Kill>(private.trapframe().unwrap())
+        .map_err(|_| KernelError::Unknown)?;
+    proc::kill(pid)?;
     Ok(())
 }
 

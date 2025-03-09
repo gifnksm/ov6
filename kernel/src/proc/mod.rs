@@ -14,7 +14,7 @@ use core::{
 use arrayvec::ArrayVec;
 use dataview::{Pod, PodMethods as _};
 use once_init::OnceInit;
-use ov6_syscall::{ReturnType, RegisterValue as _, syscall as sys};
+use ov6_syscall::{UserMutRef, RegisterValue as _, ReturnType, syscall as sys};
 use ov6_types::{fs::RawFd, os_str::OsStr, path::Path, process::ProcId};
 
 use self::{
@@ -649,7 +649,7 @@ pub fn exit(p: &Proc, mut p_private: ProcPrivateDataGuard, status: i32) -> ! {
 pub fn wait(
     p: &Proc,
     p_private: &mut ProcPrivateData,
-    addr: VirtAddr,
+    addr: UserMutRef<i32>,
 ) -> Result<ProcId, KernelError> {
     let mut wait_lock = wait_lock::lock();
 
@@ -670,7 +670,12 @@ pub fn wait(
 
                 let pid = pp_shared.pid.unwrap();
                 if addr.addr() != 0
-                    && vm::copy_out(p_private.pagetable_mut().unwrap(), addr, &exit_status).is_err()
+                    && vm::copy_out(
+                        p_private.pagetable_mut().unwrap(),
+                        VirtAddr::new(addr.addr()),
+                        &exit_status,
+                    )
+                    .is_err()
                 {
                     drop(pp_shared);
                     drop(wait_lock);
