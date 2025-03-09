@@ -137,33 +137,32 @@ pub fn syscall(p: &'static Proc, private: &mut Option<ProcPrivateDataGuard>) {
     };
     let _ = private_ref;
 
-    let f: &dyn Fn(&'static Proc, &mut Option<ProcPrivateDataGuard>) -> ReturnValue = match ty {
-        SyscallCode::Fork => &|p, private| call(self::proc::sys_fork, p, private),
-        SyscallCode::Exit => &|p, private| call(self::proc::sys_exit, p, private),
-        SyscallCode::Wait => &|p, private| call(self::proc::sys_wait, p, private),
-        SyscallCode::Pipe => &|p, private| call(self::file::sys_pipe, p, private),
-        SyscallCode::Read => &|p, private| call(self::file::sys_read, p, private),
-        SyscallCode::Kill => &|p, private| call(self::proc::sys_kill, p, private),
-        SyscallCode::Exec => &|p, private| match self::file::sys_exec(p, private) {
+    let ret = match ty {
+        SyscallCode::Fork => call(self::proc::sys_fork, p, private),
+        SyscallCode::Exit => call(self::proc::sys_exit, p, private),
+        SyscallCode::Wait => call(self::proc::sys_wait, p, private),
+        SyscallCode::Pipe => call(self::file::sys_pipe, p, private),
+        SyscallCode::Read => call(self::file::sys_read, p, private),
+        SyscallCode::Kill => call(self::proc::sys_kill, p, private),
+        SyscallCode::Exec => match self::file::sys_exec(p, private) {
             Ok((argc, argv)) => ReturnValue::Ret2(argc, argv),
             Err(e) => ReturnType::<sys::Exec>::Err(e).encode().into(),
         },
-        SyscallCode::Fstat => &|p, private| call(self::file::sys_fstat, p, private),
-        SyscallCode::Chdir => &|p, private| call(self::file::sys_chdir, p, private),
-        SyscallCode::Dup => &|p, private| call(self::file::sys_dup, p, private),
-        SyscallCode::Getpid => &|p, private| call(self::proc::sys_getpid, p, private),
-        SyscallCode::Sbrk => &|p, private| call(self::proc::sys_sbrk, p, private),
-        SyscallCode::Sleep => &|p, private| call(self::proc::sys_sleep, p, private),
-        SyscallCode::Uptime => &|p, private| call(self::proc::sys_uptime, p, private),
-        SyscallCode::Open => &|p, private| call(self::file::sys_open, p, private),
-        SyscallCode::Write => &|p, private| call(self::file::sys_write, p, private),
-        SyscallCode::Mknod => &|p, private| call(self::file::sys_mknod, p, private),
-        SyscallCode::Unlink => &|p, private| call(self::file::sys_unlink, p, private),
-        SyscallCode::Link => &|p, private| call(self::file::sys_link, p, private),
-        SyscallCode::Mkdir => &|p, private| call(self::file::sys_mkdir, p, private),
-        SyscallCode::Close => &|p, private| call(self::file::sys_close, p, private),
+        SyscallCode::Fstat => call(self::file::sys_fstat, p, private),
+        SyscallCode::Chdir => call(self::file::sys_chdir, p, private),
+        SyscallCode::Dup => call(self::file::sys_dup, p, private),
+        SyscallCode::Getpid => call(self::proc::sys_getpid, p, private),
+        SyscallCode::Sbrk => call(self::proc::sys_sbrk, p, private),
+        SyscallCode::Sleep => call(self::proc::sys_sleep, p, private),
+        SyscallCode::Uptime => call(self::proc::sys_uptime, p, private),
+        SyscallCode::Open => call(self::file::sys_open, p, private),
+        SyscallCode::Write => call(self::file::sys_write, p, private),
+        SyscallCode::Mknod => call(self::file::sys_mknod, p, private),
+        SyscallCode::Unlink => call(self::file::sys_unlink, p, private),
+        SyscallCode::Link => call(self::file::sys_link, p, private),
+        SyscallCode::Mkdir => call(self::file::sys_mkdir, p, private),
+        SyscallCode::Close => call(self::file::sys_close, p, private),
     };
-    let ret = f(p, private);
     let private_ref = private.as_mut().unwrap();
     ret.store(private_ref.trapframe_mut().unwrap());
 }
