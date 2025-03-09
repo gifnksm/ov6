@@ -43,14 +43,14 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
     /// Returns `None` if out of disk space.
     fn get_indirect_data_block(&mut self, i: usize) -> Option<BlockNo> {
         // Load indirect block, allocating if necessary.
-        let (ind_bn, ind_newly_allocated) = match self.data().addrs[NUM_DIRECT_REFS] {
-            Some(ind_bn) => (ind_bn, false),
-            None => {
-                let tx = self.tx.to_writable()?;
-                let ind_bn = data_block::alloc(&tx, self.dev)?;
-                self.data_mut().addrs[NUM_DIRECT_REFS] = Some(ind_bn);
-                (ind_bn, true)
-            }
+        let (ind_bn, ind_newly_allocated) = if let Some(ind_bn) = self.data().addrs[NUM_DIRECT_REFS]
+        {
+            (ind_bn, false)
+        } else {
+            let tx = self.tx.to_writable()?;
+            let ind_bn = data_block::alloc(&tx, self.dev)?;
+            self.data_mut().addrs[NUM_DIRECT_REFS] = Some(ind_bn);
+            (ind_bn, true)
         };
 
         if !ind_newly_allocated {

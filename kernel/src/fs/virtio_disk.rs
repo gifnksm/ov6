@@ -74,6 +74,16 @@ struct TrackInfo {
 
 static DISK: OnceInit<SpinLock<Disk<NUM>>> = OnceInit::new();
 
+fn addr_low<T>(p: &T) -> u32 {
+    let addr = ptr::from_ref(p).addr();
+    (addr & 0xffff_ffff).try_into().unwrap()
+}
+
+fn addr_high<T>(p: &T) -> u32 {
+    let addr = ptr::from_ref(p).addr();
+    ((addr >> 32) & 0xffff_ffff).try_into().unwrap()
+}
+
 impl<const N: usize> Disk<N> {
     fn new(
         base_address: usize,
@@ -171,15 +181,6 @@ impl<const N: usize> Disk<N> {
         self.write_reg(MmioRegister::QueueNum, N.try_into().unwrap());
 
         // write physical addresses.
-        fn addr_low<T>(p: &T) -> u32 {
-            let addr = ptr::from_ref(p).addr();
-            (addr & 0xffff_ffff).try_into().unwrap()
-        }
-        fn addr_high<T>(p: &T) -> u32 {
-            let addr = ptr::from_ref(p).addr();
-            ((addr >> 32) & 0xffff_ffff).try_into().unwrap()
-        }
-
         self.write_reg(MmioRegister::QueueDescLow, addr_low(&*self.desc));
         self.write_reg(MmioRegister::QueueDescHigh, addr_high(&*self.desc));
         self.write_reg(MmioRegister::DriverDescLow, addr_low(&*self.avail));
@@ -236,14 +237,13 @@ impl<const N: usize> Disk<N> {
     fn alloc3_desc(&mut self) -> Option<[usize; 3]> {
         let mut idx = [0; 3];
         for i in 0..3 {
-            match self.alloc_desc() {
-                Some(x) => idx[i] = x,
-                None => {
-                    for j in &idx[0..i] {
-                        self.free_desc(*j);
-                    }
-                    return None;
+            if let Some(x) = self.alloc_desc() {
+                idx[i] = x
+            } else {
+                for j in &idx[0..i] {
+                    self.free_desc(*j);
                 }
+                return None;
             }
         }
         Some(idx)

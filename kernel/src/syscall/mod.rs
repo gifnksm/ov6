@@ -104,6 +104,18 @@ impl ReturnValue {
     }
 }
 
+fn call<T>(
+    f: fn(p: &'static Proc, private: &mut Option<ProcPrivateDataGuard>) -> T,
+    p: &'static Proc,
+    private: &mut Option<ProcPrivateDataGuard>,
+) -> ReturnValue
+where
+    T: ReturnValueConvert,
+    T::Repr: Into<ReturnValue>,
+{
+    f(p, private).encode().into()
+}
+
 pub fn syscall(p: &'static Proc, private: &mut Option<ProcPrivateDataGuard>) {
     let private_ref = private.as_mut().unwrap();
     let n = private_ref.trapframe().unwrap().a7;
@@ -116,18 +128,6 @@ pub fn syscall(p: &'static Proc, private: &mut Option<ProcPrivateDataGuard>) {
         return;
     };
     let _ = private_ref;
-
-    fn call<T>(
-        f: fn(p: &'static Proc, private: &mut Option<ProcPrivateDataGuard>) -> T,
-        p: &'static Proc,
-        private: &mut Option<ProcPrivateDataGuard>,
-    ) -> ReturnValue
-    where
-        T: ReturnValueConvert,
-        T::Repr: Into<ReturnValue>,
-    {
-        f(p, private).encode().into()
-    }
 
     let f: &dyn Fn(&'static Proc, &mut Option<ProcPrivateDataGuard>) -> ReturnValue = match ty {
         SyscallCode::Fork => &|p, private| call(self::proc::sys_fork, p, private),

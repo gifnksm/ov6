@@ -179,8 +179,7 @@ enum Continuous {
 impl Continuous {
     fn judge_result<E>(self, result: Result<(), E>) -> Result<(), E> {
         match self {
-            Self::Once => result,
-            Self::UntilFailure => result,
+            Self::Once | Self::UntilFailure => result,
             Self::Forever => Ok(()),
         }
     }

@@ -451,10 +451,8 @@ where
         let mut iter_next = iter.clone();
         match (&iter_next.next(), &prefix.next()) {
             (Some(x), Some(y)) if x == y => {}
-            (Some(_), Some(_)) => return None,
-            (Some(_), None) => return Some(iter),
-            (None, None) => return Some(iter),
-            (None, Some(_)) => return None,
+            (_, None) => return Some(iter),
+            (_, Some(_)) => return None,
         }
         iter = iter_next;
     }

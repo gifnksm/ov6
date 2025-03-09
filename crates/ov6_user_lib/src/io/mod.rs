@@ -126,15 +126,12 @@ pub trait BufRead: Read {
                     Err(e) if e.is_interrupted() => continue,
                     Err(e) => return Err(e),
                 };
-                match memchr::memchr(byte, available) {
-                    Some(i) => {
-                        buf.extend_from_slice(&available[..=i]);
-                        (true, i + 1)
-                    }
-                    None => {
-                        buf.extend_from_slice(available);
-                        (false, available.len())
-                    }
+                if let Some(i) = memchr::memchr(byte, available) {
+                    buf.extend_from_slice(&available[..=i]);
+                    (true, i + 1)
+                } else {
+                    buf.extend_from_slice(available);
+                    (false, available.len())
                 }
             };
             self.consume(used);
