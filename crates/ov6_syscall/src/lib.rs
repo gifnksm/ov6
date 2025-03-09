@@ -30,7 +30,7 @@ pub struct Stat {
     pub ty: i16,
     /// Number of links to file
     pub nlink: i16,
-    pub _pad: [u8; 4],
+    pub padding: [u8; 4],
     /// Size of file in bytes
     pub size: u64,
 }
@@ -74,25 +74,27 @@ pub trait Syscall {
     type Return: ReturnValueConvert;
 }
 
-macro_rules! syscall {
-    ($name:ident => fn(..) -> $ret:ty) => {
-        pub struct $name {}
-
-        impl Syscall for $name {
-            type Return = $ret;
-
-            const CODE: SyscallCode = SyscallCode::$name;
-        }
-    };
-}
-
 pub type ReturnType<T> = <T as Syscall>::Return;
 pub type ReturnTypeRepr<T> = <<T as Syscall>::Return as ReturnValueConvert>::Repr;
 
 pub mod syscall {
+    use core::convert::Infallible;
+
     use ov6_types::{fs::RawFd, process::ProcId};
 
-    use super::*;
+    use crate::{Syscall, SyscallCode, SyscallError};
+
+    macro_rules! syscall {
+        ($name:ident => fn(..) -> $ret:ty) => {
+            pub struct $name {}
+
+            impl Syscall for $name {
+                type Return = $ret;
+
+                const CODE: SyscallCode = SyscallCode::$name;
+            }
+        };
+    }
 
     syscall!(Fork => fn(..) -> Result<Option<ProcId>, SyscallError>);
     syscall!(Exit => fn(..) -> Infallible);

@@ -59,6 +59,7 @@ where
 }
 
 /// An key-value maps of Least Recently Used (LRU) cache.
+#[expect(clippy::linkedlist)]
 pub struct LruMap<K, V, A = Global>
 where
     A: Allocator,
@@ -176,7 +177,7 @@ where
             .extract_if(|(k, _v)| k.as_ref() == Some(key))
             .next();
         if let Some((k, v)) = buf {
-            self.list.push_front((k, v))
+            self.list.push_front((k, v));
         }
     }
 }

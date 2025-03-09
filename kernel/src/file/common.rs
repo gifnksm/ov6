@@ -32,7 +32,7 @@ pub(super) fn stat_inode(
         ino: lip.ino().value(),
         ty: ty as i16,
         nlink: lip.nlink(),
-        _pad: [0; 4],
+        padding: [0; 4],
         size: u64::from(lip.size()),
     };
     drop(lip);
