@@ -74,7 +74,7 @@ impl UserPageTable {
 
     /// Allocates PTEs and physical memory to grow process to `new_size`,
     /// which need not be page aligned.
-    pub fn grow(&mut self, new_size: usize, xperm: PtEntryFlags) -> Result<(), KernelError> {
+    pub fn grow_to(&mut self, new_size: usize, xperm: PtEntryFlags) -> Result<(), KernelError> {
         if new_size < self.size {
             return Ok(());
         }
@@ -83,7 +83,7 @@ impl UserPageTable {
         for va in (self.size.page_roundup()..new_size).step_by(PAGE_SIZE) {
             self.size = va;
             let Some(mem) = page::alloc_zeroed_page() else {
-                self.shrink(old_size);
+                self.shrink_to(old_size);
                 return Err(KernelError::Unknown);
             };
 
@@ -95,7 +95,7 @@ impl UserPageTable {
                 unsafe {
                     page::free_page(mem);
                 }
-                self.shrink(old_size);
+                self.shrink_to(old_size);
                 return Err(e);
             }
         }
@@ -108,7 +108,7 @@ impl UserPageTable {
     ///
     /// `new_size` need not be page-aligned.
     /// `new_size` need not to be less than current size.
-    pub fn shrink(&mut self, new_size: usize) {
+    pub fn shrink_to(&mut self, new_size: usize) {
         if new_size >= self.size {
             return;
         }
@@ -129,7 +129,7 @@ impl UserPageTable {
     }
 
     pub fn try_clone(&self, target: &mut Self) -> Result<(), KernelError> {
-        target.shrink(0);
+        target.shrink_to(0);
 
         (|| {
             for va in (0..self.size).step_by(PAGE_SIZE) {
@@ -155,7 +155,7 @@ impl UserPageTable {
             Ok(())
         })()
         .inspect_err(|_| {
-            target.shrink(0);
+            target.shrink_to(0);
         })
     }
 

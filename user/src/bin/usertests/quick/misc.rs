@@ -53,10 +53,10 @@ pub fn big_arg() {
     let status = process::fork_fn(|| {
         static mut ARGS: [*const c_char; MAX_ARG] = [ptr::null(); MAX_ARG];
         let args = unsafe { (&raw mut ARGS).as_mut().unwrap() };
-        let mut big = [b' ' as c_char; 400];
-        *big.last_mut().unwrap() = b'\0' as c_char;
+        let mut big = [b' '; 400];
+        *big.last_mut().unwrap() = b'\0';
         for arg in &mut args[..MAX_ARG - 1] {
-            *arg = big.as_ptr();
+            *arg = big.as_ptr().cast::<c_char>();
         }
         args[MAX_ARG - 1] = ptr::null();
         // this exec() should fail (and return) because the

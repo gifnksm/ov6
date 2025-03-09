@@ -62,9 +62,9 @@ pub fn sys_sbrk(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Sbrk> {
     let private = private.as_mut().unwrap();
-    let n = syscall::arg_int(private, 0);
+    let n = syscall::arg_int(private, 0).cast_signed();
     let addr = private.size();
-    proc::grow_proc(private, n as isize)?;
+    proc::grow_proc(private, n)?;
     Ok(addr)
 }
 

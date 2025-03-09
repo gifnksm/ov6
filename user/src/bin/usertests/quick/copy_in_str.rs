@@ -47,9 +47,9 @@ pub fn test2() {
 
     let status = process::fork_fn(|| {
         unsafe {
-            static mut BIG: [c_char; PAGE_SIZE + 1] = [b'x' as c_char; PAGE_SIZE + 1];
+            static mut BIG: [u8; PAGE_SIZE + 1] = [b'x'; PAGE_SIZE + 1];
             BIG[PAGE_SIZE] = 0;
-            let big = CStr::from_ptr((&raw const BIG).cast());
+            let big = CStr::from_ptr(((&raw const BIG).cast::<c_char>()).cast());
 
             let args = [big.as_ptr(), big.as_ptr(), big.as_ptr(), ptr::null()];
             expect!(process::exec(ECHO_PATH, &args), Err(Ov6Error::Unknown));

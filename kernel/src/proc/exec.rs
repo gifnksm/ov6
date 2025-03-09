@@ -122,7 +122,7 @@ fn load_segments<const READ_ONLY: bool>(
         if !usize::try_from(ph.vaddr).unwrap().is_page_aligned() {
             return Err(KernelError::Unknown);
         }
-        pagetable.grow(
+        pagetable.grow_to(
             usize::try_from(ph.vaddr + ph.memsz).unwrap(),
             flags2perm(ph.flags),
         )?;
@@ -178,7 +178,7 @@ fn load_segment<const READ_ONLY: bool>(
 /// Uses the rest as the user stack.
 fn allocate_stack_pages(pagetable: &mut UserPageTable) -> Result<(), KernelError> {
     let size = pagetable.size().page_roundup();
-    pagetable.grow(size + (USER_STACK + 1) * PAGE_SIZE, PtEntryFlags::W)?;
+    pagetable.grow_to(size + (USER_STACK + 1) * PAGE_SIZE, PtEntryFlags::W)?;
     pagetable.forbide_user_access(VirtAddr::new(
         pagetable.size() - (USER_STACK + 1) * PAGE_SIZE,
     ));

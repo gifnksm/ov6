@@ -516,18 +516,16 @@ pub fn user_init() {
     drop(shared);
 }
 
-/// Grows or shrink user memory by nBytes.
+/// Grows user memory by `n` Bytes.
 pub fn grow_proc(private: &mut ProcPrivateData, n: isize) -> Result<(), KernelError> {
     let pagetable = private.pagetable_mut().unwrap();
     let old_sz = pagetable.size();
-    let new_sz = (old_sz as isize + n) as usize;
-
+    let new_sz = old_sz.saturating_add_signed(n);
     match new_sz.cmp(&old_sz) {
+        cmp::Ordering::Less => pagetable.shrink_to(new_sz),
         cmp::Ordering::Equal => {}
-        cmp::Ordering::Less => pagetable.shrink(new_sz),
-        cmp::Ordering::Greater => pagetable.grow(new_sz, PtEntryFlags::W)?,
+        cmp::Ordering::Greater => pagetable.grow_to(new_sz, PtEntryFlags::W)?,
     }
-
     Ok(())
 }
 
