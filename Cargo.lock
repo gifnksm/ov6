@@ -131,6 +131,7 @@ dependencies = [
  "dataview",
  "ov6_types",
  "strum",
+ "thiserror",
 ]
 
 [[package]]

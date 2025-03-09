@@ -21,7 +21,7 @@ pub fn fork() -> Result<ForkResult, Ov6Error> {
 }
 
 pub fn exit(status: i32) -> ! {
-    let _: Infallible = ffi::exit(status).decode();
+    let _x: Infallible = ffi::exit(status).decode();
     unreachable!()
 }
 
@@ -44,13 +44,13 @@ pub fn pipe() -> Result<(OwnedFd, OwnedFd), Ov6Error> {
 
 pub fn write(fd: impl AsRawFd, buf: &[u8]) -> Result<usize, Ov6Error> {
     let count = buf.len();
-    let nwritten = unsafe { ffi::write(fd.as_raw_fd(), buf.as_ptr(), count).decode()? };
+    let nwritten = unsafe { ffi::write(fd.as_raw_fd(), buf.as_ptr(), count) }.decode()?;
     Ok(nwritten)
 }
 
 pub fn read(fd: impl AsRawFd, buf: &mut [u8]) -> Result<usize, Ov6Error> {
     let count = buf.len();
-    let nread = unsafe { ffi::read(fd.as_raw_fd(), buf.as_mut_ptr(), count).decode()? };
+    let nread = unsafe { ffi::read(fd.as_raw_fd(), buf.as_mut_ptr(), count) }.decode()?;
     Ok(nread)
 }
 
@@ -73,9 +73,7 @@ pub fn exec(path: &CStr, argv: &[*const c_char]) -> Result<Infallible, Ov6Error>
         argv.last().unwrap().is_null(),
         "last element of argv must be null"
     );
-    unsafe {
-        ffi::exec(path.as_ptr(), argv.as_ptr()).decode()?;
-    }
+    unsafe { ffi::exec(path.as_ptr(), argv.as_ptr()) }.decode()?;
     unreachable!()
 }
 
@@ -87,16 +85,12 @@ pub fn open(path: &CStr, flags: OpenFlags) -> Result<OwnedFd, Ov6Error> {
 }
 
 pub fn mknod(path: &CStr, major: i16, minor: i16) -> Result<(), Ov6Error> {
-    unsafe {
-        ffi::mknod(path.as_ptr(), major, minor).decode()?;
-    }
+    unsafe { ffi::mknod(path.as_ptr(), major, minor) }.decode()?;
     Ok(())
 }
 
 pub fn unlink(path: &CStr) -> Result<(), Ov6Error> {
-    unsafe {
-        ffi::unlink(path.as_ptr()).decode()?;
-    }
+    unsafe { ffi::unlink(path.as_ptr()) }.decode()?;
     Ok(())
 }
 
@@ -109,23 +103,17 @@ pub fn fstat(fd: impl AsRawFd) -> Result<Stat, Ov6Error> {
 }
 
 pub fn link(old: &CStr, new: &CStr) -> Result<(), Ov6Error> {
-    unsafe {
-        ffi::link(old.as_ptr(), new.as_ptr()).decode()?;
-    }
+    unsafe { ffi::link(old.as_ptr(), new.as_ptr()) }.decode()?;
     Ok(())
 }
 
 pub fn mkdir(path: &CStr) -> Result<(), Ov6Error> {
-    unsafe {
-        ffi::mkdir(path.as_ptr()).decode()?;
-    }
+    unsafe { ffi::mkdir(path.as_ptr()) }.decode()?;
     Ok(())
 }
 
 pub fn chdir(path: &CStr) -> Result<(), Ov6Error> {
-    unsafe {
-        ffi::chdir(path.as_ptr()).decode()?;
-    }
+    unsafe { ffi::chdir(path.as_ptr()) }.decode()?;
     Ok(())
 }
 

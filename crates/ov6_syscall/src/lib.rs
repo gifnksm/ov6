@@ -1,6 +1,6 @@
 #![no_std]
 
-use core::marker::PhantomData;
+use core::{convert::Infallible, fmt, marker::PhantomData, num::TryFromIntError};
 
 use bitflags::bitflags;
 use dataview::Pod;
@@ -86,11 +86,31 @@ pub struct Register<T, const N: usize> {
     _phantom: PhantomData<T>,
 }
 
-pub trait RegisterValue {
+#[derive(Debug, thiserror::Error)]
+pub enum RegisterDecodeError {
+    #[error("int conversion: {0}")]
+    IntConversion(#[from] TryFromIntError),
+    #[error("invalid syscall error number: {0}")]
+    InvalidSyscallErrorNo(isize),
+    #[error("unexpected zero")]
+    UnexpectedZero,
+}
+
+impl From<Infallible> for RegisterDecodeError {
+    fn from(_: Infallible) -> Self {
+        unreachable!()
+    }
+}
+
+pub trait RegisterValue
+where
+    Self: Sized,
+{
+    type DecodeError: fmt::Debug;
     type Repr;
 
     fn encode(self) -> Self::Repr;
-    fn decode(repr: Self::Repr) -> Self;
+    fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError>;
 }
 
 pub mod syscall {
@@ -135,8 +155,9 @@ pub mod syscall {
     syscall!(Close => fn(..) -> Result<(), SyscallError>);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr, thiserror::Error)]
 #[repr(isize)]
 pub enum SyscallError {
+    #[error("unknown error")]
     Unknown = -1,
 }

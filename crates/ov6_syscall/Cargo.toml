@@ -18,3 +18,4 @@ bitflags.workspace = true
 dataview.workspace = true
 ov6_types.workspace = true
 strum.workspace = true
+thiserror.workspace = true
