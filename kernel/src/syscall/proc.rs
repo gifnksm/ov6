@@ -15,6 +15,7 @@ pub fn sys_fork(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Fork> {
     let private = private.as_mut().unwrap();
+    let Ok(()) = super::decode_arg::<sys::Fork>(private.trapframe().unwrap());
     let pid = proc::fork(p, private)?;
     Ok(Some(pid))
 }
@@ -24,8 +25,11 @@ pub fn sys_exit(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Exit> {
     let private = private.take().unwrap();
-    let n = syscall::arg_int(&private, 0);
-    proc::exit(p, private, i32::try_from(n).unwrap());
+    let status = match super::decode_arg::<sys::Exit>(private.trapframe().unwrap()) {
+        Ok(status) => status,
+        Err(_e) => -1,
+    };
+    proc::exit(p, private, status);
 }
 
 pub fn sys_wait(

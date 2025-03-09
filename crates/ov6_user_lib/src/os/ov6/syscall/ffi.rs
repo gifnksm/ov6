@@ -1,7 +1,7 @@
 use core::ffi::c_char;
 
+use ov6_syscall::{ArgTypeRepr, ReturnTypeRepr, syscall};
 pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
-use ov6_syscall::{ReturnTypeRepr, syscall};
 use ov6_types::fs::RawFd;
 
 #[cfg(target_arch = "riscv64")]
@@ -60,8 +60,8 @@ macro_rules! syscall {
     };
 }
 
-syscall!(SyscallCode::Fork => fn fork() -> ReturnTypeRepr<syscall::Fork>);
-syscall!(SyscallCode::Exit => fn exit(status: i32) -> ReturnTypeRepr<syscall::Exit>);
+syscall!(SyscallCode::Fork => fn fork(arg: ArgTypeRepr<syscall::Fork>) -> ReturnTypeRepr<syscall::Fork>);
+syscall!(SyscallCode::Exit => fn exit(arg: ArgTypeRepr<syscall::Exit>) -> ReturnTypeRepr<syscall::Exit>);
 syscall!(
     SyscallCode::Wait =>
     /// # Safety

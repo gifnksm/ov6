@@ -72,9 +72,12 @@ pub enum SyscallCode {
 
 pub trait Syscall {
     const CODE: SyscallCode;
+    type Arg: RegisterValue;
     type Return: RegisterValue;
 }
 
+pub type ArgType<T> = <T as Syscall>::Arg;
+pub type ArgTypeRepr<T> = <<T as Syscall>::Arg as RegisterValue>::Repr;
 pub type ReturnType<T> = <T as Syscall>::Return;
 pub type ReturnTypeRepr<T> = <<T as Syscall>::Return as RegisterValue>::Repr;
 
@@ -121,10 +124,31 @@ pub mod syscall {
     use crate::{Syscall, SyscallCode, SyscallError};
 
     macro_rules! syscall {
+        ($name:ident => fn($arg:ty $(,)?) -> $ret:ty) => {
+            pub struct $name {}
+
+            impl Syscall for $name {
+                type Arg = ( $arg ,);
+                type Return = $ret;
+
+                const CODE: SyscallCode = SyscallCode::$name;
+            }
+        };
+        ($name:ident => fn($($arg:ty),* $(,)?) -> $ret:ty) => {
+            pub struct $name {}
+
+            impl Syscall for $name {
+                type Arg = ( $($arg),* );
+                type Return = $ret;
+
+                const CODE: SyscallCode = SyscallCode::$name;
+            }
+        };
         ($name:ident => fn(..) -> $ret:ty) => {
             pub struct $name {}
 
             impl Syscall for $name {
+                type Arg = ();
                 type Return = $ret;
 
                 const CODE: SyscallCode = SyscallCode::$name;
@@ -132,8 +156,8 @@ pub mod syscall {
         };
     }
 
-    syscall!(Fork => fn(..) -> Result<Option<ProcId>, SyscallError>);
-    syscall!(Exit => fn(..) -> Infallible);
+    syscall!(Fork => fn() -> Result<Option<ProcId>, SyscallError>);
+    syscall!(Exit => fn(i32) -> Infallible);
     syscall!(Wait => fn(..) -> Result<ProcId, SyscallError>);
     syscall!(Pipe => fn(..) -> Result<(), SyscallError>);
     syscall!(Read => fn(..) -> Result<usize, SyscallError>);

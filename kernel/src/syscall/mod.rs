@@ -1,6 +1,8 @@
 use core::panic;
 
-use ov6_syscall::{Register, RegisterValue, ReturnType, SyscallCode, syscall as sys};
+use ov6_syscall::{
+    ArgTypeRepr, Register, RegisterValue, ReturnType, Syscall, SyscallCode, syscall as sys,
+};
 
 use crate::{
     error::KernelError,
@@ -30,6 +32,58 @@ fn fetch_str<'a>(
     vm::copy_in_str(private.pagetable().unwrap(), buf, addr)?;
     let len = buf.iter().position(|&c| c == 0).unwrap();
     Ok(&buf[..len])
+}
+
+fn decode_arg<S>(
+    tf: &TrapFrame,
+) -> Result<<ArgTypeRepr<S> as Arg>::Target, <ArgTypeRepr<S> as Arg>::DecodeError>
+where
+    S: Syscall,
+    ArgTypeRepr<S>: Arg,
+{
+    ArgTypeRepr::<S>::decode_arg(tf)
+}
+
+trait Arg: Sized {
+    type Target;
+    type DecodeError;
+    fn decode_arg(tf: &TrapFrame) -> Result<Self::Target, Self::DecodeError>;
+}
+
+impl<T> Arg for Register<T, 0>
+where
+    T: RegisterValue<Repr = Self>,
+{
+    type DecodeError = T::DecodeError;
+    type Target = T;
+
+    fn decode_arg(_tf: &TrapFrame) -> Result<Self::Target, Self::DecodeError> {
+        Self::new([]).try_decode()
+    }
+}
+
+impl<T> Arg for Register<T, 1>
+where
+    T: RegisterValue<Repr = Self>,
+{
+    type DecodeError = T::DecodeError;
+    type Target = T;
+
+    fn decode_arg(tf: &TrapFrame) -> Result<Self::Target, Self::DecodeError> {
+        Self::new([tf.a0]).try_decode()
+    }
+}
+
+impl<T> Arg for Register<T, 2>
+where
+    T: RegisterValue<Repr = Self>,
+{
+    type DecodeError = T::DecodeError;
+    type Target = T;
+
+    fn decode_arg(tf: &TrapFrame) -> Result<Self::Target, Self::DecodeError> {
+        Self::new([tf.a0, tf.a1]).try_decode()
+    }
 }
 
 fn arg_raw(private: &ProcPrivateData, n: usize) -> usize {

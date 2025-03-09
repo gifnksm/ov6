@@ -5,6 +5,7 @@ use core::{
     ptr,
 };
 
+use ov6_syscall::{ArgType, RegisterValue as _, syscall};
 pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
 use ov6_types::{fs::RawFd, process::ProcId};
 
@@ -17,11 +18,14 @@ use crate::{
 pub mod ffi;
 
 pub fn fork() -> Result<ForkResult, Ov6Error> {
-    Ok((ffi::fork().decode()?).map_or(ForkResult::Child, |pid| ForkResult::Parent { child: pid }))
+    let arg = ArgType::<syscall::Fork>::encode(());
+    Ok((ffi::fork(arg).decode()?)
+        .map_or(ForkResult::Child, |pid| ForkResult::Parent { child: pid }))
 }
 
 pub fn exit(status: i32) -> ! {
-    let _x: Infallible = ffi::exit(status).decode();
+    let arg = ArgType::<syscall::Exit>::encode((status,));
+    let _x: Infallible = ffi::exit(arg).decode();
     unreachable!()
 }
 

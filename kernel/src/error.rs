@@ -1,7 +1,9 @@
-use ov6_syscall::SyscallError;
+use ov6_syscall::{RegisterDecodeError, SyscallError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum KernelError {
+    #[error("sycall decode: {0}")]
+    SyscallDecode(RegisterDecodeError),
     #[error("unknown error")]
     Unknown,
 }
@@ -9,7 +11,7 @@ pub enum KernelError {
 impl From<KernelError> for SyscallError {
     fn from(error: KernelError) -> Self {
         match error {
-            KernelError::Unknown => Self::Unknown,
+            KernelError::SyscallDecode(_) | KernelError::Unknown => Self::Unknown,
         }
     }
 }

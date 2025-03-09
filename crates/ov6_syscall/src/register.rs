@@ -5,7 +5,7 @@ use ov6_types::{fs::RawFd, process::ProcId};
 use crate::{Register, RegisterDecodeError, RegisterValue, SyscallError};
 
 impl<T, const N: usize> Register<T, N> {
-    fn new(a: [usize; N]) -> Self {
+    pub fn new(a: [usize; N]) -> Self {
         Self {
             a,
             _phantom: PhantomData,
@@ -58,6 +58,24 @@ impl RegisterValue for () {
 
     fn try_decode(_: Self::Repr) -> Result<Self, Self::DecodeError> {
         Ok(())
+    }
+}
+
+impl<T> RegisterValue for (T,)
+where
+    T: RegisterValue,
+{
+    type DecodeError = T::DecodeError;
+    type Repr = T::Repr;
+
+    fn encode(self) -> Self::Repr {
+        let (x,) = self;
+        T::encode(x)
+    }
+
+    fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
+        let x = T::try_decode(repr)?;
+        Ok((x,))
     }
 }
 
