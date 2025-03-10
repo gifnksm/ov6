@@ -3,8 +3,8 @@ use core::{convert::Infallible, marker::PhantomData, num::NonZero};
 use ov6_types::{fs::RawFd, process::ProcId};
 
 use crate::{
-    OpenFlags, Register, RegisterDecodeError, RegisterValue, SyscallError, UserMutRef,
-    UserMutSlice, UserRef, UserSlice,
+    OpenFlags, Register, RegisterDecodeError, RegisterValue, UserMutRef, UserMutSlice, UserRef,
+    UserSlice, error::SyscallError,
 };
 
 impl<T, const N: usize> Register<T, N> {

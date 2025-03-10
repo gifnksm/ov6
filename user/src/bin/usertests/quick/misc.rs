@@ -23,7 +23,10 @@ pub fn validate() {
             let s = &*{
                 ptr::slice_from_raw_parts(ptr::with_exposed_provenance::<u8>(p), 10) as *const CStr
             };
-            expect!(fs::link(c"nosuchfile", s), Err(Ov6Error::Unknown));
+            expect!(
+                fs::link(c"nosuchfile", s),
+                Err(Ov6Error::BadAddress | Ov6Error::Unknown)
+            );
         }
     }
 }
@@ -123,7 +126,7 @@ pub fn argp() {
     let mut file = File::open(c"init").unwrap();
     unsafe {
         let p = slice::from_raw_parts_mut(process::current_break().sub(1), usize::MAX);
-        expect!(file.read(p), Err(Ov6Error::Unknown));
+        expect!(file.read(p), Err(Ov6Error::BadAddress));
     }
 }
 
@@ -188,7 +191,7 @@ pub fn pg_bug() {
     let big = ptr::with_exposed_provenance::<u8>(0xeaeb_0b5b_0000_2f5e);
     let argv = &[ptr::null()];
     let path = unsafe { &*(ptr::slice_from_raw_parts(big, 10) as *const CStr) };
-    expect!(process::exec(path, argv), Err(Ov6Error::Unknown));
+    expect!(process::exec(path, argv), Err(Ov6Error::BadAddress));
 }
 
 /// regression test. does the kernel panic if a process `sbrk()`s its

@@ -82,9 +82,12 @@ impl UserPageTable {
         let old_size = self.size;
         for va in (self.size.page_roundup()..new_size).step_by(PAGE_SIZE) {
             self.size = va;
-            let Some(mem) = page::alloc_zeroed_page() else {
-                self.shrink_to(old_size);
-                return Err(KernelError::Unknown);
+            let mem = match page::alloc_zeroed_page() {
+                Ok(mem) => mem,
+                Err(e) => {
+                    self.shrink_to(old_size);
+                    return Err(e);
+                }
             };
 
             if let Err(e) = self.pt.map_page(
@@ -140,9 +143,7 @@ impl UserPageTable {
                 let src_pa = pte.phys_addr();
                 let flags = pte.flags();
 
-                let Some(dst) = page::alloc_page() else {
-                    return Err(KernelError::Unknown);
-                };
+                let dst = page::alloc_page()?;
                 unsafe {
                     dst.as_ptr().copy_from(src_pa.as_ptr(), PAGE_SIZE);
                 }

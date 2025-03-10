@@ -29,7 +29,7 @@ pub fn copy_out_bytes(
     while !src.is_empty() {
         let va0 = dst_va.page_rounddown();
         if va0 >= VirtAddr::MAX {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::TooLargeVirtualAddress(dst_va));
         }
         let offset = dst_va.addr() - va0.addr();
         let mut n = PAGE_SIZE - offset;
@@ -136,5 +136,5 @@ pub fn copy_in_str(
 
         src_va = va0.byte_add(PAGE_SIZE);
     }
-    Err(KernelError::Unknown)
+    Err(KernelError::UnterminatedString(src_va, dst.len()))
 }

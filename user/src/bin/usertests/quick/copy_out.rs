@@ -27,13 +27,11 @@ pub fn test() {
 
         let mut file = File::open(README_PATH).unwrap();
 
-        // FIXME: this should return an error, but it doesn't
-        expect!(file.read(buf), Err(Ov6Error::Unknown), "addr={addr:p}");
+        expect!(file.read(buf), Err(Ov6Error::BadAddress), "addr={addr:p}");
         drop(file);
 
         let (mut rx, mut tx) = pipe::pipe().unwrap();
         tx.write_all(b"x").unwrap();
-        // FIXME: this should return an error, but it doesn't
-        expect!(rx.read(buf), Ok(0), "addr={addr:p}");
+        expect!(rx.read(buf), Err(Ov6Error::BadAddress), "addr={addr:p}");
     }
 }

@@ -26,7 +26,11 @@ pub fn test1() {
         let addr = ptr::with_exposed_provenance::<u8>(addr);
         let path = unsafe { &*(ptr::slice_from_raw_parts(addr, 8192) as *const CStr) };
 
-        expect!(File::create(path), Err(Ov6Error::Unknown), "addr={addr:p}");
+        expect!(
+            File::create(path),
+            Err(Ov6Error::BadAddress),
+            "addr={addr:p}"
+        );
     }
 }
 
@@ -38,12 +42,12 @@ pub fn test2() {
     b[MAX_PATH] = 0;
     let path = CStr::from_bytes_with_nul(&b).unwrap();
 
-    expect!(fs::remove_file(path), Err(Ov6Error::Unknown));
-    expect!(File::create(path), Err(Ov6Error::Unknown));
-    expect!(fs::link(path, path), Err(Ov6Error::Unknown));
+    expect!(fs::remove_file(path), Err(Ov6Error::BadAddress));
+    expect!(File::create(path), Err(Ov6Error::BadAddress));
+    expect!(fs::link(path, path), Err(Ov6Error::BadAddress));
 
     let args = [c"xx".as_ptr(), ptr::null()];
-    expect!(process::exec(path, &args), Err(Ov6Error::Unknown));
+    expect!(process::exec(path, &args), Err(Ov6Error::BadAddress));
 
     let status = process::fork_fn(|| {
         unsafe {
@@ -76,11 +80,11 @@ pub fn test3() {
         *b = b'x';
         let path = { &*(ptr::slice_from_raw_parts(b, 1) as *const CStr) };
 
-        expect!(fs::remove_file(path), Err(Ov6Error::Unknown));
-        expect!(File::create(path), Err(Ov6Error::Unknown));
-        expect!(fs::link(path, path), Err(Ov6Error::Unknown));
+        expect!(fs::remove_file(path), Err(Ov6Error::BadAddress));
+        expect!(File::create(path), Err(Ov6Error::BadAddress));
+        expect!(fs::link(path, path), Err(Ov6Error::BadAddress));
 
         let args = [c"xx".as_ptr(), ptr::null()];
-        expect!(process::exec(path, &args), Err(Ov6Error::Unknown));
+        expect!(process::exec(path, &args), Err(Ov6Error::BadAddress));
     }
 }

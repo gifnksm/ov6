@@ -1,4 +1,4 @@
-use ov6_syscall::{OpenFlags, ReturnType, SyscallError, syscall as sys};
+use ov6_syscall::{OpenFlags, ReturnType, syscall as sys};
 use ov6_types::{fs::RawFd, os_str::OsStr, path::Path};
 
 use crate::{
@@ -24,7 +24,7 @@ pub fn sys_dup(
 ) -> ReturnType<sys::Dup> {
     let private = private.as_mut().unwrap();
     let Ok((fd,)) = super::decode_arg::<sys::Dup>(private.trapframe().unwrap());
-    let file = private.ofile(fd).ok_or(KernelError::Unknown)?;
+    let file = private.ofile(fd)?;
     let file = file.clone();
     let fd = fd_alloc(private, file)?;
     Ok(fd)
@@ -36,7 +36,7 @@ pub fn sys_read(
 ) -> ReturnType<sys::Read> {
     let private = private.as_mut().unwrap();
     let Ok((fd, data)) = super::decode_arg::<sys::Read>(private.trapframe().unwrap());
-    let file = private.ofile(fd).ok_or(KernelError::Unknown)?;
+    let file = private.ofile(fd)?;
     let n = file
         .clone()
         .read(p, private, VirtAddr::new(data.addr()), data.len())?;
@@ -49,7 +49,7 @@ pub fn sys_write(
 ) -> ReturnType<sys::Write> {
     let private = private.as_mut().unwrap();
     let Ok((fd, data)) = super::decode_arg::<sys::Read>(private.trapframe().unwrap());
-    let file = private.ofile(fd).ok_or(KernelError::Unknown)?;
+    let file = private.ofile(fd)?;
     let n = file
         .clone()
         .write(p, private, VirtAddr::new(data.addr()), data.len())?;
@@ -62,7 +62,7 @@ pub fn sys_close(
 ) -> ReturnType<sys::Close> {
     let private = private.as_mut().unwrap();
     let Ok((fd,)) = super::decode_arg::<sys::Close>(private.trapframe().unwrap());
-    let _file = private.ofile(fd).ok_or(KernelError::Unknown)?;
+    let _file = private.ofile(fd)?;
     private.unset_ofile(fd);
     Ok(())
 }
@@ -73,7 +73,7 @@ pub fn sys_fstat(
 ) -> ReturnType<sys::Fstat> {
     let private = private.as_mut().unwrap();
     let Ok((fd, stat)) = super::decode_arg::<sys::Fstat>(private.trapframe().unwrap());
-    let file = private.ofile(fd).ok_or(KernelError::Unknown)?;
+    let file = private.ofile(fd)?;
     file.clone().stat(private, VirtAddr::new(stat.addr()))?;
     Ok(())
 }
@@ -216,7 +216,7 @@ pub fn sys_chdir(
 pub fn sys_exec(
     p: &'static Proc,
     private: &mut Option<ProcPrivateDataGuard>,
-) -> Result<(usize, usize), SyscallError> {
+) -> Result<(usize, usize), KernelError> {
     let private = private.as_mut().unwrap();
     let Ok((path_ptr, argv_ptr)) = super::decode_arg::<sys::Exec>(private.trapframe().unwrap());
     let mut path = [0; MAX_PATH];
@@ -236,7 +236,7 @@ pub fn sys_exec(
                 argv[i] = None;
                 break;
             }
-            argv[i] = Some(page::alloc_page().ok_or(KernelError::Unknown)?);
+            argv[i] = Some(page::alloc_page()?);
             let buf =
                 unsafe { core::slice::from_raw_parts_mut(argv[i].unwrap().as_ptr(), PAGE_SIZE) };
             syscall::fetch_str(private, uarg, buf)?;
@@ -250,7 +250,7 @@ pub fn sys_exec(
                 page::free_page(arg);
             }
         }
-        return Err(KernelError::Unknown.into());
+        return Err(KernelError::Unknown);
     }
 
     let ret = exec::exec(p, private, path, argv.as_ptr().cast());
@@ -261,8 +261,7 @@ pub fn sys_exec(
         }
     }
 
-    let (argc, argv) = ret.map_err(SyscallError::from)?;
-    Ok((argc, argv))
+    ret
 }
 
 pub fn sys_pipe(
