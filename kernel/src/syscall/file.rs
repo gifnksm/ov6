@@ -11,14 +11,6 @@ use crate::{
     syscall,
 };
 
-/// Fetches the nth word-sized system call argument as a file descriptor
-/// and returns the descriptor and the corresponding `File`.
-fn arg_fd(private: &ProcPrivateData, n: usize) -> Result<(RawFd, &File), KernelError> {
-    let fd = RawFd::new(syscall::arg_int(private, n));
-    let file = private.ofile(fd).ok_or(KernelError::Unknown)?;
-    Ok((fd, file))
-}
-
 /// Allocates a file descriptor for the given `File`.
 ///
 /// Takes over file reference from caller on success.
@@ -31,9 +23,10 @@ pub fn sys_dup(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Dup> {
     let private = private.as_mut().unwrap();
-    let (_fd, f) = arg_fd(private, 0)?;
-    let f = f.clone();
-    let fd = fd_alloc(private, f)?;
+    let Ok(fd) = super::decode_arg::<sys::Dup>(private.trapframe().unwrap());
+    let file = private.ofile(fd).ok_or(KernelError::Unknown)?;
+    let file = file.clone();
+    let fd = fd_alloc(private, file)?;
     Ok(fd)
 }
 
@@ -42,8 +35,7 @@ pub fn sys_read(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Read> {
     let private = private.as_mut().unwrap();
-    let (fd, data) = super::decode_arg::<sys::Read>(private.trapframe().unwrap())
-        .map_err(|_| KernelError::Unknown)?;
+    let Ok((fd, data)) = super::decode_arg::<sys::Read>(private.trapframe().unwrap());
     let file = private.ofile(fd).ok_or(KernelError::Unknown)?;
     let n = file
         .clone()
@@ -56,8 +48,7 @@ pub fn sys_write(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Write> {
     let private = private.as_mut().unwrap();
-    let (fd, data) = super::decode_arg::<sys::Read>(private.trapframe().unwrap())
-        .map_err(|_| KernelError::Unknown)?;
+    let Ok((fd, data)) = super::decode_arg::<sys::Read>(private.trapframe().unwrap());
     let file = private.ofile(fd).ok_or(KernelError::Unknown)?;
     let n = file
         .clone()
@@ -70,7 +61,8 @@ pub fn sys_close(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Close> {
     let private = private.as_mut().unwrap();
-    let (fd, _f) = arg_fd(private, 0)?;
+    let Ok(fd) = super::decode_arg::<sys::Close>(private.trapframe().unwrap());
+    let _file = private.ofile(fd).ok_or(KernelError::Unknown)?;
     private.unset_ofile(fd);
     Ok(())
 }
@@ -80,9 +72,9 @@ pub fn sys_fstat(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Fstat> {
     let private = private.as_mut().unwrap();
-    let va = syscall::arg_addr(private, 1);
-    let (_fd, f) = arg_fd(private, 0)?;
-    f.clone().stat(private, va)?;
+    let Ok((fd, stat)) = super::decode_arg::<sys::Fstat>(private.trapframe().unwrap());
+    let file = private.ofile(fd).ok_or(KernelError::Unknown)?;
+    file.clone().stat(private, VirtAddr::new(stat.addr()))?;
     Ok(())
 }
 
@@ -92,11 +84,13 @@ pub fn sys_link(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Link> {
     let private = private.as_mut().unwrap();
+    let Ok((old_ptr, new_ptr)) = super::decode_arg::<sys::Link>(private.trapframe().unwrap());
+
     let mut new = [0; MAX_PATH];
     let mut old = [0; MAX_PATH];
 
-    let old = syscall::arg_str(private, 0, &mut old)?;
-    let new = syscall::arg_str(private, 1, &mut new)?;
+    let old = super::fetch_str(private, VirtAddr::new(old_ptr.addr()), &mut old)?;
+    let new = super::fetch_str(private, VirtAddr::new(new_ptr.addr()), &mut new)?;
 
     let old = Path::new(OsStr::from_bytes(old));
     let new = Path::new(OsStr::from_bytes(new));
@@ -111,8 +105,9 @@ pub fn sys_unlink(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Unlink> {
     let private = private.as_mut().unwrap();
+    let Ok(path_ptr) = super::decode_arg::<sys::Unlink>(private.trapframe().unwrap());
     let mut path = [0; MAX_PATH];
-    let path = syscall::arg_str(private, 0, &mut path)?;
+    let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
     let path = Path::new(OsStr::from_bytes(path));
 
     let tx = fs::begin_tx();
@@ -125,9 +120,10 @@ pub fn sys_open(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Open> {
     let private = private.as_mut().unwrap();
-    let mode = OpenFlags::from_bits_retain(syscall::arg_int(private, 1));
     let mut path = [0; MAX_PATH];
-    let path = syscall::arg_str(private, 0, &mut path)?;
+    let (path_ptr, mode) =
+        super::decode_arg::<sys::Open>(private.trapframe().unwrap()).map_err(KernelError::from)?;
+    let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
     let path = Path::new(OsStr::from_bytes(path));
 
     let tx = fs::begin_tx();
@@ -167,8 +163,10 @@ pub fn sys_mkdir(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Mkdir> {
     let private = private.as_mut().unwrap();
+    let Ok(path_ptr) = super::decode_arg::<sys::Mkdir>(private.trapframe().unwrap());
+
     let mut path = [0; MAX_PATH];
-    let path = syscall::arg_str(private, 0, &mut path)?;
+    let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
     let path = Path::new(OsStr::from_bytes(path));
 
     let tx = fs::begin_tx();
@@ -182,11 +180,11 @@ pub fn sys_mknod(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Mknod> {
     let private = private.as_mut().unwrap();
+    let (path_ptr, major, minor) =
+        super::decode_arg::<sys::Mknod>(private.trapframe().unwrap()).map_err(KernelError::from)?;
     let mut path = [0; MAX_PATH];
-    let path = syscall::arg_str(private, 0, &mut path)?;
+    let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
     let path = Path::new(OsStr::from_bytes(path));
-    let major = u32::try_from(syscall::arg_int(private, 1)).unwrap();
-    let minor = i16::try_from(syscall::arg_int(private, 2)).unwrap();
 
     let tx = fs::begin_tx();
     let _ip = fs::ops::create(&tx, private, path, T_DEVICE, DeviceNo::new(major), minor)?;
@@ -199,8 +197,9 @@ pub fn sys_chdir(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Chdir> {
     let private = private.as_mut().unwrap();
+    let Ok(path_ptr) = super::decode_arg::<sys::Chdir>(private.trapframe().unwrap());
     let mut path = [0; MAX_PATH];
-    let path = syscall::arg_str(private, 0, &mut path)?;
+    let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
     let path = Path::new(OsStr::from_bytes(path));
 
     let tx = fs::begin_tx();
@@ -219,8 +218,7 @@ pub fn sys_exec(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> Result<(usize, usize), SyscallError> {
     let private = private.as_mut().unwrap();
-    let (path_ptr, argv_ptr) = super::decode_arg::<sys::Exec>(private.trapframe().unwrap())
-        .map_err(|_| KernelError::Unknown)?;
+    let Ok((path_ptr, argv_ptr)) = super::decode_arg::<sys::Exec>(private.trapframe().unwrap());
     let mut path = [0; MAX_PATH];
     let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
     let path = Path::new(OsStr::from_bytes(path));
@@ -272,8 +270,7 @@ pub fn sys_pipe(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Pipe> {
     let private = private.as_mut().unwrap();
-    let fd_array = super::decode_arg::<sys::Wait>(private.trapframe().unwrap())
-        .map_err(|_| SyscallError::Unknown)?;
+    let Ok(fd_array) = super::decode_arg::<sys::Pipe>(private.trapframe().unwrap());
 
     let (rf, wf) = File::new_pipe()?;
 

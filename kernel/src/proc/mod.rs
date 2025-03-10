@@ -14,7 +14,7 @@ use core::{
 use arrayvec::ArrayVec;
 use dataview::{Pod, PodMethods as _};
 use once_init::OnceInit;
-use ov6_syscall::{UserMutRef, RegisterValue as _, ReturnType, syscall as sys};
+use ov6_syscall::{RegisterValue as _, ReturnType, UserMutRef, syscall as sys};
 use ov6_types::{fs::RawFd, os_str::OsStr, path::Path, process::ProcId};
 
 use self::{
@@ -517,10 +517,10 @@ pub fn user_init() {
 }
 
 /// Grows user memory by `n` Bytes.
-pub fn grow_proc(private: &mut ProcPrivateData, n: isize) -> Result<(), KernelError> {
+pub fn grow_proc(private: &mut ProcPrivateData, increment: isize) -> Result<(), KernelError> {
     let pagetable = private.pagetable_mut().unwrap();
     let old_sz = pagetable.size();
-    let new_sz = old_sz.saturating_add_signed(n);
+    let new_sz = old_sz.saturating_add_signed(increment);
     match new_sz.cmp(&old_sz) {
         cmp::Ordering::Less => pagetable.shrink_to(new_sz),
         cmp::Ordering::Equal => {}

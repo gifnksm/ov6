@@ -1,5 +1,3 @@
-use core::panic;
-
 use ov6_syscall::{
     ArgTypeRepr, Register, RegisterValue, ReturnType, Syscall, SyscallCode, syscall as sys,
 };
@@ -96,45 +94,6 @@ where
     fn decode_arg(tf: &TrapFrame) -> Result<Self::Target, Self::DecodeError> {
         Self::new([tf.a0, tf.a1, tf.a2]).try_decode()
     }
-}
-
-fn arg_raw(private: &ProcPrivateData, n: usize) -> usize {
-    let tf = private.trapframe().unwrap();
-    (match n {
-        0 => tf.a0,
-        1 => tf.a1,
-        2 => tf.a2,
-        3 => tf.a3,
-        4 => tf.a4,
-        5 => tf.a5,
-        _ => panic!(),
-    }) as usize
-}
-
-/// Fetches the nth 32-bit system call argument.
-pub fn arg_int(private: &ProcPrivateData, n: usize) -> usize {
-    arg_raw(private, n)
-}
-
-/// Retrieves an argument as a pointer.
-///
-/// Don't check for legality, since
-/// `copy_in` / `copy_out` will do that.
-pub fn arg_addr(private: &ProcPrivateData, n: usize) -> VirtAddr {
-    VirtAddr::new(arg_int(private, n))
-}
-
-/// Fetches the nth word-sized system call argument as a nul-terminated string.
-///
-/// Copies into buf, at most buf's length.
-/// Returns string length if Ok, or Err if the string is not nul-terminated.
-pub fn arg_str<'a>(
-    private: &ProcPrivateData,
-    n: usize,
-    buf: &'a mut [u8],
-) -> Result<&'a [u8], KernelError> {
-    let addr = arg_addr(private, n);
-    fetch_str(private, addr, buf)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

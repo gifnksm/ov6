@@ -9,7 +9,7 @@ use ov6_user_lib::{
 };
 use user::{message, try_or_panic};
 
-const CONSOLE: i16 = 1;
+const CONSOLE: u32 = 1;
 
 fn open_console() -> Result<File, Ov6Error> {
     File::options().read(true).write(true).open(c"console")

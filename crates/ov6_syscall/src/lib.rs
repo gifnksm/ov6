@@ -203,6 +203,10 @@ pub enum RegisterDecodeError {
     IntConversion(#[from] TryFromIntError),
     #[error("invalid syscall error number: {0}")]
     InvalidSyscallErrorNo(isize),
+    #[error("invalid open flags: {0:#x}")]
+    InvalidOpenFlags(usize),
+    #[error("invalid result designator: {0:#x}")]
+    InvalidResultDesignator(usize),
     #[error("unexpected zero")]
     UnexpectedZero,
 }
@@ -232,7 +236,10 @@ pub mod syscall {
 
     use ov6_types::{fs::RawFd, process::ProcId};
 
-    use crate::{Syscall, SyscallCode, SyscallError, UserMutRef, UserMutSlice, UserRef, UserSlice};
+    use crate::{
+        OpenFlags, Stat, Syscall, SyscallCode, SyscallError, UserMutRef, UserMutSlice, UserRef,
+        UserSlice,
+    };
 
     macro_rules! syscall {
         ($name:ident => fn($arg:ty $(,)?) -> $ret:ty) => {
@@ -255,16 +262,6 @@ pub mod syscall {
                 const CODE: SyscallCode = SyscallCode::$name;
             }
         };
-        ($name:ident => fn(..) -> $ret:ty) => {
-            pub struct $name {}
-
-            impl Syscall for $name {
-                type Arg = ();
-                type Return = $ret;
-
-                const CODE: SyscallCode = SyscallCode::$name;
-            }
-        };
     }
 
     syscall!(Fork => fn() -> Result<Option<ProcId>, SyscallError>);
@@ -274,20 +271,20 @@ pub mod syscall {
     syscall!(Read => fn(RawFd, UserMutSlice<u8>) -> Result<usize, SyscallError>);
     syscall!(Kill => fn(ProcId) -> Result<(), SyscallError>);
     syscall!(Exec => fn(UserRef<CStr>, UserSlice<*const c_char>) -> Result<Infallible, SyscallError>);
-    syscall!(Fstat => fn(..) -> Result<(), SyscallError>);
-    syscall!(Chdir => fn(..) -> Result<(), SyscallError>);
-    syscall!(Dup => fn(..) -> Result<RawFd, SyscallError>);
-    syscall!(Getpid => fn(..) -> ProcId);
-    syscall!(Sbrk => fn(..) -> Result<usize, SyscallError>);
-    syscall!(Sleep => fn(..) -> ());
-    syscall!(Uptime => fn(..) -> u64);
-    syscall!(Open => fn(..) -> Result<RawFd, SyscallError>);
+    syscall!(Fstat => fn(RawFd, UserMutRef<Stat>) -> Result<(), SyscallError>);
+    syscall!(Chdir => fn(UserRef<CStr>) -> Result<(), SyscallError>);
+    syscall!(Dup => fn(RawFd) -> Result<RawFd, SyscallError>);
+    syscall!(Getpid => fn() -> ProcId);
+    syscall!(Sbrk => fn(isize) -> Result<usize, SyscallError>);
+    syscall!(Sleep => fn(u64) -> ());
+    syscall!(Uptime => fn() -> u64);
+    syscall!(Open => fn(UserRef<CStr>, OpenFlags) -> Result<RawFd, SyscallError>);
     syscall!(Write => fn(RawFd, UserSlice<u8>) -> Result<usize, SyscallError>);
-    syscall!(Mknod => fn(..) -> Result<(), SyscallError>);
-    syscall!(Unlink => fn(..) -> Result<(), SyscallError>);
-    syscall!(Link => fn(..) -> Result<(), SyscallError>);
-    syscall!(Mkdir => fn(..) -> Result<(), SyscallError>);
-    syscall!(Close => fn(..) -> Result<(), SyscallError>);
+    syscall!(Mknod => fn(UserRef<CStr>, u32, i16) -> Result<(), SyscallError>);
+    syscall!(Unlink => fn(UserRef<CStr>) -> Result<(), SyscallError>);
+    syscall!(Link => fn(UserRef<CStr>, UserRef<CStr>) -> Result<(), SyscallError>);
+    syscall!(Mkdir => fn(UserRef<CStr>) -> Result<(), SyscallError>);
+    syscall!(Close => fn(RawFd) -> Result<(), SyscallError>);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr, thiserror::Error)]

@@ -1,10 +1,10 @@
 use core::{
     convert::Infallible,
     ffi::{CStr, c_char},
-    mem::MaybeUninit,
     ptr,
 };
 
+use dataview::PodMethods as _;
 use ov6_syscall::{
     ArgType, RegisterValue as _, UserMutRef, UserMutSlice, UserRef, UserSlice, syscall,
 };
@@ -63,7 +63,8 @@ pub fn read(fd: impl AsRawFd, buf: &mut [u8]) -> Result<usize, Ov6Error> {
 /// This invalidates `OwnedFd` and `BorrowedFd` instances that refer to the
 /// closed file descriptor.
 pub unsafe fn close(fd: impl AsRawFd) -> Result<(), Ov6Error> {
-    ffi::close(fd.as_raw_fd()).decode()?;
+    let [a0] = ArgType::<syscall::Close>::encode((fd.as_raw_fd(),)).a;
+    ffi::close(a0).decode()?;
     Ok(())
 }
 
@@ -85,52 +86,58 @@ pub fn exec(path: &CStr, argv: &[*const c_char]) -> Result<Infallible, Ov6Error>
 }
 
 pub fn open(path: &CStr, flags: OpenFlags) -> Result<OwnedFd, Ov6Error> {
-    unsafe {
-        let fd = ffi::open(path.as_ptr(), flags).decode()?;
-        Ok(OwnedFd::from_raw_fd(fd))
-    }
+    let [a0, a1] = ArgType::<syscall::Open>::encode((UserRef::new(path), flags)).a;
+    let fd = ffi::open(a0, a1).decode()?;
+    unsafe { Ok(OwnedFd::from_raw_fd(fd)) }
 }
 
-pub fn mknod(path: &CStr, major: i16, minor: i16) -> Result<(), Ov6Error> {
-    unsafe { ffi::mknod(path.as_ptr(), major, minor) }.decode()?;
+pub fn mknod(path: &CStr, major: u32, minor: i16) -> Result<(), Ov6Error> {
+    let [a0, a1, a2] = ArgType::<syscall::Mknod>::encode((UserRef::new(path), major, minor)).a;
+    ffi::mknod(a0, a1, a2).decode()?;
     Ok(())
 }
 
 pub fn unlink(path: &CStr) -> Result<(), Ov6Error> {
-    unsafe { ffi::unlink(path.as_ptr()) }.decode()?;
+    let [a0] = ArgType::<syscall::Unlink>::encode((UserRef::new(path),)).a;
+    ffi::unlink(a0).decode()?;
     Ok(())
 }
 
 pub fn fstat(fd: impl AsRawFd) -> Result<Stat, Ov6Error> {
-    unsafe {
-        let mut stat = MaybeUninit::uninit();
-        ffi::fstat(fd.as_raw_fd(), stat.as_mut_ptr()).decode()?;
-        Ok(stat.assume_init())
-    }
+    let mut stat = Stat::zeroed();
+    let [a0, a1] =
+        ArgType::<syscall::Fstat>::encode((fd.as_raw_fd(), UserMutRef::new(&mut stat))).a;
+    ffi::fstat(a0, a1).decode()?;
+    Ok(stat)
 }
 
 pub fn link(old: &CStr, new: &CStr) -> Result<(), Ov6Error> {
-    unsafe { ffi::link(old.as_ptr(), new.as_ptr()) }.decode()?;
+    let [a0, a1] = ArgType::<syscall::Link>::encode((UserRef::new(old), UserRef::new(new))).a;
+    ffi::link(a0, a1).decode()?;
     Ok(())
 }
 
 pub fn mkdir(path: &CStr) -> Result<(), Ov6Error> {
-    unsafe { ffi::mkdir(path.as_ptr()) }.decode()?;
+    let [a0] = ArgType::<syscall::Mkdir>::encode((UserRef::new(path),)).a;
+    ffi::mkdir(a0).decode()?;
     Ok(())
 }
 
 pub fn chdir(path: &CStr) -> Result<(), Ov6Error> {
-    unsafe { ffi::chdir(path.as_ptr()) }.decode()?;
+    let [a0] = ArgType::<syscall::Chdir>::encode((UserRef::new(path),)).a;
+    ffi::chdir(a0).decode()?;
     Ok(())
 }
 
 pub fn dup(fd: impl AsRawFd) -> Result<OwnedFd, Ov6Error> {
-    let fd = ffi::dup(fd.as_raw_fd()).decode()?;
+    let [a0] = ArgType::<syscall::Dup>::encode((fd.as_raw_fd(),)).a;
+    let fd = ffi::dup(a0).decode()?;
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
 #[must_use]
 pub fn getpid() -> ProcId {
+    let [] = ArgType::<syscall::Getpid>::encode(()).a;
     ffi::getpid().decode()
 }
 
@@ -138,16 +145,19 @@ pub fn getpid() -> ProcId {
 ///
 /// This function is unsafe because it may invalidate the region of memory that
 /// was previously allocated by the kernel.
-pub unsafe fn sbrk(n: isize) -> Result<*mut u8, Ov6Error> {
-    let addr: usize = ffi::sbrk(n).decode()?;
+pub unsafe fn sbrk(increment: isize) -> Result<*mut u8, Ov6Error> {
+    let [a0] = ArgType::<syscall::Sbrk>::encode((increment,)).a;
+    let addr = ffi::sbrk(a0).decode()?;
     Ok(ptr::with_exposed_provenance_mut(addr))
 }
 
-pub fn sleep(n: i32) {
-    ffi::sleep(n).decode()
+pub fn sleep(n: u64) {
+    let [a0] = ArgType::<syscall::Sleep>::encode((n,)).a;
+    ffi::sleep(a0).decode()
 }
 
 #[must_use]
 pub fn uptime() -> u64 {
+    let [] = ArgType::<syscall::Uptime>::encode(()).a;
     ffi::uptime().decode()
 }

@@ -3,7 +3,7 @@ use ov6_syscall::{RegisterDecodeError, SyscallError};
 #[derive(Debug, thiserror::Error)]
 pub enum KernelError {
     #[error("sycall decode: {0}")]
-    SyscallDecode(RegisterDecodeError),
+    SyscallDecode(#[from] RegisterDecodeError),
     #[error("unknown error")]
     Unknown,
 }

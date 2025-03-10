@@ -208,7 +208,7 @@ impl Read for &'_ File {
     }
 }
 
-pub fn mknod(path: &CStr, major: i16, minor: i16) -> Result<(), Ov6Error> {
+pub fn mknod(path: &CStr, major: u32, minor: i16) -> Result<(), Ov6Error> {
     syscall::mknod(path, major, minor)
 }
 
