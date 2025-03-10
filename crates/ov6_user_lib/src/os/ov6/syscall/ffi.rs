@@ -1,55 +1,77 @@
-pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
-use ov6_syscall::{ReturnTypeRepr, syscall};
+pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode, syscall};
+use ov6_syscall::{RegisterValue, ReturnTypeRepr, Syscall};
 
-#[cfg(target_arch = "riscv64")]
-macro_rules! syscall {
-    ($ty:expr => $(#[$attr:meta])* fn $name:ident($($params:tt)*) -> $ret:ty) => {
-        $(#[$attr])*
+pub trait SyscallExt: Syscall {
+    fn call_raw(arg: Self::Arg) -> ReturnTypeRepr<Self>;
+
+    fn try_call(
+        arg: Self::Arg,
+    ) -> Result<Self::Return, <Self::Return as RegisterValue>::DecodeError> {
+        let ret = Self::call_raw(arg);
+        Self::Return::try_decode(ret)
+    }
+
+    fn call(arg: Self::Arg) -> Self::Return {
+        Self::try_call(arg).unwrap()
+    }
+}
+
+macro_rules! syscall_fn {
+    ($name:ident => $(#[$attr:meta])* fn $fn_name:ident($($params:tt)*) -> $ret:ty) => {
+        #[cfg(target_arch = "riscv64")]
         #[naked]
-        pub extern "C" fn $name($($params)*) -> $ret {
+        pub extern "C" fn $fn_name($($params)*) -> $ret {
             unsafe {
                 core::arch::naked_asm!(
                     "li a7, {ty}",
                     "ecall",
                     "ret",
-                    ty = const $ty as usize
+                    ty = const SyscallCode::$name as usize
                 );
             }
         }
-    };
-}
 
-#[cfg(not(target_arch = "riscv64"))]
-macro_rules! syscall {
-    ($ty:expr => $(#[$attr:meta])* fn $name:ident($($params:tt)*) -> $ret:ty) => {
+        #[cfg(not(target_arch = "riscv64"))]
         #[allow(clippy::allow_attributes)]
         #[allow(unused_variables)]
         #[allow(clippy::must_use_candidate)]
-        $(#[$attr])*
-        pub extern "C" fn $name($($params)*) -> $ret {
+        pub extern "C" fn $fn_name($($params)*) -> $ret {
             panic!();
         }
     };
 }
 
-syscall!(SyscallCode::Fork => fn fork() -> ReturnTypeRepr<syscall::Fork>);
-syscall!(SyscallCode::Exit => fn exit(a0: usize) -> ReturnTypeRepr<syscall::Exit>);
-syscall!(SyscallCode::Wait => fn wait(a0: usize) -> ReturnTypeRepr<syscall::Wait>);
-syscall!(SyscallCode::Pipe => fn pipe(a0: usize) -> ReturnTypeRepr<syscall::Pipe>);
-syscall!(SyscallCode::Write => fn write(a0: usize, a1: usize, a2: usize) -> ReturnTypeRepr<syscall::Write>);
-syscall!(SyscallCode::Read => fn read(a0: usize, a1: usize, a2: usize) -> ReturnTypeRepr<syscall::Read>);
-syscall!(SyscallCode::Close => fn close(a0: usize) -> ReturnTypeRepr<syscall::Close>);
-syscall!(SyscallCode::Kill => fn kill(a0: usize) -> ReturnTypeRepr<syscall::Kill>);
-syscall!(SyscallCode::Exec => fn exec(a0: usize, a1: usize, a2: usize) -> ReturnTypeRepr<syscall::Exec>);
-syscall!(SyscallCode::Open => fn open(a0: usize, a1: usize) -> ReturnTypeRepr<syscall::Open>);
-syscall!(SyscallCode::Mknod => fn mknod(a0: usize, a1: usize, a2: usize) -> ReturnTypeRepr<syscall::Mknod>);
-syscall!(SyscallCode::Unlink => fn unlink(a0: usize) -> ReturnTypeRepr<syscall::Unlink>);
-syscall!(SyscallCode::Fstat => fn fstat(a0: usize, a1: usize) -> ReturnTypeRepr<syscall::Fstat>);
-syscall!(SyscallCode::Link =>fn link(a0: usize, a1: usize) -> ReturnTypeRepr<syscall::Link>);
-syscall!(SyscallCode::Mkdir => fn mkdir(a0: usize) -> ReturnTypeRepr<syscall::Mkdir>);
-syscall!(SyscallCode::Chdir => fn chdir(a0: usize) -> ReturnTypeRepr<syscall::Chdir>);
-syscall!(SyscallCode::Dup => fn dup(a0: usize) -> ReturnTypeRepr<syscall::Dup>);
-syscall!(SyscallCode::Getpid => fn getpid() -> ReturnTypeRepr<syscall::Getpid>);
-syscall!(SyscallCode::Sbrk => fn sbrk(a0: usize) -> ReturnTypeRepr<syscall::Sbrk>);
-syscall!(SyscallCode::Sleep => fn sleep(a0: usize) -> ReturnTypeRepr<syscall::Sleep>);
-syscall!(SyscallCode::Uptime => fn uptime() -> ReturnTypeRepr<syscall::Uptime>);
+macro_rules! syscall {
+    ($(#[$attr:meta])* $name:ident, $fn_name:ident($($arg:ident),*)) => {
+        impl SyscallExt for syscall::$name {
+            fn call_raw(arg: Self::Arg) -> ReturnTypeRepr<Self> {
+                let [$($arg),*] = Self::Arg::encode(arg).a;
+                $fn_name($($arg),*)
+            }
+        }
+
+        syscall_fn!($name => $(#[$attr])* fn $fn_name($($arg: usize),*) -> ReturnTypeRepr<syscall::$name>);
+    }
+}
+
+syscall!(Fork, fork());
+syscall!(Exit, exit(a0));
+syscall!(Wait, wait(a0));
+syscall!(Pipe, pipe(a0));
+syscall!(Write, write(a0, a1, a2));
+syscall!(Read, read(a0, a1, a2));
+syscall!(Close, close(a0));
+syscall!(Kill, kill(a0));
+syscall!(Exec, exec(a0, a1, a2));
+syscall!(Open, open(a0, a1));
+syscall!(Mknod, mknod(a0, a1, a2));
+syscall!(Unlink, unlink(a0));
+syscall!(Fstat, fstat(a0, a1));
+syscall!(Link, link(a0, a1));
+syscall!(Mkdir, mkdir(a0));
+syscall!(Chdir, chdir(a0));
+syscall!(Dup, dup(a0));
+syscall!(Getpid, getpid());
+syscall!(Sbrk, sbrk(a0));
+syscall!(Sleep, sleep(a0));
+syscall!(Uptime, uptime());

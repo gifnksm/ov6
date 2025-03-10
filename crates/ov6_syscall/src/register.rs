@@ -28,14 +28,6 @@ impl<T, const N: usize> Register<T, N> {
     {
         T::try_decode(self)
     }
-
-    #[must_use]
-    pub fn decode(self) -> T
-    where
-        T: RegisterValue<Repr = Self>,
-    {
-        Self::try_decode(self).unwrap()
-    }
 }
 
 macro_rules! impl_value {
@@ -113,13 +105,12 @@ impl RegisterValue for u64 {
     type Repr = Register<Self, 1>;
 
     fn encode(self) -> Self::Repr {
-        // never panics
-        Register::new([self.try_into().unwrap()])
+        usize::from_ne_bytes(self.to_ne_bytes()).encode().map_type()
     }
 
     fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
-        // never panics
-        Ok(repr.a[0].try_into().unwrap())
+        let [a0] = repr.a;
+        Ok(Self::from_ne_bytes(a0.to_ne_bytes()))
     }
 }
 
@@ -128,12 +119,12 @@ impl RegisterValue for i64 {
     type Repr = Register<Self, 1>;
 
     fn encode(self) -> Self::Repr {
-        // never panics
-        Register::new([self.try_into().unwrap()])
+        usize::from_ne_bytes(self.to_ne_bytes()).encode().map_type()
     }
 
     fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
-        Ok(repr.a[0].try_into().unwrap())
+        let [a0] = repr.a;
+        Ok(Self::from_ne_bytes(a0.to_ne_bytes()))
     }
 }
 
@@ -171,9 +162,9 @@ macro_rules! impl_number {
 
 impl_number!(usize, u8);
 impl_number!(usize, u16);
+impl_number!(usize, u32);
 impl_number!(isize, i8);
 impl_number!(isize, i16);
-impl_number!(usize, u32);
 impl_number!(isize, i32);
 
 macro_rules! impl_nonzero {
@@ -448,22 +439,21 @@ impl_value!([] Result<Option<ProcId>, SyscallError>, RegisterDecodeError, 2, res
 impl_value!([] Result<ProcId, SyscallError>, RegisterDecodeError, 2, result_encode_11, result_decode_11);
 impl_value!([] Result<RawFd, SyscallError>, RegisterDecodeError, 2, result_encode_11, result_decode_11);
 
-impl<T> RegisterValue for (T,)
+fn tuple_encode_1<T>((v0,): (T,)) -> Register<(T,), 1>
 where
-    T: RegisterValue,
+    T: RegisterValue<Repr = Register<T, 1>>,
 {
-    type DecodeError = T::DecodeError;
-    type Repr = T::Repr;
+    let [a0] = v0.encode().a;
+    Register::new([a0])
+}
 
-    fn encode(self) -> Self::Repr {
-        let (x,) = self;
-        T::encode(x)
-    }
-
-    fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
-        let x = T::try_decode(repr)?;
-        Ok((x,))
-    }
+fn tuple_decode_1<T>(repr: Register<(T,), 1>) -> Result<(T,), T::DecodeError>
+where
+    T: RegisterValue<Repr = Register<T, 1>>,
+{
+    let [a0] = repr.a;
+    let v0 = Register::new([a0]).try_decode()?;
+    Ok((v0,))
 }
 
 fn tuple_encode_11<T, U>((v0, v1): (T, U)) -> Register<(T, U), 2>
@@ -536,11 +526,33 @@ where
     Ok((v0, v1, v2))
 }
 
+impl_value!(
+    [](i32,),
+    RegisterDecodeError,
+    1,
+    tuple_encode_1,
+    tuple_decode_1
+);
+impl_value!([](u64,), Infallible, 1, tuple_encode_1, tuple_decode_1);
+impl_value!([](isize,), Infallible, 1, tuple_encode_1, tuple_decode_1);
+impl_value!([](RawFd,), Infallible, 1, tuple_encode_1, tuple_decode_1);
+impl_value!(
+    [](ProcId,),
+    RegisterDecodeError,
+    1,
+    tuple_encode_1,
+    tuple_decode_1
+);
+impl_value!([T: ?Sized](UserRef<T>,), Infallible, 1, tuple_encode_1, tuple_decode_1);
+impl_value!([T: ?Sized](UserMutRef<T>,), Infallible, 1, tuple_encode_1, tuple_decode_1);
+
 impl_value!([T: ?Sized] (RawFd, UserMutRef<T>), Infallible, 2, tuple_encode_11, tuple_decode_11);
 impl_value!([T: ?Sized] (RawFd, UserRef<T>), Infallible, 2, tuple_encode_11, tuple_decode_11);
 impl_value!([T: ?Sized] (UserRef<T>, OpenFlags), RegisterDecodeError, 2, tuple_encode_11, tuple_decode_11);
 impl_value!([T: ?Sized, U: ?Sized] (UserRef<T>, UserRef<U>), Infallible, 2, tuple_encode_11, tuple_decode_11);
+
 impl_value!([T] (RawFd, UserSlice<T>), Infallible, 3, tuple_encode_12, tuple_decode_12);
 impl_value!([T] (RawFd, UserMutSlice<T>), Infallible, 3, tuple_encode_12, tuple_decode_12);
 impl_value!([T: ?Sized, U] (UserRef<T>, UserSlice<U>), Infallible, 3, tuple_encode_12, tuple_decode_12);
+
 impl_value!([T: ?Sized] (UserRef<T>, u32, i16), RegisterDecodeError, 3, tuple_encode_111, tuple_decode_111);

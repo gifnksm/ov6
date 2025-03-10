@@ -22,7 +22,7 @@ pub fn sys_exit(
 ) -> ReturnType<sys::Exit> {
     let private = private.take().unwrap();
     let status = match super::decode_arg::<sys::Exit>(private.trapframe().unwrap()) {
-        Ok(status) => status,
+        Ok((status,)) => status,
         Err(_e) => -1,
     };
     proc::exit(p, private, status);
@@ -33,7 +33,7 @@ pub fn sys_wait(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Wait> {
     let private = private.as_mut().unwrap();
-    let Ok(addr) = super::decode_arg::<sys::Wait>(private.trapframe().unwrap());
+    let Ok((addr,)) = super::decode_arg::<sys::Wait>(private.trapframe().unwrap());
     let pid = proc::wait(p, private, addr)?;
     Ok(pid)
 }
@@ -43,7 +43,7 @@ pub fn sys_kill(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Kill> {
     let private = private.as_mut().unwrap();
-    let pid =
+    let (pid,) =
         super::decode_arg::<sys::Kill>(private.trapframe().unwrap()).map_err(KernelError::from)?;
     proc::kill(pid)?;
     Ok(())
@@ -63,7 +63,7 @@ pub fn sys_sbrk(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Sbrk> {
     let private = private.as_mut().unwrap();
-    let Ok(increment) = super::decode_arg::<sys::Sbrk>(private.trapframe().unwrap());
+    let Ok((increment,)) = super::decode_arg::<sys::Sbrk>(private.trapframe().unwrap());
     let addr = private.size();
     proc::grow_proc(private, increment)?;
     Ok(addr)
@@ -74,7 +74,7 @@ pub fn sys_sleep(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Sleep> {
     let private = private.as_mut().unwrap();
-    let Ok(dur) = super::decode_arg::<sys::Sleep>(private.trapframe().unwrap());
+    let Ok((dur,)) = super::decode_arg::<sys::Sleep>(private.trapframe().unwrap());
     let mut ticks = TICKS.lock();
     let ticks0 = *ticks;
     while *ticks - ticks0 < dur {

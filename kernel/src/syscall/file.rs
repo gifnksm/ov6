@@ -23,7 +23,7 @@ pub fn sys_dup(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Dup> {
     let private = private.as_mut().unwrap();
-    let Ok(fd) = super::decode_arg::<sys::Dup>(private.trapframe().unwrap());
+    let Ok((fd,)) = super::decode_arg::<sys::Dup>(private.trapframe().unwrap());
     let file = private.ofile(fd).ok_or(KernelError::Unknown)?;
     let file = file.clone();
     let fd = fd_alloc(private, file)?;
@@ -61,7 +61,7 @@ pub fn sys_close(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Close> {
     let private = private.as_mut().unwrap();
-    let Ok(fd) = super::decode_arg::<sys::Close>(private.trapframe().unwrap());
+    let Ok((fd,)) = super::decode_arg::<sys::Close>(private.trapframe().unwrap());
     let _file = private.ofile(fd).ok_or(KernelError::Unknown)?;
     private.unset_ofile(fd);
     Ok(())
@@ -105,7 +105,7 @@ pub fn sys_unlink(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Unlink> {
     let private = private.as_mut().unwrap();
-    let Ok(path_ptr) = super::decode_arg::<sys::Unlink>(private.trapframe().unwrap());
+    let Ok((path_ptr,)) = super::decode_arg::<sys::Unlink>(private.trapframe().unwrap());
     let mut path = [0; MAX_PATH];
     let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
     let path = Path::new(OsStr::from_bytes(path));
@@ -163,7 +163,7 @@ pub fn sys_mkdir(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Mkdir> {
     let private = private.as_mut().unwrap();
-    let Ok(path_ptr) = super::decode_arg::<sys::Mkdir>(private.trapframe().unwrap());
+    let Ok((path_ptr,)) = super::decode_arg::<sys::Mkdir>(private.trapframe().unwrap());
 
     let mut path = [0; MAX_PATH];
     let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
@@ -197,7 +197,7 @@ pub fn sys_chdir(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Chdir> {
     let private = private.as_mut().unwrap();
-    let Ok(path_ptr) = super::decode_arg::<sys::Chdir>(private.trapframe().unwrap());
+    let Ok((path_ptr,)) = super::decode_arg::<sys::Chdir>(private.trapframe().unwrap());
     let mut path = [0; MAX_PATH];
     let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
     let path = Path::new(OsStr::from_bytes(path));
@@ -270,7 +270,7 @@ pub fn sys_pipe(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Pipe> {
     let private = private.as_mut().unwrap();
-    let Ok(fd_array) = super::decode_arg::<sys::Pipe>(private.trapframe().unwrap());
+    let Ok((fd_array,)) = super::decode_arg::<sys::Pipe>(private.trapframe().unwrap());
 
     let (rf, wf) = File::new_pipe()?;
 
