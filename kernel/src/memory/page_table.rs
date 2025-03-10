@@ -142,13 +142,15 @@ impl PageTable {
         let mut pt = self;
         for level in (1..=2).rev() {
             let index = Self::entry_index(level, va);
-            pt = pt.0[index].get_page_table().ok_or(KernelError::Unknown)?;
+            pt = pt.0[index]
+                .get_page_table()
+                .ok_or(KernelError::AddressNotMapped(va))?;
         }
 
         let index = Self::entry_index(0, va);
         let pte = &pt.0[index];
         if !pte.is_leaf() {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::AddressNotMapped(va));
         }
         Ok(pte)
     }
@@ -199,13 +201,13 @@ impl PageTable {
         flags: PtEntryFlags,
     ) -> Result<PhysAddr, KernelError> {
         if va >= VirtAddr::MAX {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::TooLargeVirtualAddress(va));
         }
 
         let pte = self.find_leaf_entry(va)?;
         assert!(pte.is_valid() && pte.is_leaf());
         if !pte.flags().contains(flags) {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::InaccessibleMemory(va));
         }
 
         Ok(pte.phys_addr())

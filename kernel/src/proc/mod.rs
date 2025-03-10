@@ -183,6 +183,7 @@ impl ProcShared {
 }
 
 pub struct ProcPrivateData {
+    pid: Option<ProcId>,
     /// Virtual address of kernel stack.
     kstack: VirtAddr,
     /// User page table,
@@ -198,6 +199,7 @@ pub struct ProcPrivateData {
 impl ProcPrivateData {
     const fn new() -> Self {
         Self {
+            pid: None,
             kstack: VirtAddr::new(0),
             pagetable: None,
             trapframe: None,
@@ -234,8 +236,11 @@ impl ProcPrivateData {
         self.trapframe.as_deref_mut()
     }
 
-    pub fn ofile(&self, fd: RawFd) -> Option<&File> {
-        self.ofile.get(fd.get())?.as_ref()
+    pub fn ofile(&self, fd: RawFd) -> Result<&File, KernelError> {
+        self.ofile
+            .get(fd.get())
+            .and_then(|x| x.as_ref())
+            .ok_or_else(|| KernelError::BadFileDescriptor(fd, self.pid.unwrap()))
     }
 
     pub fn add_ofile(&mut self, file: File) -> Result<RawFd, KernelError> {
@@ -377,16 +382,17 @@ impl Proc {
     ///
     /// If there is no UNUSED proc, returns None.
     /// This function also locks the proc.
-    fn lock_unused_proc() -> Option<(&'static Self, SpinLockGuard<'static, ProcSharedData>)> {
+    fn lock_unused_proc()
+    -> Result<(&'static Self, SpinLockGuard<'static, ProcSharedData>), KernelError> {
         for p in &PROC {
             let shared = p.shared.lock();
             if shared.state != ProcState::Unused {
                 drop(shared);
                 continue;
             }
-            return Some((p, shared));
+            return Ok((p, shared));
         }
-        None
+        Err(KernelError::NoFreeProc)
     }
 
     /// Returns a new process.
@@ -395,18 +401,23 @@ impl Proc {
     /// If found, initialize state required to run in the kenrnel,
     /// and return with the lock held.
     /// If there are no free procs, return None.
-    fn allocate() -> Option<(
-        &'static Self,
-        SpinLockGuard<'static, ProcSharedData>,
-        ProcPrivateDataGuard<'static>,
-    )> {
+    fn allocate() -> Result<
+        (
+            &'static Self,
+            SpinLockGuard<'static, ProcSharedData>,
+            ProcPrivateDataGuard<'static>,
+        ),
+        KernelError,
+    > {
         let (p, mut shared) = Self::lock_unused_proc()?;
 
-        shared.pid = Some(Self::allocate_pid());
+        let pid = Self::allocate_pid();
+        shared.pid = Some(pid);
         shared.state = ProcState::Used;
         let mut private = p.take_private();
 
         let res: Result<(), KernelError> = (|| {
+            private.pid = Some(pid);
             // Allocate a trapframe page.
             private.trapframe = Some(
                 Box::try_new_in(TrapFrame::zeroed(), PageFrameAllocator)
@@ -425,10 +436,10 @@ impl Proc {
         if res.is_err() {
             p.free(private, &mut shared);
             drop(shared);
-            return None;
+            return Err(KernelError::NoFreeProc);
         }
 
-        Some((p, shared, private))
+        Ok((p, shared, private))
     }
 
     /// Frees a proc structure and the data hangind from it,
@@ -436,6 +447,7 @@ impl Proc {
     ///
     /// p.lock must be held.
     fn free(&self, mut private: ProcPrivateDataGuard, shared: &mut SpinLockGuard<ProcSharedData>) {
+        private.pid = None;
         if let Some(tf) = private.trapframe.take() {
             drop(tf);
         }
@@ -536,18 +548,17 @@ pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Result<ProcId, Ker
     let parent_name = p.shared().lock().name.clone();
 
     // Allocate process.
-    let (np, mut np_shared, mut np_private) = Proc::allocate().ok_or(KernelError::Unknown)?;
+    let (np, mut np_shared, mut np_private) = Proc::allocate()?;
 
     // Copy use memory from parent to child.
-    if p_private
+    if let Err(e) = p_private
         .pagetable()
         .unwrap()
         .try_clone(np_private.pagetable_mut().unwrap())
-        .is_err()
     {
         np.free(np_private, &mut np_shared);
         drop(np_shared);
-        return Err(KernelError::Unknown);
+        return Err(e);
     }
 
     // Copy saved user registers.
@@ -692,7 +703,7 @@ pub fn wait(
         // No point waiting if we don't have any children.
         if !have_kids || p.shared.lock().killed() {
             drop(wait_lock);
-            return Err(KernelError::Unknown);
+            return Err(KernelError::NoChildProcess);
         }
 
         // Wait for a child to exit.
@@ -787,7 +798,7 @@ pub fn kill(pid: ProcId) -> Result<(), KernelError> {
         }
         drop(shared);
     }
-    Err(KernelError::Unknown)
+    Err(KernelError::ProcessNotFound(pid))
 }
 
 /// Copies to either a user address, or kernel address,

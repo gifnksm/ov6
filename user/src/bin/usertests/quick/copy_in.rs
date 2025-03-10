@@ -39,7 +39,6 @@ pub fn test() {
         expect!(syscall::write(STDOUT_FD, buf), Ok(0), "addr={addr:p}");
 
         let (_rx, mut tx) = pipe::pipe().unwrap();
-        // FIXME: this should return an error, but it doesn't
-        expect!(tx.write(buf), Ok(0), "addr={addr:p}");
+        expect!(tx.write(buf), Err(Ov6Error::BadAddress), "addr={addr:p}");
     }
 }

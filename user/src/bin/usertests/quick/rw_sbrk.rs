@@ -31,7 +31,7 @@ pub fn test() {
     unsafe {
         expect!(
             file.read(slice::from_raw_parts_mut(a.add(4096), 10)),
-            Err(Ov6Error::Unknown),
+            Err(Ov6Error::BadAddress),
         );
     }
     drop(file);

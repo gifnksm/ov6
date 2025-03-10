@@ -1,4 +1,5 @@
 use core::{
+    fmt,
     num::NonZero,
     ptr::{self, NonNull},
 };
@@ -96,6 +97,18 @@ impl PageRound for PhysAddr {
 /// Virtual address
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VirtAddr(usize);
+
+impl fmt::LowerHex for VirtAddr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::LowerHex::fmt(&self.0, f)
+    }
+}
+
+impl fmt::UpperHex for VirtAddr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::UpperHex::fmt(&self.0, f)
+    }
+}
 
 /// Physical Page Number of a page
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

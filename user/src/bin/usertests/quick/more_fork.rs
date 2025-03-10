@@ -31,7 +31,7 @@ pub fn fork() {
         process::wait().unwrap();
     }
 
-    expect!(process::wait(), Err(Ov6Error::Unknown));
+    expect!(process::wait(), Err(Ov6Error::NoChildProcess));
 }
 
 pub fn sbrk_basic() {
@@ -40,7 +40,7 @@ pub fn sbrk_basic() {
     // does sbrk() return the sexpected failure value?
     let status = process::fork_fn(|| {
         let Ok(a) = process::grow_break(TOO_MUCH).map_err(|e| {
-            assert!(matches!(e, Ov6Error::Unknown));
+            assert!(matches!(e, Ov6Error::OutOfMemory));
             process::exit(0);
         });
         unsafe {

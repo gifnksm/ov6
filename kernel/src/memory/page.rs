@@ -12,7 +12,7 @@ use core::{
 use once_init::OnceInit;
 
 use super::{PAGE_SIZE, PageRound as _, layout::KERNEL_END};
-use crate::{memory::layout::PHYS_TOP, sync::SpinLock};
+use crate::{error::KernelError, memory::layout::PHYS_TOP, sync::SpinLock};
 
 /// First address after kernel.
 fn end() -> NonNull<u8> {
@@ -54,20 +54,28 @@ pub unsafe fn free_page(pa: NonNull<u8>) {
 ///
 /// Returns a pointer that the kernel can use.
 /// Returns `None` if the memory cannot be allocated.
-pub fn alloc_page() -> Option<NonNull<u8>> {
-    let p = PAGE_FRAME_ALLOCATOR.get().lock().alloc()?;
+pub fn alloc_page() -> Result<NonNull<u8>, KernelError> {
+    let p = PAGE_FRAME_ALLOCATOR
+        .get()
+        .lock()
+        .alloc()
+        .ok_or(KernelError::NoFreePage)?;
     unsafe {
         p.write_bytes(5, PAGE_SIZE);
     }
-    Some(p)
+    Ok(p)
 }
 
 /// Allocates one 4096-byte zeroed page of physical memory.
 ///
 /// Returns a pointer that the kernel can use.
 /// Returns `None` if the memory cannot be allocated.
-pub fn alloc_zeroed_page() -> Option<NonNull<u8>> {
-    PAGE_FRAME_ALLOCATOR.get().lock().alloc_zeroed()
+pub fn alloc_zeroed_page() -> Result<NonNull<u8>, KernelError> {
+    PAGE_FRAME_ALLOCATOR
+        .get()
+        .lock()
+        .alloc_zeroed()
+        .ok_or(KernelError::NoFreePage)
 }
 
 #[derive(Clone)]
@@ -78,7 +86,8 @@ unsafe impl Allocator for PageFrameAllocator {
         assert!(layout.size() <= PAGE_SIZE);
         assert_eq!(PAGE_SIZE % layout.align(), 0);
 
-        let page = alloc_page().ok_or(AllocError)?;
+        #[expect(clippy::map_err_ignore)]
+        let page = alloc_page().map_err(|_| AllocError)?;
         Ok(NonNull::slice_from_raw_parts(page.cast(), PAGE_SIZE))
     }
 

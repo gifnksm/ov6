@@ -171,7 +171,7 @@ pub fn syscall(p: &'static Proc, private: &mut Option<ProcPrivateDataGuard>) {
         SyscallCode::Kill => call(self::proc::sys_kill, p, private),
         SyscallCode::Exec => match self::file::sys_exec(p, private) {
             Ok((argc, argv)) => ReturnValue::Ret2(argc, argv),
-            Err(e) => ReturnType::<sys::Exec>::Err(e).encode().into(),
+            Err(e) => ReturnType::<sys::Exec>::Err(e.into()).encode().into(),
         },
         SyscallCode::Fstat => call(self::file::sys_fstat, p, private),
         SyscallCode::Chdir => call(self::file::sys_chdir, p, private),

@@ -6,7 +6,10 @@ use ov6_user_lib::{
     error::Ov6Error,
     fs::{self, File},
     io::{Read as _, STDOUT_FD, Write as _},
-    os::{fd::AsRawFd as _, ov6::syscall},
+    os::{
+        fd::{AsRawFd as _, RawFd},
+        ov6::syscall,
+    },
     process,
 };
 
@@ -139,4 +142,18 @@ pub fn exec_test() {
     file.read_exact(&mut buf[0..2]).unwrap();
     fs::remove_file(ECHO_OK_PATH).unwrap();
     assert_eq!(buf, *b"OK");
+}
+
+pub fn bad_fd() {
+    for fd in [4, 15, 16, 1024, usize::MAX] {
+        let fd = RawFd::new(fd);
+        expect!(syscall::dup(fd), Err(Ov6Error::BadFileDescriptor));
+        expect!(syscall::read(fd, &mut []), Err(Ov6Error::BadFileDescriptor));
+        expect!(syscall::write(fd, &[]), Err(Ov6Error::BadFileDescriptor));
+        expect!(
+            unsafe { syscall::close(fd) },
+            Err(Ov6Error::BadFileDescriptor)
+        );
+        expect!(syscall::fstat(fd), Err(Ov6Error::BadFileDescriptor));
+    }
 }

@@ -84,12 +84,18 @@ impl PipeFile {
         addr: VirtAddr,
         n: usize,
     ) -> Result<usize, KernelError> {
-        let mut i = 0;
+        let mut nwritten = 0;
 
         let mut pipe = self.0.data.lock();
-        while i < n {
-            if !pipe.read_open || p.shared().lock().killed() {
-                return Err(KernelError::Unknown);
+        while nwritten < n {
+            if !pipe.read_open {
+                if nwritten > 0 {
+                    break;
+                }
+                return Err(KernelError::BrokenPipe);
+            }
+            if p.shared().lock().killed() {
+                return Err(KernelError::CallerProcessAlreadyKilled);
             }
             if pipe.nwrite == pipe.nread + PIPE_SIZE {
                 self.0.reader_cond.notify();
@@ -97,16 +103,22 @@ impl PipeFile {
                 continue;
             }
 
-            let Ok(byte) = vm::copy_in(private.pagetable().unwrap(), addr.byte_add(i)) else {
-                break;
+            let byte = match vm::copy_in(private.pagetable().unwrap(), addr.byte_add(nwritten)) {
+                Ok(byte) => byte,
+                Err(e) => {
+                    if nwritten > 0 {
+                        break;
+                    }
+                    return Err(e);
+                }
             };
             let idx = pipe.nwrite % PIPE_SIZE;
             pipe.data[idx] = byte;
             pipe.nwrite += 1;
-            i += 1;
+            nwritten += 1;
         }
         self.0.reader_cond.notify();
-        Ok(i)
+        Ok(nwritten)
     }
 
     pub(super) fn read(
@@ -119,23 +131,29 @@ impl PipeFile {
         let mut pipe = self.0.data.lock();
         while pipe.nread == pipe.nwrite && pipe.write_open {
             if p.shared().lock().killed() {
-                return Err(KernelError::Unknown);
+                return Err(KernelError::CallerProcessAlreadyKilled);
             }
             pipe = self.0.reader_cond.wait(pipe);
         }
-        let mut i = 0;
-        while i < n {
+        let mut nread = 0;
+        while nread < n {
             if pipe.nread == pipe.nwrite {
                 break;
             }
             let ch = pipe.data[pipe.nread % PIPE_SIZE];
             pipe.nread += 1;
-            if vm::copy_out(private.pagetable_mut().unwrap(), addr.byte_add(i), &ch).is_err() {
-                break;
+
+            if let Err(e) =
+                vm::copy_out(private.pagetable_mut().unwrap(), addr.byte_add(nread), &ch)
+            {
+                if nread > 0 {
+                    break;
+                }
+                return Err(e);
             }
-            i += 1;
+            nread += 1;
         }
         self.0.writer_cond.notify();
-        Ok(i)
+        Ok(nread)
     }
 }

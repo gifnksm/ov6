@@ -3,17 +3,21 @@ use core::{
     alloc::{Allocator as _, Layout},
     ffi::CStr,
     hint,
+    num::NonZero,
     ptr::NonNull,
 };
 
 use ov6_user_lib::{
     eprint,
+    error::Ov6Error,
     fs::{self, File},
     io::{Read as _, Write as _},
-    pipe, process, thread,
+    pipe,
+    process::{self, ProcId},
+    thread,
 };
 
-use crate::BUF;
+use crate::{BUF, expect};
 
 pub fn pipe() {
     const N: usize = 5;
@@ -56,6 +60,12 @@ pub fn pipe() {
     assert!(status.success());
 }
 
+pub fn broken_pipe() {
+    let (rx, mut tx) = pipe::pipe().unwrap();
+    drop(rx);
+    expect!(tx.write_all(&[1, 2, 3]), Err(Ov6Error::BrokenPipe));
+}
+
 /// test if child is killed (status = -1)
 pub fn kill_status() {
     for _ in 0..100 {
@@ -70,6 +80,13 @@ pub fn kill_status() {
         let status = child.wait().unwrap();
         assert_eq!(status.code(), -1);
     }
+}
+
+pub fn kill_error() {
+    expect!(
+        process::kill(ProcId::new(NonZero::<u32>::MAX)),
+        Err(Ov6Error::ProcessNotFound),
+    );
 }
 
 /// meant to be run w/ at most two CPUs
