@@ -172,7 +172,7 @@ fn go(name: char) {
                     process::exit(0);
                 })
                 .unwrap();
-                env::set_current_directory(c"../grindir/..").unwrap();
+                let _ = env::set_current_directory(c"../grindir/..");
                 let _ = process::kill(child.pid());
                 child.wait().unwrap();
             }
