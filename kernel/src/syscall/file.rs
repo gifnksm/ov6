@@ -1,3 +1,7 @@
+use alloc::boxed::Box;
+use core::alloc::AllocError;
+
+use arrayvec::ArrayVec;
 use ov6_syscall::{OpenFlags, ReturnType, syscall as sys};
 use ov6_types::{fs::RawFd, os_str::OsStr, path::Path};
 
@@ -5,7 +9,7 @@ use crate::{
     error::KernelError,
     file::File,
     fs::{self, DeviceNo, Inode, T_DEVICE, T_DIR, T_FILE},
-    memory::{PAGE_SIZE, VirtAddr, page, vm},
+    memory::{PAGE_SIZE, VirtAddr, page::PageFrameAllocator, vm},
     param::{MAX_ARG, MAX_PATH},
     proc::{Proc, ProcPrivateData, ProcPrivateDataGuard, exec},
     syscall,
@@ -224,44 +228,25 @@ pub fn sys_exec(
     let path = Path::new(OsStr::from_bytes(path));
     let uargv = VirtAddr::new(argv_ptr.addr());
 
-    let mut argv = [None; MAX_ARG];
-    let res = (|| {
-        for i in 0.. {
-            if i > argv.len() {
-                return Err(KernelError::Unknown);
-            }
+    let mut argv: ArrayVec<Box<[u8; PAGE_SIZE], PageFrameAllocator>, { MAX_ARG - 1 }> =
+        ArrayVec::new();
 
-            let uarg = syscall::fetch_addr(private, uargv.byte_add(i * size_of::<usize>()))?;
-            if uarg.addr() == 0 {
-                argv[i] = None;
-                break;
-            }
-            argv[i] = Some(page::alloc_page()?);
-            let buf =
-                unsafe { core::slice::from_raw_parts_mut(argv[i].unwrap().as_ptr(), PAGE_SIZE) };
-            syscall::fetch_str(private, uarg, buf)?;
+    for i in 0.. {
+        let uarg = syscall::fetch_addr(private, uargv.byte_add(i * size_of::<usize>()))?;
+        if uarg.addr() == 0 {
+            break;
         }
-        Ok(())
-    })();
 
-    if let Err(e) = res {
-        for arg in argv.iter().filter_map(|&a| a) {
-            unsafe {
-                page::free_page(arg);
-            }
-        }
-        return Err(e);
-    }
+        let mut buf = Box::try_new_in([0; PAGE_SIZE], PageFrameAllocator)
+            .map_err(|AllocError| KernelError::NoFreePage)?;
+        syscall::fetch_str(private, uarg, buf.as_mut_slice())?;
 
-    let ret = exec::exec(p, private, path, argv.as_ptr().cast());
-
-    for arg in argv.iter().filter_map(|&a| a) {
-        unsafe {
-            page::free_page(arg);
+        if argv.try_push(buf).is_err() {
+            return Err(KernelError::Unknown);
         }
     }
 
-    ret
+    exec::exec(p, private, path, &argv)
 }
 
 pub fn sys_pipe(

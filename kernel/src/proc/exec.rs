@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use core::{ffi::CStr, slice};
 
 use ov6_types::path::Path;
@@ -7,7 +8,8 @@ use crate::{
     error::KernelError,
     fs::{self, LockedTxInode},
     memory::{
-        PAGE_SIZE, PageRound as _, VirtAddr, page_table::PtEntryFlags, user::UserPageTable, vm,
+        PAGE_SIZE, PageRound as _, VirtAddr, page::PageFrameAllocator, page_table::PtEntryFlags,
+        user::UserPageTable, vm,
     },
     param::{MAX_ARG, USER_STACK},
     proc::{
@@ -31,7 +33,7 @@ pub fn exec(
     p: &Proc,
     private: &mut ProcPrivateData,
     path: &Path,
-    argv: *const *const u8,
+    argv: &[Box<[u8; PAGE_SIZE], PageFrameAllocator>],
 ) -> Result<(usize, usize), KernelError> {
     let tx = fs::begin_tx();
     let mut ip = fs::path::resolve(&tx, private, path)?;
@@ -180,39 +182,34 @@ fn push_arguments(
     pagetable: &mut UserPageTable,
     mut sp: usize,
     stack_base: usize,
-    argv: *const *const u8,
+    argv: &[Box<[u8; PAGE_SIZE], PageFrameAllocator>],
 ) -> Result<(usize, usize), KernelError> {
+    assert!(argv.len() < MAX_ARG);
     let mut ustack = [0_usize; MAX_ARG];
 
-    let mut argc = 0;
-    loop {
-        let arg = unsafe { *argv.add(argc) };
-        if arg.is_null() {
-            break;
-        }
-        if argc >= MAX_ARG {
-            return Err(KernelError::Unknown);
-        }
-        let arg = unsafe { CStr::from_ptr(arg) };
+    for (arg, uarg) in argv.iter().zip(&mut ustack) {
+        let arg = CStr::from_bytes_until_nul(arg.as_slice()).unwrap();
         sp -= arg.to_bytes_with_nul().len();
-        sp -= sp % 16; // risc-v sp must be 16-byte aligned
         if sp < stack_base {
             return Err(KernelError::ArgumentListTooLong);
         }
         vm::copy_out_bytes(pagetable, VirtAddr::new(sp), arg.to_bytes_with_nul())?;
-        ustack[argc] = sp;
-        argc += 1;
+        *uarg = sp;
     }
-    ustack[argc] = 0;
+    ustack[argv.len()] = 0;
 
     // push the array of argv[] pointers.
-    sp -= (argc + 1) * size_of::<usize>();
-    sp -= sp % 16;
+    sp -= (argv.len() + 1) * size_of::<usize>();
+    sp -= sp % 16; // risc-v sp must be 16-byte aligned
     if sp < stack_base {
         return Err(KernelError::ArgumentListTooLong);
     }
-    let src =
-        unsafe { slice::from_raw_parts(ustack.as_ptr().cast(), (argc + 1) * size_of::<usize>()) };
+    let src = unsafe {
+        slice::from_raw_parts(
+            ustack.as_ptr().cast(),
+            (argv.len() + 1) * size_of::<usize>(),
+        )
+    };
     vm::copy_out_bytes(pagetable, VirtAddr::new(sp), src)?;
-    Ok((sp, argc))
+    Ok((sp, argv.len()))
 }
