@@ -59,8 +59,8 @@ impl Deref for FileDataArc {
 
 impl FileDataArc {
     pub(super) fn try_new(data: FileData) -> Result<Self, KernelError> {
-        let data =
-            Arc::try_new_in(data, FileAllocator).map_err(|AllocError| KernelError::Unknown)?;
+        let data = Arc::try_new_in(data, FileAllocator)
+            .map_err(|AllocError| KernelError::TooManyOpenFilesSystem)?;
         Ok(Self(data))
     }
 }

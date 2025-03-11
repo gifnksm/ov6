@@ -21,7 +21,7 @@ pub fn test() {
     unsafe {
         expect!(
             file.write(slice::from_raw_parts(a.add(4096), 1024)),
-            Err(Ov6Error::Unknown),
+            Err(Ov6Error::BadAddress),
         );
     }
     drop(file);

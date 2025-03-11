@@ -1,3 +1,4 @@
+use alloc::vec;
 use core::{ffi::CStr, ptr};
 
 use ov6_fs_types::{FS_BLOCK_SIZE, MAX_FILE};
@@ -23,6 +24,43 @@ pub fn open_test() {
     let file = File::open(ECHO_PATH).unwrap();
     drop(file);
     expect!(File::open(NOT_EXIST_PATH), Err(Ov6Error::Unknown));
+}
+
+pub fn too_many_open_files() {
+    let mut files = vec![];
+    loop {
+        match File::open(ECHO_PATH) {
+            Ok(file) => files.push(file),
+            Err(e) => {
+                expect!(e, Ov6Error::TooManyOpenFiles);
+                break;
+            }
+        }
+    }
+    drop(files);
+}
+
+pub fn too_many_open_files_in_system() {
+    let mut files = vec![];
+    loop {
+        let Some(child) = process::fork().unwrap().as_parent() else {
+            files.clear();
+            loop {
+                match File::open(ECHO_PATH) {
+                    Ok(file) => files.push(file),
+                    Err(Ov6Error::TooManyOpenFiles) => break,
+                    Err(Ov6Error::TooManyOpenFilesSystem) => process::exit(0),
+                    Err(e) => panic!("unexpected error: {e:?}"),
+                }
+            }
+            continue;
+        };
+        let (pid, status) = process::wait().unwrap();
+        assert_eq!(child, pid);
+        assert!(status.success());
+        break;
+    }
+    drop(files);
 }
 
 pub fn write_test() {

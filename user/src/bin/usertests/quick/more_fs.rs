@@ -500,7 +500,7 @@ pub fn dir_file() {
         Err(Ov6Error::Unknown),
     );
     let mut file = File::open(c".").unwrap();
-    expect!(file.write(b"x"), Err(Ov6Error::Unknown));
+    expect!(file.write(b"x"), Err(Ov6Error::BadFileDescriptor));
 }
 
 /// test that `inode_put()` is called at the end of `_namei()`.

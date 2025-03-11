@@ -22,9 +22,23 @@ pub enum KernelError {
     #[error("unterminated string: addr={0:#x}, len={1}")]
     UnterminatedString(VirtAddr, usize),
     #[error("bad file descriptor: fd={0}, pid={1}")]
-    BadFileDescriptor(RawFd, ProcId),
+    FileDescriptorNotFound(RawFd, ProcId),
+    #[error("file descriptor not readable")]
+    FileDescriptorNotReadable,
+    #[error("file descriptor not writable")]
+    FileDescriptorNotWritable,
     #[error("broken pipe")]
     BrokenPipe,
+    #[error("file too large")]
+    FileTooLarge,
+    #[error("too many open files in system")]
+    TooManyOpenFilesSystem,
+    #[error("too many open files")]
+    TooManyOpenFiles,
+    #[error("storage out of blocks")]
+    StorageOutOfBlocks,
+    #[error("storage out of inodes")]
+    StorageOutOfInodes,
     #[error("sycall decode: {0}")]
     SyscallDecode(#[from] RegisterDecodeError),
     #[error("caller process already killed")]
@@ -44,8 +58,14 @@ impl From<KernelError> for SyscallError {
             | KernelError::AddressNotMapped(_)
             | KernelError::InaccessibleMemory(_)
             | KernelError::UnterminatedString(_, _) => Self::BadAddress,
-            KernelError::BadFileDescriptor(_, _) => Self::BadFileDescriptor,
+            KernelError::FileDescriptorNotFound(_, _)
+            | KernelError::FileDescriptorNotReadable
+            | KernelError::FileDescriptorNotWritable => Self::BadFileDescriptor,
             KernelError::BrokenPipe => Self::BrokenPipe,
+            KernelError::FileTooLarge => Self::FileTooLarge,
+            KernelError::TooManyOpenFilesSystem => Self::TooManyOpenFilesSystem,
+            KernelError::TooManyOpenFiles => Self::TooManyOpenFiles,
+            KernelError::StorageOutOfBlocks | KernelError::StorageOutOfInodes => Self::StorageFull,
             KernelError::SyscallDecode(_)
             | KernelError::CallerProcessAlreadyKilled
             | KernelError::Unknown => Self::Unknown,

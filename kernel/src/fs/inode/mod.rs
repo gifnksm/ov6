@@ -375,5 +375,5 @@ fn alloc_ino(tx: &Tx<false>, dev: DeviceNo, ty: i16) -> Result<InodeNo, KernelEr
         }
     }
     crate::println!("no free inodes");
-    Err(KernelError::Unknown)
+    Err(KernelError::StorageOutOfInodes)
 }

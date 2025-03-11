@@ -2,6 +2,7 @@ use super::{
     BlockNo, DeviceNo, SUPER_BLOCK, Tx,
     repr::{self, BITS_PER_BLOCK},
 };
+use crate::error::KernelError;
 
 /// Zeros a block.
 fn block_zero(tx: &Tx<false>, dev: DeviceNo, block_no: BlockNo) {
@@ -11,7 +12,7 @@ fn block_zero(tx: &Tx<false>, dev: DeviceNo, block_no: BlockNo) {
 /// Allocates a zeroed data block.
 ///
 /// Returns None if out of disk space.
-pub fn alloc(tx: &Tx<false>, dev: DeviceNo) -> Option<BlockNo> {
+pub fn alloc(tx: &Tx<false>, dev: DeviceNo) -> Result<BlockNo, KernelError> {
     let sb = SUPER_BLOCK.get();
     let sb_size = sb.size as usize;
     for bn0 in (0..sb_size).step_by(BITS_PER_BLOCK) {
@@ -30,10 +31,10 @@ pub fn alloc(tx: &Tx<false>, dev: DeviceNo) -> Option<BlockNo> {
 
         let bn = BlockNo::new((bn0 + bni).try_into().unwrap());
         block_zero(tx, dev, bn);
-        return Some(bn);
+        return Ok(bn);
     }
     crate::println!("out of blocks");
-    None
+    Err(KernelError::StorageOutOfBlocks)
 }
 
 /// Frees a disk block.

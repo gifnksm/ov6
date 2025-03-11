@@ -92,16 +92,14 @@ impl InodeFile {
             ip.put();
             tx.end();
 
-            if !res.is_ok_and(|n| n == n1) {
-                // error from write_inode
-                break;
+            match res {
+                Err(e) => return Err(e),
+                Ok(n) if n != n1 => break,
+                Ok(_) => {}
             }
+
             i += n1;
         }
-        if i == n {
-            Ok(n)
-        } else {
-            Err(KernelError::Unknown)
-        }
+        Ok(n)
     }
 }

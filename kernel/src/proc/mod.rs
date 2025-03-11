@@ -240,7 +240,7 @@ impl ProcPrivateData {
         self.ofile
             .get(fd.get())
             .and_then(|x| x.as_ref())
-            .ok_or_else(|| KernelError::BadFileDescriptor(fd, self.pid.unwrap()))
+            .ok_or_else(|| KernelError::FileDescriptorNotFound(fd, self.pid.unwrap()))
     }
 
     pub fn add_ofile(&mut self, file: File) -> Result<RawFd, KernelError> {
@@ -249,7 +249,7 @@ impl ProcPrivateData {
             .iter_mut()
             .enumerate()
             .find(|(_, slot)| slot.is_none())
-            .ok_or(KernelError::Unknown)?;
+            .ok_or(KernelError::TooManyOpenFiles)?;
         assert!(slot.replace(file).is_none());
         Ok(RawFd::new(fd))
     }

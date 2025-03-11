@@ -25,29 +25,36 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
     ///
     /// If there is no such block, `get_data_block()` allocates one.
     /// Returns `None` if out of disk space.
-    fn get_direct_data_block(&mut self, i: usize) -> Option<BlockNo> {
+    fn get_or_alloc_direct_data_block(&mut self, i: usize) -> Result<Option<BlockNo>, KernelError> {
         assert!(i < NUM_DIRECT_REFS);
         if let Some(bn) = self.data().addrs[i] {
-            return Some(bn);
+            return Ok(Some(bn));
         }
 
-        let tx = self.tx.to_writable()?;
+        let Some(tx) = self.tx.to_writable() else {
+            return Ok(None);
+        };
         let bn = data_block::alloc(&tx, self.dev)?;
         self.data_mut().addrs[i] = Some(bn);
-        Some(bn)
+        Ok(Some(bn))
     }
 
     /// Returns the disk block address of the `i`th **indirect** block in inode.
     ///
     /// If there is no such block, `get_data_block()` allocates one.
     /// Returns `None` if out of disk space.
-    fn get_indirect_data_block(&mut self, i: usize) -> Option<BlockNo> {
+    fn get_or_alloc_indirect_data_block(
+        &mut self,
+        i: usize,
+    ) -> Result<Option<BlockNo>, KernelError> {
         // Load indirect block, allocating if necessary.
         let (ind_bn, ind_newly_allocated) = if let Some(ind_bn) = self.data().addrs[NUM_DIRECT_REFS]
         {
             (ind_bn, false)
         } else {
-            let tx = self.tx.to_writable()?;
+            let Some(tx) = self.tx.to_writable() else {
+                return Ok(None);
+            };
             let ind_bn = data_block::alloc(&tx, self.dev)?;
             self.data_mut().addrs[NUM_DIRECT_REFS] = Some(ind_bn);
             (ind_bn, true)
@@ -57,31 +64,33 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
             let mut ind_br = self.tx.get_block(self.dev, ind_bn);
             let Ok(ind_bg) = ind_br.lock().read();
             if let Some(bn) = ind_bg.data::<repr::IndirectBlock>().get(i) {
-                return Some(bn);
+                return Ok(Some(bn));
             }
         }
 
-        let tx = self.tx.to_writable()?;
+        let Some(tx) = self.tx.to_writable() else {
+            return Ok(None);
+        };
         let bn = data_block::alloc(&tx, self.dev)?;
         let mut ind_br = tx.get_block(self.dev, ind_bn);
         let Ok(mut ind_bg) = ind_br.lock().read();
         ind_bg.data_mut::<repr::IndirectBlock>().set(i, Some(bn));
 
-        Some(bn)
+        Ok(Some(bn))
     }
 
     /// Returns the disk block address of the `i`th block in inode.
     ///
     /// If there is no such block, `get_data_block()` allocates one.
     /// Returns `None` if out of disk space.
-    fn get_data_block(&mut self, i: usize) -> Option<BlockNo> {
+    fn get_or_alloc_data_block(&mut self, i: usize) -> Result<Option<BlockNo>, KernelError> {
         if i < NUM_DIRECT_REFS {
-            return self.get_direct_data_block(i);
+            return self.get_or_alloc_direct_data_block(i);
         }
 
         let i = i - NUM_DIRECT_REFS;
         if i < NUM_INDIRECT_REFS {
-            return self.get_indirect_data_block(i);
+            return self.get_or_alloc_indirect_data_block(i);
         }
 
         panic!("out of range: ibn={i}");
@@ -159,20 +168,30 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
         while tot < n {
             let off = off + tot;
             let dst = dst.byte_add(tot);
-            let Some(bn) = self.get_data_block(off / FS_BLOCK_SIZE) else {
-                break;
+            let bn = match self.get_or_alloc_data_block(off / FS_BLOCK_SIZE) {
+                Ok(Some(bn)) => bn,
+                Ok(None) => break,
+                Err(e) => {
+                    if tot > 0 {
+                        break;
+                    }
+                    return Err(e);
+                }
             };
             let mut br = self.tx.get_block(self.dev, bn);
             let Ok(bg) = br.lock().read();
             let m = usize::min(n - tot, FS_BLOCK_SIZE - off % FS_BLOCK_SIZE);
-            // TODO: check if this is correct
-            // if tot > 0, return Ok(tot)?
-            proc::either_copy_out_bytes(
+            if let Err(e) = proc::either_copy_out_bytes(
                 private,
                 user_dst,
                 dst.addr(),
                 &bg.bytes()[off % FS_BLOCK_SIZE..][..m],
-            )?;
+            ) {
+                if tot > 0 {
+                    break;
+                }
+                return Err(e);
+            }
             tot += m;
         }
         Ok(tot)
@@ -218,11 +237,13 @@ impl LockedTxInode<'_, '_, false> {
         off: usize,
         n: usize,
     ) -> Result<usize, KernelError> {
-        let size = self.data().size as usize;
-        if off > size || off.checked_add(n).is_none() {
-            return Err(KernelError::Unknown);
+        if off.checked_add(n).is_none() || off + n > MAX_FILE * FS_BLOCK_SIZE {
+            return Err(KernelError::FileTooLarge);
         }
-        if off + n > MAX_FILE * FS_BLOCK_SIZE {
+
+        let size = self.data().size as usize;
+        if off > size {
+            // TODO: expand file as Linux does
             return Err(KernelError::Unknown);
         }
 
@@ -230,21 +251,31 @@ impl LockedTxInode<'_, '_, false> {
         while tot < n {
             let off = off + tot;
             let src = src.byte_add(tot);
-            let Some(bn) = self.get_data_block(off / FS_BLOCK_SIZE) else {
-                break;
+            let bn = match self.get_or_alloc_data_block(off / FS_BLOCK_SIZE) {
+                Ok(Some(bn)) => bn,
+                Ok(None) => unreachable!(),
+                Err(e) => {
+                    if tot > 0 {
+                        break;
+                    }
+                    return Err(e);
+                }
             };
 
             let mut br = self.tx.get_block(self.dev, bn);
             let Ok(mut bg) = br.lock().read();
             let m = usize::min(n - tot, FS_BLOCK_SIZE - off % FS_BLOCK_SIZE);
-            // TODO: check if this is correct.
-            // if tot > 0, return Ok(tot)?
-            proc::either_copy_in_bytes(
+            if let Err(e) = proc::either_copy_in_bytes(
                 private,
                 &mut bg.bytes_mut()[off % FS_BLOCK_SIZE..][..m],
                 user_src,
                 src.addr(),
-            )?;
+            ) {
+                if tot > 0 {
+                    break;
+                }
+                return Err(e);
+            }
 
             tot += m;
         }

@@ -75,8 +75,11 @@ fn write(
 ) -> Result<usize, KernelError> {
     for i in 0..n {
         let mut c: [u8; 1] = [0];
-        if proc::either_copy_in_bytes(private, &mut c, user_src, src + i).is_err() {
-            return Ok(i);
+        if let Err(e) = proc::either_copy_in_bytes(private, &mut c, user_src, src + i) {
+            if i > 0 {
+                return Ok(i);
+            }
+            return Err(e);
         }
         uart::putc(c[0] as char);
     }
@@ -104,7 +107,7 @@ fn read(
         while cons.r == cons.w {
             if p.shared().lock().killed() {
                 drop(cons);
-                return Err(KernelError::Unknown);
+                return Err(KernelError::CallerProcessAlreadyKilled);
             }
             cons = CONSOLE_BUFFER_WRITTEN.wait(cons);
         }
@@ -124,8 +127,11 @@ fn read(
 
         // copy the input byte to the user-space buffer.
         let cbuf = &[c];
-        if proc::either_copy_out_bytes(private, user_dst, dst, cbuf).is_err() {
-            break;
+        if let Err(e) = proc::either_copy_out_bytes(private, user_dst, dst, cbuf) {
+            if target - n > 0 {
+                break;
+            }
+            return Err(e);
         }
 
         dst += 1;
@@ -137,8 +143,6 @@ fn read(
             break;
         }
     }
-    drop(cons);
-
     Ok(target - n)
 }
 

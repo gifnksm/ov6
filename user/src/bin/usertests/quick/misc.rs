@@ -81,32 +81,30 @@ pub fn big_arg() {
 pub fn fs_full() {
     let buf = unsafe { (&raw mut BUF).as_mut() }.unwrap();
     let mut nfiles = 0;
-    for n in 0.. {
+    'outer: for i in 0.. {
         let mut name = [0_u8; 6];
         name[0] = b'f';
-        name[1] = b'0' + u8::try_from(n / 1000).unwrap();
-        name[2] = b'0' + u8::try_from((n % 1000) / 100).unwrap();
-        name[3] = b'0' + u8::try_from((n % 100) / 10).unwrap();
-        name[4] = b'0' + u8::try_from(n % 10).unwrap();
+        name[1] = b'0' + u8::try_from(i / 1000).unwrap();
+        name[2] = b'0' + u8::try_from((i % 1000) / 100).unwrap();
+        name[3] = b'0' + u8::try_from((i % 100) / 10).unwrap();
+        name[4] = b'0' + u8::try_from(i % 10).unwrap();
         name[5] = b'\0';
         let path = CStr::from_bytes_with_nul(&name).unwrap();
-        let Ok(mut file) = File::create(path) else {
-            nfiles = n;
-            break;
+        let mut file = match File::create(path) {
+            Ok(file) => file,
+            Err(Ov6Error::StorageFull) => break,
+            Err(e) => panic!("unexpected error: {e:?}"),
         };
-        let mut total = 0;
+        nfiles = i + 1;
         loop {
-            let Ok(n) = file.write(buf) else {
-                nfiles = n;
-                break;
-            };
-            total += n;
+            match file.write(buf) {
+                Ok(_) => {}
+                Err(Ov6Error::FileTooLarge) => break,
+                Err(Ov6Error::StorageFull) => break 'outer,
+                Err(e) => panic!("unexpected error: {e:?}"),
+            }
         }
         drop(file);
-        if total == 0 {
-            nfiles += 1;
-            break;
-        }
     }
 
     for n in 0..nfiles {

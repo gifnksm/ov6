@@ -28,15 +28,15 @@ pub fn test() {
         let buf = unsafe { slice::from_raw_parts(addr, 8192) };
 
         let mut file = File::create(FILE_PATH).unwrap();
-        expect!(file.write(buf), Err(Ov6Error::Unknown), "addr={addr:p}");
+        expect!(file.write(buf), Err(Ov6Error::BadAddress), "addr={addr:p}");
         drop(file);
         fs::remove_file(FILE_PATH).unwrap();
 
-        // FIXME: this should return an error, but it doesn't
-        expect!(syscall::write(STDOUT_FD, buf), Ok(0), "addr={addr:p}");
-
-        // FIXME: this should return an error, but it doesn't
-        expect!(syscall::write(STDOUT_FD, buf), Ok(0), "addr={addr:p}");
+        expect!(
+            syscall::write(STDOUT_FD, buf),
+            Err(Ov6Error::BadAddress),
+            "addr={addr:p}"
+        );
 
         let (_rx, mut tx) = pipe::pipe().unwrap();
         expect!(tx.write(buf), Err(Ov6Error::BadAddress), "addr={addr:p}");

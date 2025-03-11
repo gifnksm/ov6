@@ -12,6 +12,7 @@ use ov6_user_lib::{
     error::Ov6Error,
     fs::{self, File},
     io::{Read as _, Write as _},
+    os::{fd::AsFd as _, ov6::syscall},
     pipe,
     process::{self, ProcId},
     thread,
@@ -64,6 +65,18 @@ pub fn broken_pipe() {
     let (rx, mut tx) = pipe::pipe().unwrap();
     drop(rx);
     expect!(tx.write_all(&[1, 2, 3]), Err(Ov6Error::BrokenPipe));
+}
+
+pub fn pipe_bad_fd() {
+    let (rx, tx) = pipe::pipe().unwrap();
+    expect!(
+        syscall::write(rx.as_fd(), &[0]),
+        Err(Ov6Error::BadFileDescriptor)
+    );
+    expect!(
+        syscall::read(tx.as_fd(), &mut [0]),
+        Err(Ov6Error::BadFileDescriptor)
+    );
 }
 
 /// test if child is killed (status = -1)

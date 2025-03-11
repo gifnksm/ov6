@@ -93,7 +93,7 @@ pub fn bad_write() {
         let mut file = File::create(FILE_PATH).unwrap();
         unsafe {
             let buf = slice::from_raw_parts(ptr::with_exposed_provenance(0xff_ffff_ffff), 1);
-            expect!(file.write(buf), Err(Ov6Error::Unknown));
+            expect!(file.write(buf), Err(Ov6Error::BadAddress));
             drop(file);
             fs::remove_file(FILE_PATH).unwrap();
         }
@@ -119,7 +119,8 @@ pub fn disk_full() {
         };
         for _ in 0..MAX_FILE {
             let buf = [0; FS_BLOCK_SIZE];
-            if file.write_all(&buf).is_err() {
+            if let Err(e) = file.write_all(&buf) {
+                expect!(e, Ov6Error::StorageFull);
                 break 'outer;
             }
         }
@@ -140,13 +141,15 @@ pub fn disk_full() {
         ];
         let path = CStr::from_bytes_with_nul(&name).unwrap();
         let _ = fs::remove_file(path);
-        let Ok(_) = File::create(path) else {
-            break;
-        };
+        match File::create(path) {
+            Ok(_) => continue,
+            Err(Ov6Error::StorageFull) => break,
+            Err(e) => panic!("unexpected error: {e:?}"),
+        }
     }
 
     // this mkdir() is expected to fail.
-    expect!(fs::create_dir(DIR_PATH), Err(Ov6Error::Unknown));
+    expect!(fs::create_dir(DIR_PATH), Err(Ov6Error::StorageFull));
     let _ = fs::remove_file(DIR_PATH);
 
     for i in 0..nzz {
@@ -180,9 +183,11 @@ pub fn out_of_inodes() {
         ];
         let path = CStr::from_bytes_with_nul(&name).unwrap();
         let _ = fs::remove_file(path);
-        let Ok(_file) = File::create(path) else {
-            break;
-        };
+        match File::create(path) {
+            Ok(_) => continue,
+            Err(Ov6Error::StorageFull) => break,
+            Err(e) => panic!("unexpected error: {e:?}"),
+        }
     }
 
     let nzz = 32 * 32;

@@ -96,7 +96,7 @@ impl File {
         n: usize,
     ) -> Result<usize, KernelError> {
         if !self.data.readable {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::FileDescriptorNotReadable);
         }
 
         match &self.data.data {
@@ -118,7 +118,7 @@ impl File {
         n: usize,
     ) -> Result<usize, KernelError> {
         if !self.data.writable {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::FileDescriptorNotWritable);
         }
 
         match &self.data.data {
