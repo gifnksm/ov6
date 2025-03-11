@@ -249,7 +249,7 @@ impl ProcPrivateData {
             .iter_mut()
             .enumerate()
             .find(|(_, slot)| slot.is_none())
-            .ok_or(KernelError::TooManyOpenFiles)?;
+            .ok_or(KernelError::NoFreeFileDescriptorTableEntry)?;
         assert!(slot.replace(file).is_none());
         Ok(RawFd::new(fd))
     }

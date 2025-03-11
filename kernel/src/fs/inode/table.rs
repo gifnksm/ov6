@@ -49,9 +49,7 @@ impl InodeTable {
             empty_idx = Some(i);
         }
 
-        let Some(empty_idx) = empty_idx else {
-            return Err(KernelError::Unknown);
-        };
+        let empty_idx = empty_idx.ok_or(KernelError::NoFreeInodeInMemoryTableEntry)?;
 
         // insert new entry
         let data = InodeDataArc::try_new(SleepLock::new(None))?;

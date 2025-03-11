@@ -1,7 +1,8 @@
+use ov6_fs_types::InodeNo;
 use ov6_syscall::{RegisterDecodeError, error::SyscallError};
 use ov6_types::{fs::RawFd, process::ProcId};
 
-use crate::memory::VirtAddr;
+use crate::{fs::DeviceNo, memory::VirtAddr};
 
 #[derive(Debug, thiserror::Error)]
 pub enum KernelError {
@@ -13,6 +14,8 @@ pub enum KernelError {
     NoChildProcess,
     #[error("process not found: {0}")]
     ProcessNotFound(ProcId),
+    #[error("device not found: {0}")]
+    DeviceNotFound(DeviceNo),
     #[error("too large virtual address: {0:#x}")]
     TooLargeVirtualAddress(VirtAddr),
     #[error("address not mapped: {0:#x}")]
@@ -47,14 +50,22 @@ pub enum KernelError {
     LinkToNonDirectory,
     #[error("link already exists entry")]
     LinkAlreadyExists,
+    #[error("stat on non-file-system entry")]
+    StatOnNonFsEntry,
     #[error("broken pipe")]
     BrokenPipe,
     #[error("file too large")]
     FileTooLarge,
-    #[error("too many open files in system")]
-    TooManyOpenFilesSystem,
-    #[error("too many open files")]
-    TooManyOpenFiles,
+    #[error("no free file table entry")]
+    NoFreeFileTableEntry,
+    #[error("no free file descriptor table entry")]
+    NoFreeFileDescriptorTableEntry,
+    #[error("no free inode in-memory table entry")]
+    NoFreeInodeInMemoryTableEntry,
+    #[error("no free inode data im-memory table entry")]
+    NoFreeInodeDataInMemoryTableEntry,
+    #[error("corraputed inode type: inode={0}, type={1}")]
+    CorruptedInodeType(InodeNo, i16),
     #[error("storage out of blocks")]
     StorageOutOfBlocks,
     #[error("storage out of inodes")]
@@ -65,6 +76,8 @@ pub enum KernelError {
     ChdirNotDir,
     #[error("argument list too long")]
     ArgumentListTooLong,
+    #[error("argument list too large")]
+    ArgumentListTooLarge,
     #[error("invalid executable")]
     InvalidExecutable,
     #[error("sycall decode: {0}")]
@@ -81,6 +94,7 @@ impl From<KernelError> for SyscallError {
             KernelError::NoFreeProc => Self::ResourceTempolaryUnavailable,
             KernelError::NoFreePage => Self::OutOfMemory,
             KernelError::ProcessNotFound(_) => Self::ProcessNotFound,
+            KernelError::DeviceNotFound(_) => Self::DeviceNotFound,
             KernelError::NoChildProcess => Self::NoChildProcess,
             KernelError::TooLargeVirtualAddress(_)
             | KernelError::AddressNotMapped(_)
@@ -88,7 +102,8 @@ impl From<KernelError> for SyscallError {
             | KernelError::UnterminatedString(_, _) => Self::BadAddress,
             KernelError::FileDescriptorNotFound(_, _)
             | KernelError::FileDescriptorNotReadable
-            | KernelError::FileDescriptorNotWritable => Self::BadFileDescriptor,
+            | KernelError::FileDescriptorNotWritable
+            | KernelError::StatOnNonFsEntry => Self::BadFileDescriptor,
             KernelError::NonDirectoryPathComponent
             | KernelError::ChdirNotDir
             | KernelError::LinkToNonDirectory => Self::NotADirectory,
@@ -102,11 +117,16 @@ impl From<KernelError> for SyscallError {
             KernelError::LinkCrossDevices => Self::CrossesDevices,
             KernelError::BrokenPipe => Self::BrokenPipe,
             KernelError::FileTooLarge => Self::FileTooLarge,
-            KernelError::TooManyOpenFilesSystem => Self::TooManyOpenFilesSystem,
-            KernelError::TooManyOpenFiles => Self::TooManyOpenFiles,
+            KernelError::NoFreeFileTableEntry
+            | KernelError::NoFreeInodeInMemoryTableEntry
+            | KernelError::NoFreeInodeDataInMemoryTableEntry => Self::TooManyOpenFilesSystem,
+            KernelError::NoFreeFileDescriptorTableEntry => Self::TooManyOpenFiles,
+            KernelError::CorruptedInodeType(_, _) => Self::Io,
             KernelError::StorageOutOfBlocks | KernelError::StorageOutOfInodes => Self::StorageFull,
             KernelError::OpenDirAsWritable => Self::IsADirectory,
-            KernelError::ArgumentListTooLong => Self::ArgumentListTooLong,
+            KernelError::ArgumentListTooLong | KernelError::ArgumentListTooLarge => {
+                Self::ArgumentListTooLong
+            }
             KernelError::InvalidExecutable => Self::ExecFormat,
             KernelError::SyscallDecode(_)
             | KernelError::CallerProcessAlreadyKilled

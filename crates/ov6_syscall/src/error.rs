@@ -15,12 +15,12 @@ pub enum SyscallError {
     // // EINTR
     // #[error("interrupted system call")]
     // Interrupted = 4,
-    // // EIO
-    // #[error("input/output error")]
-    // Io = 5,
-    // // ENXIO
-    // #[error("no such device or address")]
-    // DeviceNotFound = 6,
+    // EIO
+    #[error("input/output error")]
+    Io = 5,
+    // ENXIO
+    #[error("no such device or address")]
+    DeviceNotFound = 6,
     // E2BIG
     #[error("argument list too long")]
     ArgumentListTooLong = 7,

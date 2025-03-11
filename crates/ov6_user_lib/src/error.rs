@@ -13,10 +13,10 @@ pub enum Ov6Error {
     ProcessNotFound = 3,
     // #[error("interrupted system call")]
     // Interrupted,
-    // #[error("input/output error")]
-    // Io ,
-    // #[error("no such device or address")]
-    // DeviceNotFound,
+    #[error("input/output error")]
+    Io,
+    #[error("no such device or address")]
+    DeviceNotFound,
     #[error("argument list too long")]
     ArgumentListTooLong,
     #[error("exec format error")]
@@ -107,6 +107,8 @@ impl From<SyscallError> for Ov6Error {
             SyscallError::NotPermitted => Self::NotPermitted,
             SyscallError::FsEntryNotFound => Self::FsEntryNotFound,
             SyscallError::ProcessNotFound => Self::ProcessNotFound,
+            SyscallError::Io => Self::Io,
+            SyscallError::DeviceNotFound => Self::DeviceNotFound,
             SyscallError::ArgumentListTooLong => Self::ArgumentListTooLong,
             SyscallError::ExecFormat => Self::ExecFormat,
             SyscallError::BadFileDescriptor => Self::BadFileDescriptor,

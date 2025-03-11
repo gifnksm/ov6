@@ -93,7 +93,7 @@ impl DeviceFile {
         let read = DEVICE_TABLE
             .lock()
             .get_device(self.major)
-            .ok_or(KernelError::Unknown)?
+            .ok_or(KernelError::DeviceNotFound(self.major))?
             .read;
         read(p, private, true, addr, n)
     }
@@ -108,7 +108,7 @@ impl DeviceFile {
         let write = DEVICE_TABLE
             .lock()
             .get_device(self.major)
-            .ok_or(KernelError::Unknown)?
+            .ok_or(KernelError::DeviceNotFound(self.major))?
             .write;
         write(p, private, true, addr, n)
     }

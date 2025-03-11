@@ -11,6 +11,8 @@
 //! routines. The (higher-level) system call implementations
 //! are in `syscall/file.rs`
 
+use core::fmt;
+
 use dataview::Pod;
 use once_init::OnceInit;
 use ov6_fs_types::{self as repr, SuperBlock};
@@ -33,6 +35,12 @@ pub mod virtio_disk;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Pod)]
 #[repr(transparent)]
 pub struct DeviceNo(u32);
+
+impl fmt::Display for DeviceNo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
 
 impl DeviceNo {
     pub const CONSOLE: Self = Self(1);

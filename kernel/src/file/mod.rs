@@ -81,7 +81,8 @@ impl File {
         match &self.data.data {
             Some(SpecificData::Inode(inode)) => inode.stat(private, addr),
             Some(SpecificData::Device(device)) => device.stat(private, addr),
-            _ => Err(KernelError::Unknown),
+            Some(SpecificData::Pipe(_)) => Err(KernelError::StatOnNonFsEntry),
+            None => unreachable!(),
         }
     }
 

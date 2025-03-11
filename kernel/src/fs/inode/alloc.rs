@@ -64,8 +64,8 @@ impl Deref for InodeDataArc {
 
 impl InodeDataArc {
     pub(super) fn try_new(data: SleepLock<Option<InodeData>>) -> Result<Self, KernelError> {
-        let data =
-            Arc::try_new_in(data, InodeDataAllocator).map_err(|AllocError| KernelError::Unknown)?;
+        let data = Arc::try_new_in(data, InodeDataAllocator)
+            .map_err(|AllocError| KernelError::NoFreeInodeDataInMemoryTableEntry)?;
         Ok(Self(data))
     }
 

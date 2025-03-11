@@ -242,7 +242,7 @@ pub fn sys_exec(
         syscall::fetch_str(private, uarg, buf.as_mut_slice())?;
 
         if argv.try_push(buf).is_err() {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::ArgumentListTooLong);
         }
     }
 

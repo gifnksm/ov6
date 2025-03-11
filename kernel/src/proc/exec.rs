@@ -191,7 +191,7 @@ fn push_arguments(
         let arg = CStr::from_bytes_until_nul(arg.as_slice()).unwrap();
         sp -= arg.to_bytes_with_nul().len();
         if sp < stack_base {
-            return Err(KernelError::ArgumentListTooLong);
+            return Err(KernelError::ArgumentListTooLarge);
         }
         vm::copy_out_bytes(pagetable, VirtAddr::new(sp), arg.to_bytes_with_nul())?;
         *uarg = sp;
@@ -202,7 +202,7 @@ fn push_arguments(
     sp -= (argv.len() + 1) * size_of::<usize>();
     sp -= sp % 16; // risc-v sp must be 16-byte aligned
     if sp < stack_base {
-        return Err(KernelError::ArgumentListTooLong);
+        return Err(KernelError::ArgumentListTooLarge);
     }
     let src = unsafe {
         slice::from_raw_parts(

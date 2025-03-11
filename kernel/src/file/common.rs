@@ -25,7 +25,7 @@ pub(super) fn stat_inode(
         T_DIR => StatType::Dir,
         T_FILE => StatType::File,
         T_DEVICE => StatType::Dev,
-        _ => return Err(KernelError::Unknown),
+        ty => return Err(KernelError::CorruptedInodeType(lip.ino(), ty)),
     };
     let st = Stat {
         dev: lip.dev().value().cast_signed(),
