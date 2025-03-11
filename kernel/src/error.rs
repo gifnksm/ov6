@@ -27,6 +27,26 @@ pub enum KernelError {
     FileDescriptorNotReadable,
     #[error("file descriptor not writable")]
     FileDescriptorNotWritable,
+    #[error("non-directory component in path")]
+    NonDirectoryPathComponent,
+    #[error("file system entry not found")]
+    FsEntryNotFound,
+    #[error("directory not empty")]
+    DirectoryNotEmpty,
+    #[error("unlink root directory")]
+    UnlinkRootDir,
+    #[error("create root directory")]
+    CreateRootDir,
+    #[error("create already exist entry")]
+    CreateAlreadyExists,
+    #[error("link root directory")]
+    LinkRootDir,
+    #[error("link cross devices")]
+    LinkCrossDevices,
+    #[error("link to non-directory")]
+    LinkToNonDirectory,
+    #[error("link already exists entry")]
+    LinkAlreadyExists,
     #[error("broken pipe")]
     BrokenPipe,
     #[error("file too large")]
@@ -39,6 +59,14 @@ pub enum KernelError {
     StorageOutOfBlocks,
     #[error("storage out of inodes")]
     StorageOutOfInodes,
+    #[error("open directory as writable")]
+    OpenDirAsWritable,
+    #[error("chdir to non-directory")]
+    ChdirNotDir,
+    #[error("argument list too long")]
+    ArgumentListTooLong,
+    #[error("invalid executable")]
+    InvalidExecutable,
     #[error("sycall decode: {0}")]
     SyscallDecode(#[from] RegisterDecodeError),
     #[error("caller process already killed")]
@@ -61,11 +89,25 @@ impl From<KernelError> for SyscallError {
             KernelError::FileDescriptorNotFound(_, _)
             | KernelError::FileDescriptorNotReadable
             | KernelError::FileDescriptorNotWritable => Self::BadFileDescriptor,
+            KernelError::NonDirectoryPathComponent
+            | KernelError::ChdirNotDir
+            | KernelError::LinkToNonDirectory => Self::NotADirectory,
+            KernelError::FsEntryNotFound => Self::FsEntryNotFound,
+            KernelError::DirectoryNotEmpty => Self::DirectoryNotEmpty,
+            KernelError::UnlinkRootDir => Self::ResourceBusy,
+            KernelError::CreateRootDir
+            | KernelError::CreateAlreadyExists
+            | KernelError::LinkRootDir
+            | KernelError::LinkAlreadyExists => Self::AlreadyExists,
+            KernelError::LinkCrossDevices => Self::CrossesDevices,
             KernelError::BrokenPipe => Self::BrokenPipe,
             KernelError::FileTooLarge => Self::FileTooLarge,
             KernelError::TooManyOpenFilesSystem => Self::TooManyOpenFilesSystem,
             KernelError::TooManyOpenFiles => Self::TooManyOpenFiles,
             KernelError::StorageOutOfBlocks | KernelError::StorageOutOfInodes => Self::StorageFull,
+            KernelError::OpenDirAsWritable => Self::IsADirectory,
+            KernelError::ArgumentListTooLong => Self::ArgumentListTooLong,
+            KernelError::InvalidExecutable => Self::ExecFormat,
             KernelError::SyscallDecode(_)
             | KernelError::CallerProcessAlreadyKilled
             | KernelError::Unknown => Self::Unknown,

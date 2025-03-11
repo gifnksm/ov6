@@ -25,8 +25,8 @@ pub enum SyscallError {
     #[error("argument list too long")]
     ArgumentListTooLong = 7,
     // ENOEXEC
-    // #[error("exec format error")]
-    // ExecFormat = 8,
+    #[error("exec format error")]
+    ExecFormat = 8,
     // EBADF
     #[error("bad file descriptor")]
     BadFileDescriptor = 9,
@@ -107,9 +107,19 @@ pub enum SyscallError {
     // MathNotRepresentable = 34,
     // // EDEADLK
     // #[error("resource deadlock avoided")]
-    // Deadlock = 35,
+    // // Deadlock = 35,
+    // ENAMETOOLONG
     #[error("file name too long")]
     InvalidFilename = 36,
+    // // EDEADLK
+    // #[error("resource deadlock avoided")]
+    // Deadlock = 37,
+    // // ENOSYS
+    // #[error("function not implemented")]
+    // FunctionNotImplemented = 38,
+    // ENOTEMPTY
+    #[error("directory not empty")]
+    DirectoryNotEmpty = 39,
     #[error("unknown error")]
     Unknown = -1,
 }

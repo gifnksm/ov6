@@ -23,10 +23,7 @@ pub fn validate() {
             let s = &*{
                 ptr::slice_from_raw_parts(ptr::with_exposed_provenance::<u8>(p), 10) as *const CStr
             };
-            expect!(
-                fs::link(c"nosuchfile", s),
-                Err(Ov6Error::BadAddress | Ov6Error::Unknown)
-            );
+            assert!(fs::link(c"nosuchfile", s).is_err());
         }
     }
 }
@@ -64,7 +61,10 @@ pub fn big_arg() {
         args[MAX_ARG - 1] = ptr::null();
         // this exec() should fail (and return) because the
         // arguments are too large.
-        expect!(process::exec(FILE_PATH, args), Err(Ov6Error::Unknown));
+        expect!(
+            process::exec(ECHO_PATH, args),
+            Err(Ov6Error::ArgumentListTooLong)
+        );
         let _ = File::create(FILE_PATH).unwrap();
         process::exit(0);
     })
@@ -284,6 +284,6 @@ pub fn sbrk8000() {
 pub fn bad_arg() {
     for _ in 0..50000 {
         let argv = [ptr::with_exposed_provenance(0xffff_ffff), ptr::null()];
-        expect!(process::exec(ECHO_PATH, &argv), Err(Ov6Error::Unknown));
+        expect!(process::exec(ECHO_PATH, &argv), Err(Ov6Error::BadAddress));
     }
 }

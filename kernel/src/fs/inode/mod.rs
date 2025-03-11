@@ -66,7 +66,10 @@ use super::{
     BlockNo, DeviceNo, InodeNo, SUPER_BLOCK, Tx,
     repr::{self, NUM_DIRECT_REFS},
 };
-use crate::{error::KernelError, sync::SleepLockGuard};
+use crate::{
+    error::KernelError,
+    sync::{SleepLockGuard, TryLockError},
+};
 
 mod alloc;
 mod content;
@@ -217,7 +220,7 @@ impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
     /// This also reads the inode from disk if it is not already in memory.
     /// Returns `Err()` if the inode is already locked.
     #[expect(clippy::needless_pass_by_ref_mut)]
-    pub fn try_lock<'a>(&'a mut self) -> Result<LockedTxInode<'tx, 'a, READ_ONLY>, KernelError> {
+    pub fn try_lock<'a>(&'a mut self) -> Result<LockedTxInode<'tx, 'a, READ_ONLY>, TryLockError> {
         let locked = self.data.try_lock()?;
         Ok(LockedTxInode::new(
             self.tx,

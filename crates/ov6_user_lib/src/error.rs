@@ -19,8 +19,8 @@ pub enum Ov6Error {
     // DeviceNotFound,
     #[error("argument list too long")]
     ArgumentListTooLong,
-    // #[error("exec format error")]
-    // ExecFormat,
+    #[error("exec format error")]
+    ExecFormat,
     #[error("bad file descriptor")]
     BadFileDescriptor,
     #[error("no child process")]
@@ -77,6 +77,12 @@ pub enum Ov6Error {
     // Deadlock,
     #[error("file name too long")]
     InvalidFilename,
+    // #[error("resource deadlock avoided")]
+    // Deadlock,
+    // #[error("function not implemented")]
+    // FunctionNotImplemented,
+    #[error("directory not empty")]
+    DirectoryNotEmpty,
 
     #[error("stream did not contain valid UTF-8")]
     InvalidUtf8,
@@ -102,6 +108,7 @@ impl From<SyscallError> for Ov6Error {
             SyscallError::FsEntryNotFound => Self::FsEntryNotFound,
             SyscallError::ProcessNotFound => Self::ProcessNotFound,
             SyscallError::ArgumentListTooLong => Self::ArgumentListTooLong,
+            SyscallError::ExecFormat => Self::ExecFormat,
             SyscallError::BadFileDescriptor => Self::BadFileDescriptor,
             SyscallError::NoChildProcess => Self::NoChildProcess,
             SyscallError::ResourceTempolaryUnavailable => Self::ResourceTempolaryUnavailable,
@@ -125,6 +132,7 @@ impl From<SyscallError> for Ov6Error {
             SyscallError::TooManyLinks => Self::TooManyLinks,
             SyscallError::BrokenPipe => Self::BrokenPipe,
             SyscallError::InvalidFilename => Self::InvalidFilename,
+            SyscallError::DirectoryNotEmpty => Self::DirectoryNotEmpty,
             SyscallError::Unknown => Self::Unknown,
         }
     }

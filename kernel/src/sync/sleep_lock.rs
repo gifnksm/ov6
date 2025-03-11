@@ -7,8 +7,8 @@ use core::{
 use mutex_api::Mutex;
 use ov6_types::process::ProcId;
 
-use super::SpinLock;
-use crate::{cpu::Cpu, error::KernelError, proc};
+use super::{SpinLock, TryLockError};
+use crate::{cpu::Cpu, proc};
 
 struct RawSleepLock {
     locked: SpinLock<(bool, Option<ProcId>)>,
@@ -27,10 +27,10 @@ impl RawSleepLock {
         }
     }
 
-    fn try_acquire(&self) -> Result<(), KernelError> {
+    fn try_acquire(&self) -> Result<(), TryLockError> {
         let mut locked = self.locked.try_lock()?;
         if locked.0 {
-            return Err(KernelError::Unknown);
+            return Err(TryLockError::Locked);
         }
 
         locked.0 = true;
@@ -78,7 +78,7 @@ impl<T> SleepLock<T> {
         }
     }
 
-    pub fn try_lock(&self) -> Result<SleepLockGuard<T>, KernelError> {
+    pub fn try_lock(&self) -> Result<SleepLockGuard<T>, TryLockError> {
         self.lock.try_acquire()?;
         Ok(SleepLockGuard { lock: self })
     }

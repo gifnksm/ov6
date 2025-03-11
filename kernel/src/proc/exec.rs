@@ -48,37 +48,28 @@ pub fn exec(
         size_of::<ElfHeader>(),
     )?;
     if nread != size_of::<ElfHeader>() {
-        return Err(KernelError::Unknown);
+        return Err(KernelError::InvalidExecutable);
     }
     if elf.magic != ELF_MAGIC {
-        return Err(KernelError::Unknown);
+        return Err(KernelError::InvalidExecutable);
     }
 
     let mut pt = UserPageTable::new(private.trapframe().unwrap())?;
 
     // Load program into memory.
-    if matches!(
-        load_segments(private, &mut lip, &mut pt, &elf),
-        Err(KernelError::Unknown)
-    ) {
-        return Err(KernelError::Unknown);
-    }
+    load_segments(private, &mut lip, &mut pt, &elf)?;
 
     lip.unlock();
     ip.put();
     tx.end();
 
-    if allocate_stack_pages(&mut pt).is_err() {
-        return Err(KernelError::Unknown);
-    }
+    allocate_stack_pages(&mut pt)?;
 
     let sp = pt.size();
     let stack_base = sp - USER_STACK * PAGE_SIZE;
 
     // Push argument strings, prepare rest of stack in ustack.
-    let Ok((sp, argc)) = push_arguments(&mut pt, sp, stack_base, argv) else {
-        return Err(KernelError::Unknown);
-    };
+    let (sp, argc) = push_arguments(&mut pt, sp, stack_base, argv)?;
 
     let argv = sp;
 
@@ -114,13 +105,13 @@ fn load_segments<const READ_ONLY: bool>(
             continue;
         }
         if ph.memsz < ph.filesz {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::InvalidExecutable);
         }
         if ph.vaddr.checked_add(ph.memsz).is_none() {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::InvalidExecutable);
         }
         if !usize::try_from(ph.vaddr).unwrap().is_page_aligned() {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::InvalidExecutable);
         }
         pagetable.grow_to(
             usize::try_from(ph.vaddr + ph.memsz).unwrap(),
@@ -165,7 +156,7 @@ fn load_segment<const READ_ONLY: bool>(
 
         let nread = lip.read(private, false, VirtAddr::new(pa.addr()), offset + i, n)?;
         if nread != n {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::InvalidExecutable);
         }
     }
 
@@ -206,7 +197,7 @@ fn push_arguments(
         sp -= arg.to_bytes_with_nul().len();
         sp -= sp % 16; // risc-v sp must be 16-byte aligned
         if sp < stack_base {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::ArgumentListTooLong);
         }
         vm::copy_out_bytes(pagetable, VirtAddr::new(sp), arg.to_bytes_with_nul())?;
         ustack[argc] = sp;
@@ -218,7 +209,7 @@ fn push_arguments(
     sp -= (argc + 1) * size_of::<usize>();
     sp -= sp % 16;
     if sp < stack_base {
-        return Err(KernelError::Unknown);
+        return Err(KernelError::ArgumentListTooLong);
     }
     let src =
         unsafe { slice::from_raw_parts(ustack.as_ptr().cast(), (argc + 1) * size_of::<usize>()) };

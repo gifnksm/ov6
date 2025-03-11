@@ -23,7 +23,7 @@ const BIG_PATH: &CStr = c"big";
 pub fn open_test() {
     let file = File::open(ECHO_PATH).unwrap();
     drop(file);
-    expect!(File::open(NOT_EXIST_PATH), Err(Ov6Error::Unknown));
+    expect!(File::open(NOT_EXIST_PATH), Err(Ov6Error::FsEntryNotFound));
 }
 
 pub fn too_many_open_files() {

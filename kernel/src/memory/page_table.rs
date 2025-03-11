@@ -18,7 +18,7 @@ impl PageTable {
     /// Allocates a new empty page table.
     pub(super) fn try_allocate() -> Result<Box<Self, PageFrameAllocator>, KernelError> {
         let pt = Box::try_new_zeroed_in(PageFrameAllocator)
-            .map_err(|AllocError| KernelError::Unknown)?;
+            .map_err(|AllocError| KernelError::NoFreePage)?;
         Ok(unsafe { pt.assume_init() })
     }
 

@@ -22,11 +22,11 @@ pub fn resolve<'a, const READ_ONLY: bool>(
         let mut lip = ip.lock();
         let mut dip_opt = lip.as_dir();
         let Some(dip) = &mut dip_opt else {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::NonDirectoryPathComponent);
         };
 
         let Some((next, _off)) = dip.lookup(private, name) else {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::FsEntryNotFound);
         };
 
         drop(lip);

@@ -56,7 +56,7 @@ pub fn test2() {
             let big = CStr::from_ptr(((&raw const BIG).cast::<c_char>()).cast());
 
             let args = [big.as_ptr(), big.as_ptr(), big.as_ptr(), ptr::null()];
-            expect!(process::exec(ECHO_PATH, &args), Err(Ov6Error::Unknown));
+            expect!(process::exec(ECHO_PATH, &args), Err(Ov6Error::BadAddress));
         }
         process::exit(747);
     })

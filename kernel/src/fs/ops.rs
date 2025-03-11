@@ -1,5 +1,8 @@
 use dataview::PodMethods as _;
-use ov6_types::{os_str::OsStr, path::Path};
+use ov6_types::{
+    os_str::OsStr,
+    path::{Component, Path},
+};
 
 use super::{
     DeviceNo, Tx,
@@ -9,32 +12,43 @@ use super::{
 };
 use crate::{error::KernelError, fs::repr, proc::ProcPrivateData};
 
+fn split_path(path: &Path) -> Option<(&Path, &OsStr)> {
+    let mut it = path.components();
+    let file_name = it
+        .next_back()
+        .filter(|p| *p != Component::RootDir)?
+        .as_os_str();
+    let dir_path = it.as_path();
+    Some((dir_path, file_name))
+}
+
 pub fn unlink(
     tx: &Tx<false>,
     private: &mut ProcPrivateData,
     path: &Path,
 ) -> Result<(), KernelError> {
-    let dir_path = path.parent().ok_or(KernelError::Unknown)?;
-    let file_name = path.file_name().ok_or(KernelError::Unknown)?;
+    let (dir_path, file_name) = split_path(path).ok_or(KernelError::UnlinkRootDir)?;
     let mut dir_ip = path::resolve(tx, private, dir_path)?;
 
-    // Cannot unlink "." of "..".
+    // Cannot unlink "." or "..".
     if file_name == ".." || file_name == "." {
         return Err(KernelError::Unknown);
     }
 
     let mut dir_lip = dir_ip.lock();
-    let mut dir_dp = dir_lip.as_dir().ok_or(KernelError::Unknown)?;
+    let mut dir_dp = dir_lip
+        .as_dir()
+        .ok_or(KernelError::NonDirectoryPathComponent)?;
 
     let (mut file_ip, off) = dir_dp
         .lookup(private, file_name)
-        .ok_or(KernelError::Unknown)?;
+        .ok_or(KernelError::FsEntryNotFound)?;
     let mut file_lip = file_ip.lock();
 
     assert!(file_lip.data().nlink > 0);
     if let Some(mut file_dp) = file_lip.as_dir() {
         if !file_dp.is_empty(private) {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::DirectoryNotEmpty);
         }
     }
 
@@ -63,14 +77,13 @@ pub fn create<'tx>(
     major: DeviceNo,
     minor: i16,
 ) -> Result<TxInode<'tx, false>, KernelError> {
-    let dir_path = path.parent().ok_or(KernelError::Unknown)?;
-    let file_name = path.file_name().ok_or(KernelError::Unknown)?;
+    let (dir_path, file_name) = split_path(path).ok_or(KernelError::CreateRootDir)?;
     let mut dir_ip = path::resolve(tx, private, dir_path)?;
 
     let mut dir_lip = dir_ip.lock();
-    let Some(mut dir_dp) = dir_lip.as_dir() else {
-        return Err(KernelError::Unknown);
-    };
+    let mut dir_dp = dir_lip
+        .as_dir()
+        .ok_or(KernelError::NonDirectoryPathComponent)?;
 
     if let Some((mut file_ip, _off)) = dir_dp.lookup(private, file_name) {
         let file_lip = file_ip.lock();
@@ -78,7 +91,7 @@ pub fn create<'tx>(
             drop(file_lip);
             return Ok(file_ip);
         }
-        return Err(KernelError::Unknown);
+        return Err(KernelError::CreateAlreadyExists);
     }
 
     let mut file_ip = TxInode::alloc(tx, dir_dp.dev(), ty)?;
@@ -115,23 +128,22 @@ pub fn link(
     old_path: &Path,
     new_path: &Path,
 ) -> Result<(), KernelError> {
-    let new_dir_path = new_path.parent().ok_or(KernelError::Unknown)?;
-    let new_file_name = new_path.file_name().ok_or(KernelError::Unknown)?;
+    let (new_dir_path, new_file_name) = split_path(new_path).ok_or(KernelError::LinkRootDir)?;
 
     let mut old_ip = path::resolve(tx, private, old_path)?;
     let old_lip = old_ip.lock();
     if old_lip.is_dir() {
-        return Err(KernelError::Unknown);
+        return Err(KernelError::NonDirectoryPathComponent);
     }
     old_lip.unlock();
 
     let mut new_dir_ip = path::resolve(tx, private, new_dir_path)?;
     let mut new_dir_lip = new_dir_ip.lock();
     if new_dir_lip.dev() != old_ip.dev() {
-        return Err(KernelError::Unknown);
+        return Err(KernelError::LinkCrossDevices);
     }
     let Some(mut new_dir_dp) = new_dir_lip.as_dir() else {
-        return Err(KernelError::Unknown);
+        return Err(KernelError::LinkToNonDirectory);
     };
     new_dir_dp.link(private, new_file_name, old_ip.ino())?;
 

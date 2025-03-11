@@ -37,7 +37,7 @@ use crate::{
     },
     param::{NOFILE, NPROC},
     println,
-    sync::{SpinLock, SpinLockCondVar, SpinLockGuard},
+    sync::{SpinLock, SpinLockCondVar, SpinLockGuard, TryLockError},
     syscall::ReturnValue,
 };
 
@@ -173,7 +173,7 @@ impl ProcShared {
         self.0.lock()
     }
 
-    pub fn try_lock(&self) -> Result<SpinLockGuard<ProcSharedData>, KernelError> {
+    pub fn try_lock(&self) -> Result<SpinLockGuard<ProcSharedData>, TryLockError> {
         self.0.try_lock()
     }
 
@@ -268,12 +268,10 @@ impl ProcPrivateData {
 
     pub fn validate_addr(&self, addr_range: Range<VirtAddr>) -> Result<(), KernelError> {
         let end = VirtAddr::new(self.pagetable().unwrap().size());
-        // both tests needed, in case of overflow
-        if addr_range.start < end && addr_range.end <= end {
-            Ok(())
-        } else {
-            Err(KernelError::Unknown)
+        if addr_range.end > end {
+            return Err(KernelError::AddressNotMapped(addr_range.end));
         }
+        Ok(())
     }
 }
 
@@ -421,7 +419,7 @@ impl Proc {
             // Allocate a trapframe page.
             private.trapframe = Some(
                 Box::try_new_in(TrapFrame::zeroed(), PageFrameAllocator)
-                    .map_err(|AllocError| KernelError::Unknown)?,
+                    .map_err(|AllocError| KernelError::NoFreePage)?,
             );
             // An empty user page table.
             private.pagetable = Some(UserPageTable::new(private.trapframe().unwrap())?);
@@ -680,24 +678,16 @@ pub fn wait(
                 let pp_private = pp.take_private();
 
                 let pid = pp_shared.pid.unwrap();
-                if addr.addr() != 0
-                    && vm::copy_out(
+                if addr.addr() != 0 {
+                    vm::copy_out(
                         p_private.pagetable_mut().unwrap(),
                         VirtAddr::new(addr.addr()),
                         &exit_status,
-                    )
-                    .is_err()
-                {
-                    drop(pp_shared);
-                    drop(wait_lock);
-                    return Err(KernelError::Unknown);
+                    )?;
                 }
                 pp.free(pp_private, &mut pp_shared);
-                drop(pp_shared);
-                drop(wait_lock);
                 return Ok(pid);
             }
-            drop(pp_shared);
         }
 
         // No point waiting if we don't have any children.

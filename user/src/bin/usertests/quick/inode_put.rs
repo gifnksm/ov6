@@ -32,7 +32,7 @@ pub fn open_test() {
     let child = process::fork_fn(|| {
         expect!(
             File::options().read(true).write(true).open(OIDIR_PATH),
-            Err(Ov6Error::Unknown),
+            Err(Ov6Error::IsADirectory),
         );
         process::exit(0);
     })

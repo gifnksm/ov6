@@ -93,7 +93,7 @@ impl DirInode<'_, '_, '_, false> {
     ) -> Result<(), KernelError> {
         // Check that name is not present.
         if self.lookup(private, name).is_some() {
-            return Err(KernelError::Unknown);
+            return Err(KernelError::LinkAlreadyExists);
         }
 
         // Looks for an empty dirent.
@@ -112,7 +112,6 @@ impl DirInode<'_, '_, '_, false> {
         de.set_name(name);
         de.set_ino(Some(ino));
         self.0.write_data(private, off, &de)?;
-        // write_inode_data(tx, p, NonNull::new(dp).unwrap(), off, de)?;
         Ok(())
     }
 }

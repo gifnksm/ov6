@@ -133,7 +133,7 @@ pub fn sys_open(
         let mut ip = fs::path::resolve(&tx, private, path)?;
         let lip = ip.lock();
         if lip.is_dir() && mode != OpenFlags::READ_ONLY {
-            return Err(KernelError::Unknown.into());
+            return Err(KernelError::OpenDirAsWritable.into());
         }
         lip.unlock();
         ip
@@ -205,7 +205,7 @@ pub fn sys_chdir(
     let tx = fs::begin_tx();
     let mut ip = fs::path::resolve(&tx, private, path)?;
     if !ip.lock().is_dir() {
-        return Err(KernelError::Unknown.into());
+        return Err(KernelError::ChdirNotDir.into());
     }
     let old = private.update_cwd(Inode::from_tx(&ip));
     old.into_tx(&tx).put();
@@ -244,13 +244,13 @@ pub fn sys_exec(
         Ok(())
     })();
 
-    if res.is_err() {
+    if let Err(e) = res {
         for arg in argv.iter().filter_map(|&a| a) {
             unsafe {
                 page::free_page(arg);
             }
         }
-        return Err(KernelError::Unknown);
+        return Err(e);
     }
 
     let ret = exec::exec(p, private, path, argv.as_ptr().cast());
@@ -273,25 +273,24 @@ pub fn sys_pipe(
 
     let (rf, wf) = File::new_pipe()?;
 
-    let Ok(rfd) = fd_alloc(private, rf) else {
-        return Err(KernelError::Unknown.into());
-    };
-    let Ok(wfd) = fd_alloc(private, wf) else {
-        private.unset_ofile(rfd);
-        return Err(KernelError::Unknown.into());
+    let rfd = fd_alloc(private, rf)?;
+    let wfd = match fd_alloc(private, wf) {
+        Ok(wfd) => wfd,
+        Err(e) => {
+            private.unset_ofile(rfd);
+            return Err(e.into());
+        }
     };
 
     let fds = [rfd, wfd];
-    if vm::copy_out(
+    if let Err(e) = vm::copy_out(
         private.pagetable_mut().unwrap(),
         VirtAddr::new(fd_array.addr()),
         &fds,
-    )
-    .is_err()
-    {
+    ) {
         private.unset_ofile(rfd);
         private.unset_ofile(wfd);
-        return Err(KernelError::Unknown.into());
+        return Err(e.into());
     }
 
     Ok(())

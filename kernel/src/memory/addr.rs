@@ -131,10 +131,12 @@ impl VirtAddr {
     }
 
     pub const fn byte_add(self, offset: usize) -> Self {
+        // FIXME: need overflow check
         Self(self.0 + offset)
     }
 
     pub const fn byte_sub(self, offset: usize) -> Self {
+        // FIXME: need overflow check
         Self(self.0 - offset)
     }
 
@@ -183,6 +185,7 @@ impl PhysAddr {
     }
 
     pub fn byte_add(self, offset: usize) -> Self {
+        // FIXME: need overflow check
         Self(self.0 + offset)
     }
 
