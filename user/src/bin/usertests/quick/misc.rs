@@ -267,6 +267,8 @@ pub fn sbrk_last() {
         file.read(slice::from_raw_parts_mut(p, 1)).unwrap();
         assert_eq!(p.add(0).read(), b'x');
     }
+
+    fs::remove_file(c"x").unwrap();
 }
 
 /// does sbrk handle signed int32 wrap-around with
