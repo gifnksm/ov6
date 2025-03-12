@@ -494,12 +494,12 @@ pub fn fourteen() {
 pub fn rm_dot() {
     fs::create_dir(c"dots").unwrap();
     env::set_current_directory(c"dots").unwrap();
-    expect!(fs::remove_file(c"."), Err(Ov6Error::Unknown));
-    expect!(fs::remove_file(c".."), Err(Ov6Error::Unknown));
+    expect!(fs::remove_file(c"."), Err(Ov6Error::InvalidInput));
+    expect!(fs::remove_file(c".."), Err(Ov6Error::InvalidInput));
 
     env::set_current_directory(c"/").unwrap();
-    expect!(fs::remove_file(c"dots/."), Err(Ov6Error::Unknown));
-    expect!(fs::remove_file(c"dots/.."), Err(Ov6Error::Unknown));
+    expect!(fs::remove_file(c"dots/."), Err(Ov6Error::InvalidInput));
+    expect!(fs::remove_file(c"dots/.."), Err(Ov6Error::InvalidInput));
     fs::remove_file(c"dots").unwrap();
 }
 

@@ -174,7 +174,7 @@ fn allocate_stack_pages(pagetable: &mut UserPageTable) -> Result<(), KernelError
     pagetable.grow_to(size + (USER_STACK + 1) * PAGE_SIZE, PtEntryFlags::W)?;
     pagetable.forbide_user_access(VirtAddr::new(
         pagetable.size() - (USER_STACK + 1) * PAGE_SIZE,
-    ));
+    ))?;
     Ok(())
 }
 

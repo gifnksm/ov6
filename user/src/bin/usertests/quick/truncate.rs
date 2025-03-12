@@ -64,7 +64,7 @@ pub fn test2() {
         .open(FILE_PATH)
         .unwrap();
 
-    expect!(file1.write(b"x"), Err(Ov6Error::Unknown));
+    expect!(file1.write(b"x"), Err(Ov6Error::NotSeekable));
 
     fs::remove_file(FILE_PATH).unwrap();
 }

@@ -5,7 +5,7 @@ use ov6_types::{fs::RawFd, process::ProcId};
 use crate::{fs::DeviceNo, memory::VirtAddr};
 
 #[derive(Debug, thiserror::Error)]
-pub enum KernelError {
+pub(crate) enum KernelError {
     #[error("no free process found")]
     NoFreeProc,
     #[error("no free page found")]
@@ -36,8 +36,12 @@ pub enum KernelError {
     FsEntryNotFound,
     #[error("directory not empty")]
     DirectoryNotEmpty,
+    #[error("write offset too large")]
+    WriteOffsetTooLarge,
     #[error("unlink root directory")]
     UnlinkRootDir,
+    #[error("unlink dot directories")]
+    UnlinkDots,
     #[error("create root directory")]
     CreateRootDir,
     #[error("create already exist entry")]
@@ -84,8 +88,6 @@ pub enum KernelError {
     SyscallDecode(#[from] RegisterDecodeError),
     #[error("caller process already killed")]
     CallerProcessAlreadyKilled,
-    #[error("unknown error")]
-    Unknown,
 }
 
 impl From<KernelError> for SyscallError {
@@ -109,7 +111,9 @@ impl From<KernelError> for SyscallError {
             | KernelError::LinkToNonDirectory => Self::NotADirectory,
             KernelError::FsEntryNotFound => Self::FsEntryNotFound,
             KernelError::DirectoryNotEmpty => Self::DirectoryNotEmpty,
+            KernelError::WriteOffsetTooLarge => Self::NotSeekable,
             KernelError::UnlinkRootDir => Self::ResourceBusy,
+            KernelError::UnlinkDots => Self::InvalidInput,
             KernelError::CreateRootDir
             | KernelError::CreateAlreadyExists
             | KernelError::LinkRootDir
@@ -128,9 +132,9 @@ impl From<KernelError> for SyscallError {
                 Self::ArgumentListTooLong
             }
             KernelError::InvalidExecutable => Self::ExecFormat,
-            KernelError::SyscallDecode(_)
-            | KernelError::CallerProcessAlreadyKilled
-            | KernelError::Unknown => Self::Unknown,
+            KernelError::SyscallDecode(_) | KernelError::CallerProcessAlreadyKilled => {
+                Self::Unknown
+            }
         }
     }
 }

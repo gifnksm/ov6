@@ -214,9 +214,7 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
             off,
             size_of::<T>(),
         )?;
-        if read != size_of::<T>() {
-            return Err(KernelError::Unknown);
-        }
+        assert_eq!(read, size_of::<T>());
         Ok(unsafe { dst.assume_init() })
     }
 }
@@ -244,7 +242,7 @@ impl LockedTxInode<'_, '_, false> {
         let size = self.data().size as usize;
         if off > size {
             // TODO: expand file as Linux does
-            return Err(KernelError::Unknown);
+            return Err(KernelError::WriteOffsetTooLarge);
         }
 
         let mut tot = 0;
@@ -309,9 +307,7 @@ impl LockedTxInode<'_, '_, false> {
             off,
             size_of::<T>(),
         )?;
-        if written != size_of::<T>() {
-            return Err(KernelError::Unknown);
-        }
+        assert_eq!(written, size_of::<T>());
         Ok(())
     }
 }

@@ -111,7 +111,7 @@ impl PageTable {
     /// Unmaps the page of memory at virtual address `va`.
     ///
     /// Returns the physical address of the page that was unmapped.
-    fn upmap_page(&mut self, va: VirtAddr) -> PhysAddr {
+    fn upmap_page(&mut self, va: VirtAddr) -> Result<PhysAddr, KernelError> {
         assert!(va.is_page_aligned(), "va={va:?}");
 
         self.update_level0_entry(va, false, |pte| {
@@ -121,7 +121,6 @@ impl PageTable {
             pte.clear();
             pa
         })
-        .unwrap()
     }
 
     /// Unmaps the pages of memory starting at virtual address `va` and
@@ -178,7 +177,7 @@ impl PageTable {
             let index = Self::entry_index(level, va);
             if !pt.0[index].is_valid() {
                 if !insert_new_table {
-                    return Err(KernelError::Unknown);
+                    return Err(KernelError::AddressNotMapped(va));
                 }
                 let new_pt = Self::try_allocate()?;
                 pt.0[index].set_page_table(new_pt);
@@ -312,7 +311,7 @@ pub(super) struct UnmapPages<'a> {
 }
 
 impl Iterator for UnmapPages<'_> {
-    type Item = PhysAddr;
+    type Item = Result<PhysAddr, KernelError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let i = self.offsets.next()?;

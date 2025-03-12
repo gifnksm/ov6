@@ -121,6 +121,7 @@ impl UserPageTable {
             for pa in self
                 .pt
                 .unmap_pages(VirtAddr::new(new_size.page_roundup()), npages)
+                .flatten()
             {
                 unsafe {
                     page::free_page(pa.as_mut_ptr());
@@ -163,14 +164,12 @@ impl UserPageTable {
     /// Marks a PTE invalid for user access.
     ///
     /// Used by exec for the user stackguard page.
-    pub fn forbide_user_access(&mut self, va: VirtAddr) {
-        self.pt
-            .update_level0_entry(va, false, |pte| {
-                let mut flags = pte.flags();
-                flags.remove(PtEntryFlags::U);
-                pte.set_flags(flags);
-            })
-            .unwrap();
+    pub fn forbide_user_access(&mut self, va: VirtAddr) -> Result<(), KernelError> {
+        self.pt.update_level0_entry(va, false, |pte| {
+            let mut flags = pte.flags();
+            flags.remove(PtEntryFlags::U);
+            pte.set_flags(flags);
+        })
     }
 
     pub fn resolve_virtual_address(
@@ -205,7 +204,7 @@ impl Drop for UserPageTable {
 
         if self.size > 0 {
             let npages = self.size.page_roundup() / PAGE_SIZE;
-            for pa in self.pt.unmap_pages(VirtAddr::new(0), npages) {
+            for pa in self.pt.unmap_pages(VirtAddr::new(0), npages).flatten() {
                 unsafe {
                     page::free_page(pa.as_mut_ptr());
                 }

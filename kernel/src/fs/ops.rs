@@ -32,7 +32,7 @@ pub fn unlink(
 
     // Cannot unlink "." or "..".
     if file_name == ".." || file_name == "." {
-        return Err(KernelError::Unknown);
+        return Err(KernelError::UnlinkDots);
     }
 
     let mut dir_lip = dir_ip.lock();
