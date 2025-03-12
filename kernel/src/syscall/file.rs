@@ -41,9 +41,7 @@ pub fn sys_read(
     let private = private.as_mut().unwrap();
     let Ok((fd, data)) = super::decode_arg::<sys::Read>(private.trapframe().unwrap());
     let file = private.ofile(fd)?;
-    let n = file
-        .clone()
-        .read(p, private, VirtAddr::new(data.addr()), data.len())?;
+    let n = file.clone().read(p, private, data)?;
     Ok(n)
 }
 
@@ -52,11 +50,9 @@ pub fn sys_write(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Write> {
     let private = private.as_mut().unwrap();
-    let Ok((fd, data)) = super::decode_arg::<sys::Read>(private.trapframe().unwrap());
+    let Ok((fd, data)) = super::decode_arg::<sys::Write>(private.trapframe().unwrap());
     let file = private.ofile(fd)?;
-    let n = file
-        .clone()
-        .write(p, private, VirtAddr::new(data.addr()), data.len())?;
+    let n = file.clone().write(p, private, data)?;
     Ok(n)
 }
 
@@ -78,7 +74,7 @@ pub fn sys_fstat(
     let private = private.as_mut().unwrap();
     let Ok((fd, stat)) = super::decode_arg::<sys::Fstat>(private.trapframe().unwrap());
     let file = private.ofile(fd)?;
-    file.clone().stat(private, VirtAddr::new(stat.addr()))?;
+    file.clone().stat(private, stat)?;
     Ok(())
 }
 
@@ -222,17 +218,19 @@ pub fn sys_exec(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> Result<(usize, usize), KernelError> {
     let private = private.as_mut().unwrap();
-    let Ok((path_ptr, argv_ptr)) = super::decode_arg::<sys::Exec>(private.trapframe().unwrap());
+    let Ok((path_ptr, uargv)) = super::decode_arg::<sys::Exec>(private.trapframe().unwrap());
     let mut path = [0; MAX_PATH];
     let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
     let path = Path::new(OsStr::from_bytes(path));
-    let uargv = VirtAddr::new(argv_ptr.addr());
 
     let mut argv: ArrayVec<Box<[u8; PAGE_SIZE], PageFrameAllocator>, { MAX_ARG - 1 }> =
         ArrayVec::new();
 
-    for i in 0.. {
-        let uarg = syscall::fetch_addr(private, uargv.byte_add(i * size_of::<usize>()))?;
+    for i in 0..uargv.len() {
+        let uarg = VirtAddr::new(vm::copy_in(
+            private.pagetable().unwrap(),
+            uargv.nth(i).cast::<usize>(),
+        )?);
         if uarg.addr() == 0 {
             break;
         }
@@ -268,11 +266,7 @@ pub fn sys_pipe(
     };
 
     let fds = [rfd, wfd];
-    if let Err(e) = vm::copy_out(
-        private.pagetable_mut().unwrap(),
-        VirtAddr::new(fd_array.addr()),
-        &fds,
-    ) {
+    if let Err(e) = vm::copy_out(private.pagetable_mut().unwrap(), fd_array, &fds) {
         private.unset_ofile(rfd);
         private.unset_ofile(wfd);
         return Err(e.into());

@@ -13,7 +13,7 @@ use crate::{
     error::KernelError,
     file::{self, Device},
     fs::DeviceNo,
-    memory::VirtAddr,
+    memory::addr::{GenericMutSlice, GenericSlice},
     proc::{self, Proc, ProcPrivateData},
     sync::{SpinLock, SpinLockCondVar},
 };
@@ -67,15 +67,10 @@ static CONSOLE_BUFFER_WRITTEN: SpinLockCondVar = SpinLockCondVar::new();
 /// Writes the bytes to the console.
 ///
 /// User write()s to the console go here.
-fn write(
-    private: &ProcPrivateData,
-    user_src: bool,
-    src: usize,
-    n: usize,
-) -> Result<usize, KernelError> {
-    for i in 0..n {
+fn write(private: &ProcPrivateData, src: GenericSlice<u8>) -> Result<usize, KernelError> {
+    for i in 0..src.len() {
         let mut c: [u8; 1] = [0];
-        if let Err(e) = proc::either_copy_in_bytes(private, &mut c, user_src, src + i) {
+        if let Err(e) = proc::either_copy_in_bytes(private, &mut c, src.skip(i).take(1)) {
             if i > 0 {
                 return Ok(i);
             }
@@ -83,7 +78,7 @@ fn write(
         }
         uart::putc(c[0] as char);
     }
-    Ok(n)
+    Ok(src.len())
 }
 
 /// Reads the bytes from the console.
@@ -95,13 +90,11 @@ fn write(
 fn read(
     p: &Proc,
     private: &mut ProcPrivateData,
-    user_dst: bool,
-    mut dst: usize,
-    mut n: usize,
+    mut dst: GenericMutSlice<u8>,
 ) -> Result<usize, KernelError> {
-    let target = n;
+    let mut i = 0;
     let mut cons = CONSOLE_BUFFER.lock();
-    while n > 0 {
+    while i < dst.len() {
         // wait until interrupt handler has put some
         // input into cons.buffer.
         while cons.r == cons.w {
@@ -119,7 +112,7 @@ fn read(
         if c == CTRL_D {
             // Save ^D for next time, to make sure
             // caller gets a 0-byte result.
-            if n < target {
+            if i < dst.len() {
                 cons.r -= 1;
             }
             break;
@@ -127,15 +120,14 @@ fn read(
 
         // copy the input byte to the user-space buffer.
         let cbuf = &[c];
-        if let Err(e) = proc::either_copy_out_bytes(private, user_dst, dst, cbuf) {
-            if target - n > 0 {
+        if let Err(e) = proc::either_copy_out_bytes(private, dst.skip_mut(i).take_mut(1), cbuf) {
+            if i > 0 {
                 break;
             }
             return Err(e);
         }
 
-        dst += 1;
-        n -= 1;
+        i += 1;
 
         if c == b'\n' {
             // a whole line has arrived, return to
@@ -143,7 +135,7 @@ fn read(
             break;
         }
     }
-    Ok(target - n)
+    Ok(i)
 }
 
 /// Handles console input interrupts.
@@ -197,21 +189,17 @@ pub fn handle_interrupt(c: u8) {
 fn console_write(
     _p: &Proc,
     private: &mut ProcPrivateData,
-    user_src: bool,
-    src: VirtAddr,
-    n: usize,
+    src: GenericSlice<u8>,
 ) -> Result<usize, KernelError> {
-    write(private, user_src, src.addr(), n)
+    write(private, src)
 }
 
 fn console_read(
     p: &Proc,
     private: &mut ProcPrivateData,
-    user_dst: bool,
-    dst: VirtAddr,
-    n: usize,
+    dst: GenericMutSlice<u8>,
 ) -> Result<usize, KernelError> {
-    read(p, private, user_dst, dst.addr(), n)
+    read(p, private, dst)
 }
 
 pub fn init() {

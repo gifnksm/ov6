@@ -27,6 +27,7 @@ arrayvec.workspace = true
 bitflags.workspace = true
 block_io.workspace = true
 dataview.workspace = true
+derive_more.workspace = true
 mutex_api.workspace = true
 once_init.workspace = true
 ov6_fs_types.workspace = true

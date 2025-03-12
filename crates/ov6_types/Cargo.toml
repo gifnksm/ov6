@@ -15,3 +15,6 @@ workspace = true
 
 [features]
 alloc = []
+
+[dependencies]
+dataview.workspace = true

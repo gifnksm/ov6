@@ -1,8 +1,10 @@
+use ov6_syscall::{Stat, UserMutRef, UserMutSlice, UserSlice};
+
 use super::{File, FileData, FileDataArc, SpecificData};
 use crate::{
     error::KernelError,
     fs::{DeviceNo, Inode},
-    memory::VirtAddr,
+    memory::addr::{GenericMutSlice, GenericSlice},
     param::NDEV,
     proc::{Proc, ProcPrivateData},
     sync::SpinLock,
@@ -12,16 +14,12 @@ pub struct Device {
     pub read: fn(
         p: &Proc,
         private: &mut ProcPrivateData,
-        user_src: bool,
-        src: VirtAddr,
-        size: usize,
+        dst: GenericMutSlice<u8>,
     ) -> Result<usize, KernelError>,
     pub write: fn(
         p: &Proc,
         private: &mut ProcPrivateData,
-        user_dst: bool,
-        dst: VirtAddr,
-        size: usize,
+        src: GenericSlice<u8>,
     ) -> Result<usize, KernelError>,
 }
 
@@ -78,38 +76,36 @@ impl DeviceFile {
     pub(super) fn stat(
         &self,
         private: &mut ProcPrivateData,
-        addr: VirtAddr,
+        dst: UserMutRef<Stat>,
     ) -> Result<(), KernelError> {
-        super::common::stat_inode(&self.inode, private, addr)
+        super::common::stat_inode(&self.inode, private, dst)
     }
 
     pub(super) fn read(
         &self,
         p: &Proc,
         private: &mut ProcPrivateData,
-        addr: VirtAddr,
-        n: usize,
+        dst: UserMutSlice<u8>,
     ) -> Result<usize, KernelError> {
         let read = DEVICE_TABLE
             .lock()
             .get_device(self.major)
             .ok_or(KernelError::DeviceNotFound(self.major))?
             .read;
-        read(p, private, true, addr, n)
+        read(p, private, dst.into())
     }
 
     pub(super) fn write(
         &self,
         p: &Proc,
         private: &mut ProcPrivateData,
-        addr: VirtAddr,
-        n: usize,
+        src: UserSlice<u8>,
     ) -> Result<usize, KernelError> {
         let write = DEVICE_TABLE
             .lock()
             .get_device(self.major)
             .ok_or(KernelError::DeviceNotFound(self.major))?
             .write;
-        write(p, private, true, addr, n)
+        write(p, private, src.into())
     }
 }

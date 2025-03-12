@@ -1,10 +1,12 @@
 //! Format of an ELF executable file
 
+use dataview::Pod;
+
 pub const ELF_MAGIC: u32 = 0x46_4c_45_7f; // "\x7FELF" in dittle endian
 
 /// File Header
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Pod)]
 pub struct ElfHeader {
     pub magic: u32,
     pub elf: [u8; 12],
@@ -47,7 +49,7 @@ impl ElfHeader {
 
 /// Program section header
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Pod)]
 pub struct ProgramHeader {
     pub ty: u32,
     pub flags: u32,

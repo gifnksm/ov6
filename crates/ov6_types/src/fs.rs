@@ -1,6 +1,8 @@
 use core::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+use dataview::Pod;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Pod)]
 #[repr(transparent)]
 pub struct RawFd(usize);
 

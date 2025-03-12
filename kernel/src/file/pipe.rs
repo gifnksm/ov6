@@ -1,9 +1,11 @@
 use alloc::sync::Arc;
 
+use ov6_syscall::{UserMutSlice, UserSlice};
+
 use super::{File, FileData, FileDataArc, SpecificData};
 use crate::{
     error::KernelError,
-    memory::{VirtAddr, page::PageFrameAllocator, vm},
+    memory::{page::PageFrameAllocator, vm},
     proc::{Proc, ProcPrivateData},
     sync::{SpinLock, SpinLockCondVar},
 };
@@ -81,13 +83,12 @@ impl PipeFile {
         &self,
         p: &Proc,
         private: &ProcPrivateData,
-        addr: VirtAddr,
-        n: usize,
+        src: UserSlice<u8>,
     ) -> Result<usize, KernelError> {
         let mut nwritten = 0;
 
         let mut pipe = self.0.data.lock();
-        while nwritten < n {
+        while nwritten < src.len() {
             if !pipe.read_open {
                 if nwritten > 0 {
                     break;
@@ -103,17 +104,20 @@ impl PipeFile {
                 continue;
             }
 
-            let byte = match vm::copy_in(private.pagetable().unwrap(), addr.byte_add(nwritten)) {
-                Ok(byte) => byte,
-                Err(e) => {
-                    if nwritten > 0 {
-                        break;
-                    }
-                    return Err(e);
+            let mut byte = [0];
+            if let Err(e) = vm::copy_in_bytes(
+                private.pagetable().unwrap(),
+                &mut byte,
+                src.skip(nwritten).take(1),
+            ) {
+                if nwritten > 0 {
+                    break;
                 }
-            };
+                return Err(e);
+            }
+
             let idx = pipe.nwrite % PIPE_SIZE;
-            pipe.data[idx] = byte;
+            pipe.data[idx] = byte[0];
             pipe.nwrite += 1;
             nwritten += 1;
         }
@@ -125,8 +129,7 @@ impl PipeFile {
         &self,
         p: &Proc,
         private: &mut ProcPrivateData,
-        addr: VirtAddr,
-        n: usize,
+        dst: UserMutSlice<u8>,
     ) -> Result<usize, KernelError> {
         let mut pipe = self.0.data.lock();
         while pipe.nread == pipe.nwrite && pipe.write_open {
@@ -136,16 +139,18 @@ impl PipeFile {
             pipe = self.0.reader_cond.wait(pipe);
         }
         let mut nread = 0;
-        while nread < n {
+        while nread < dst.len() {
             if pipe.nread == pipe.nwrite {
                 break;
             }
             let ch = pipe.data[pipe.nread % PIPE_SIZE];
             pipe.nread += 1;
 
-            if let Err(e) =
-                vm::copy_out(private.pagetable_mut().unwrap(), addr.byte_add(nread), &ch)
-            {
+            if let Err(e) = vm::copy_out_bytes(
+                private.pagetable_mut().unwrap(),
+                dst.skip_mut(nread).take_mut(1),
+                &[ch],
+            ) {
                 if nread > 0 {
                     break;
                 }

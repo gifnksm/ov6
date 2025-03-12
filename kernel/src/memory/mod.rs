@@ -6,7 +6,7 @@ pub const PAGE_SIZE: usize = 4096;
 /// Bits of offset within a page
 pub const PAGE_SHIFT: usize = 12;
 
-mod addr;
+pub mod addr;
 pub mod heap;
 pub mod kernel;
 pub mod layout;

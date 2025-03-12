@@ -5,9 +5,7 @@
 //! are listed in `addrs[]`.  The next `NUM_INDIRECT_REFS` blocks are
 //! listed in block `[NUM_DIRECT_REFS]`.
 
-use core::{mem::MaybeUninit, ptr};
-
-use dataview::Pod;
+use dataview::{Pod, PodMethods as _};
 
 use super::LockedTxInode;
 use crate::{
@@ -16,7 +14,7 @@ use crate::{
         BlockNo, SUPER_BLOCK, data_block,
         repr::{self, FS_BLOCK_SIZE, MAX_FILE, NUM_DIRECT_REFS, NUM_INDIRECT_REFS},
     },
-    memory::VirtAddr,
+    memory::addr::{GenericMutSlice, GenericSlice},
     proc::{self, ProcPrivateData},
 };
 
@@ -150,24 +148,21 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
     pub fn read(
         &mut self,
         private: &mut ProcPrivateData,
-        user_dst: bool,
-        dst: VirtAddr,
+        mut dst: GenericMutSlice<u8>,
         off: usize,
-        mut n: usize,
     ) -> Result<usize, KernelError> {
         let data = self.data();
         let size = data.size as usize;
-        if off > size || off.checked_add(n).is_none() {
+        if off > size || off.checked_add(dst.len()).is_none() {
             return Ok(0);
         }
-        if off + n > size {
-            n = size - off;
-        }
+        let len = usize::min(dst.len(), size - off);
+        let mut dst = dst.take_mut(len);
 
         let mut tot = 0;
-        while tot < n {
+        while tot < dst.len() {
             let off = off + tot;
-            let dst = dst.byte_add(tot);
+            let mut dst = dst.skip_mut(tot);
             let bn = match self.get_or_alloc_data_block(off / FS_BLOCK_SIZE) {
                 Ok(Some(bn)) => bn,
                 Ok(None) => break,
@@ -180,13 +175,11 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
             };
             let mut br = self.tx.get_block(self.dev, bn);
             let Ok(bg) = br.lock().read();
-            let m = usize::min(n - tot, FS_BLOCK_SIZE - off % FS_BLOCK_SIZE);
-            if let Err(e) = proc::either_copy_out_bytes(
-                private,
-                user_dst,
-                dst.addr(),
-                &bg.bytes()[off % FS_BLOCK_SIZE..][..m],
-            ) {
+            let m = usize::min(dst.len(), FS_BLOCK_SIZE - off % FS_BLOCK_SIZE);
+            let dst = dst.take_mut(m);
+            if let Err(e) =
+                proc::either_copy_out_bytes(private, dst, &bg.bytes()[off % FS_BLOCK_SIZE..][..m])
+            {
                 if tot > 0 {
                     break;
                 }
@@ -206,16 +199,10 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
     where
         T: Pod,
     {
-        let mut dst = MaybeUninit::<T>::uninit();
-        let read = self.read(
-            private,
-            false,
-            VirtAddr::new(dst.as_mut_ptr().addr()),
-            off,
-            size_of::<T>(),
-        )?;
+        let mut dst = T::zeroed();
+        let read = self.read(private, dst.as_bytes_mut().into(), off)?;
         assert_eq!(read, size_of::<T>());
-        Ok(unsafe { dst.assume_init() })
+        Ok(dst)
     }
 }
 
@@ -230,12 +217,13 @@ impl LockedTxInode<'_, '_, false> {
     pub fn write(
         &mut self,
         private: &ProcPrivateData,
-        user_src: bool,
-        src: VirtAddr,
+        src: GenericSlice<u8>,
         off: usize,
-        n: usize,
     ) -> Result<usize, KernelError> {
-        if off.checked_add(n).is_none() || off + n > MAX_FILE * FS_BLOCK_SIZE {
+        if off
+            .checked_add(src.len())
+            .is_none_or(|end| end > MAX_FILE * FS_BLOCK_SIZE)
+        {
             return Err(KernelError::FileTooLarge);
         }
 
@@ -246,9 +234,9 @@ impl LockedTxInode<'_, '_, false> {
         }
 
         let mut tot = 0;
-        while tot < n {
+        while tot < src.len() {
             let off = off + tot;
-            let src = src.byte_add(tot);
+            let src = src.skip(tot);
             let bn = match self.get_or_alloc_data_block(off / FS_BLOCK_SIZE) {
                 Ok(Some(bn)) => bn,
                 Ok(None) => unreachable!(),
@@ -262,12 +250,12 @@ impl LockedTxInode<'_, '_, false> {
 
             let mut br = self.tx.get_block(self.dev, bn);
             let Ok(mut bg) = br.lock().read();
-            let m = usize::min(n - tot, FS_BLOCK_SIZE - off % FS_BLOCK_SIZE);
+            let m = usize::min(src.len(), FS_BLOCK_SIZE - off % FS_BLOCK_SIZE);
+            let src = src.take(m);
             if let Err(e) = proc::either_copy_in_bytes(
                 private,
                 &mut bg.bytes_mut()[off % FS_BLOCK_SIZE..][..m],
-                user_src,
-                src.addr(),
+                src,
             ) {
                 if tot > 0 {
                     break;
@@ -300,13 +288,7 @@ impl LockedTxInode<'_, '_, false> {
     where
         T: Pod,
     {
-        let written = self.write(
-            private,
-            false,
-            VirtAddr::new(ptr::from_ref(data).addr()),
-            off,
-            size_of::<T>(),
-        )?;
+        let written = self.write(private, data.as_bytes().into(), off)?;
         assert_eq!(written, size_of::<T>());
         Ok(())
     }

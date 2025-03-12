@@ -1,6 +1,8 @@
 use alloc::boxed::Box;
 use core::{ffi::CStr, slice};
 
+use dataview::PodMethods as _;
+use ov6_syscall::UserMutSlice;
 use ov6_types::path::Path;
 
 use super::ProcPrivateData;
@@ -42,13 +44,7 @@ pub fn exec(
     // Check ELF header
     let mut elf = ElfHeader::zero();
 
-    let nread = lip.read(
-        private,
-        false,
-        VirtAddr::new((&raw mut elf).addr()),
-        0,
-        size_of::<ElfHeader>(),
-    )?;
+    let nread = lip.read(private, elf.as_bytes_mut().into(), 0)?;
     if nread != size_of::<ElfHeader>() {
         return Err(KernelError::InvalidExecutable);
     }
@@ -96,13 +92,7 @@ fn load_segments<const READ_ONLY: bool>(
     for i in 0..elf.phnum {
         let off = usize::try_from(elf.phoff).unwrap() + usize::from(i) * size_of::<ProgramHeader>();
         let mut ph = ProgramHeader::zero();
-        lip.read(
-            private,
-            false,
-            VirtAddr::new((&raw mut ph).addr()),
-            off,
-            size_of::<ProgramHeader>(),
-        )?;
+        lip.read(private, ph.as_bytes_mut().into(), off)?;
         if ph.ty != ELF_PROG_LOAD {
             continue;
         }
@@ -156,7 +146,8 @@ fn load_segment<const READ_ONLY: bool>(
             PAGE_SIZE
         };
 
-        let nread = lip.read(private, false, VirtAddr::new(pa.addr()), offset + i, n)?;
+        let dst = unsafe { slice::from_raw_parts_mut(pa.as_mut_ptr().as_ptr(), n) };
+        let nread = lip.read(private, dst.into(), offset + i)?;
         if nread != n {
             return Err(KernelError::InvalidExecutable);
         }
@@ -193,7 +184,9 @@ fn push_arguments(
         if sp < stack_base {
             return Err(KernelError::ArgumentListTooLarge);
         }
-        vm::copy_out_bytes(pagetable, VirtAddr::new(sp), arg.to_bytes_with_nul())?;
+        let src = arg.to_bytes_with_nul();
+        let dst = UserMutSlice::from_raw_parts(sp, src.len());
+        vm::copy_out_bytes(pagetable, dst, src)?;
         *uarg = sp;
     }
     ustack[argv.len()] = 0;
@@ -210,6 +203,7 @@ fn push_arguments(
             (argv.len() + 1) * size_of::<usize>(),
         )
     };
-    vm::copy_out_bytes(pagetable, VirtAddr::new(sp), src)?;
+    let dst = UserMutSlice::from_raw_parts(sp, src.len());
+    vm::copy_out_bytes(pagetable, dst, src)?;
     Ok((sp, argv.len()))
 }

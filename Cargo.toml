@@ -32,6 +32,7 @@ publish = false
 arrayvec = { version = "0.7.6", default-features = false }
 bitflags = "2.9.0"
 dataview = "1.0.1"
+derive_more = { version = "2.0.1", default-features = false, features = ["from"] }
 memchr = { version = "2.7.4", default-features = false, features = ["alloc"] }
 riscv = "0.13.0"
 strum = { version = "0.27.1", default-features = false, features = ["derive"] }

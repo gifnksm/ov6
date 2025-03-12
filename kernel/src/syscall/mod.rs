@@ -12,13 +12,6 @@ use crate::{
 mod file;
 mod proc;
 
-/// Fetches a `usize` at `addr` from the current process.
-fn fetch_addr(private: &ProcPrivateData, addr: VirtAddr) -> Result<VirtAddr, KernelError> {
-    private.validate_addr(addr..addr.byte_add(size_of::<usize>()))?;
-    let va = vm::copy_in(private.pagetable().unwrap(), addr)?;
-    Ok(VirtAddr::new(va))
-}
-
 /// Fetches the nul-terminated string at addr from the current process.
 ///
 /// Returns length of the string, not including nul.

@@ -102,6 +102,26 @@ where
     pub fn addr(&self) -> usize {
         self.addr
     }
+
+    #[must_use]
+    pub fn cast<U>(&self) -> UserRef<U> {
+        UserRef {
+            addr: self.addr,
+            _phantom: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> UserSlice<u8>
+    where
+        T: Pod + Sized,
+    {
+        UserSlice {
+            addr: self.addr,
+            len: size_of::<T>(),
+            _phantom: PhantomData,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -128,9 +148,29 @@ where
     pub fn addr(&self) -> usize {
         self.addr
     }
+
+    #[must_use]
+    pub fn cast_mut<U>(&self) -> UserMutRef<U> {
+        UserMutRef {
+            addr: self.addr,
+            _phantom: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn as_bytes_mut(&mut self) -> UserMutSlice<u8>
+    where
+        T: Pod + Sized,
+    {
+        UserMutSlice {
+            addr: self.addr,
+            len: size_of::<T>(),
+            _phantom: PhantomData,
+        }
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UserSlice<T> {
     addr: usize,
     len: usize,
@@ -138,6 +178,7 @@ pub struct UserSlice<T> {
 }
 
 impl<T> UserSlice<T> {
+    #[must_use]
     pub fn new(s: &[T]) -> Self {
         Self {
             addr: s.as_ptr().addr(),
@@ -147,29 +188,10 @@ impl<T> UserSlice<T> {
     }
 
     #[must_use]
-    pub fn addr(&self) -> usize {
-        self.addr
-    }
-
-    #[expect(clippy::len_without_is_empty)]
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.len
-    }
-}
-
-#[derive(Debug)]
-pub struct UserMutSlice<T> {
-    addr: usize,
-    len: usize,
-    _phantom: PhantomData<T>,
-}
-
-impl<T> UserMutSlice<T> {
-    pub fn new(s: &mut [T]) -> Self {
+    pub fn from_raw_parts(addr: usize, len: usize) -> Self {
         Self {
-            addr: s.as_mut_ptr().addr(),
-            len: s.len(),
+            addr,
+            len,
             _phantom: PhantomData,
         }
     }
@@ -183,6 +205,102 @@ impl<T> UserMutSlice<T> {
     #[must_use]
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    #[must_use]
+    pub fn nth(&self, n: usize) -> UserRef<T> {
+        assert!(n < self.len());
+        UserRef {
+            addr: self.addr + n * size_of::<T>(),
+            _phantom: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn skip(&self, amt: usize) -> Self {
+        assert!(amt <= self.len);
+        Self {
+            addr: self.addr + amt,
+            len: self.len - amt,
+            _phantom: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn take(&self, amt: usize) -> Self {
+        assert!(amt <= self.len);
+        Self {
+            addr: self.addr,
+            len: amt,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct UserMutSlice<T> {
+    addr: usize,
+    len: usize,
+    _phantom: PhantomData<T>,
+}
+
+impl<T> UserMutSlice<T> {
+    #[must_use]
+    pub fn new(s: &mut [T]) -> Self {
+        Self {
+            addr: s.as_mut_ptr().addr(),
+            len: s.len(),
+            _phantom: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn from_raw_parts(addr: usize, len: usize) -> Self {
+        Self {
+            addr,
+            len,
+            _phantom: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn addr(&self) -> usize {
+        self.addr
+    }
+
+    #[expect(clippy::len_without_is_empty)]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    #[must_use]
+    pub fn nth_mut(&mut self, n: usize) -> UserMutRef<T> {
+        assert!(n < self.len());
+        UserMutRef {
+            addr: self.addr + n * size_of::<T>(),
+            _phantom: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn skip_mut(&self, amt: usize) -> Self {
+        assert!(amt <= self.len);
+        Self {
+            addr: self.addr + amt,
+            len: self.len - amt,
+            _phantom: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn take_mut(&self, amt: usize) -> Self {
+        assert!(amt <= self.len);
+        Self {
+            addr: self.addr,
+            len: amt,
+            _phantom: PhantomData,
+        }
     }
 }
 

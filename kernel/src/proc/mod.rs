@@ -5,9 +5,9 @@ use core::{
     cmp,
     ffi::c_void,
     num::NonZero,
-    ops::{Deref, DerefMut, Range},
+    ops::{Deref, DerefMut},
     panic::Location,
-    ptr, slice,
+    ptr,
     sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
 };
 
@@ -29,6 +29,7 @@ use crate::{
     interrupt::{self, trap},
     memory::{
         PAGE_SIZE, PhysAddr, VirtAddr,
+        addr::{GenericMutSlice, GenericSlice},
         layout::{KSTACK_PAGES, kstack},
         page::{self, PageFrameAllocator},
         page_table::{PageTable, PtEntryFlags},
@@ -264,14 +265,6 @@ impl ProcPrivateData {
 
     pub fn update_cwd(&mut self, cwd: Inode) -> Inode {
         self.cwd.replace(cwd).unwrap()
-    }
-
-    pub fn validate_addr(&self, addr_range: Range<VirtAddr>) -> Result<(), KernelError> {
-        let end = VirtAddr::new(self.pagetable().unwrap().size());
-        if addr_range.end > end {
-            return Err(KernelError::AddressNotMapped(addr_range.end));
-        }
-        Ok(())
     }
 }
 
@@ -679,11 +672,7 @@ pub fn wait(
 
                 let pid = pp_shared.pid.unwrap();
                 if addr.addr() != 0 {
-                    vm::copy_out(
-                        p_private.pagetable_mut().unwrap(),
-                        VirtAddr::new(addr.addr()),
-                        &exit_status,
-                    )?;
+                    vm::copy_out(p_private.pagetable_mut().unwrap(), addr, &exit_status)?;
                 }
                 pp.free(pp_private, &mut pp_shared);
                 return Ok(pid);
@@ -795,20 +784,17 @@ pub fn kill(pid: ProcId) -> Result<(), KernelError> {
 /// depending on `user_dst`.
 pub fn either_copy_out_bytes(
     p_private: &mut ProcPrivateData,
-    user_dst: bool,
-    dst: usize,
+    dst: GenericMutSlice<u8>,
     src: &[u8],
 ) -> Result<(), KernelError> {
-    if user_dst {
-        return vm::copy_out_bytes(p_private.pagetable_mut().unwrap(), VirtAddr::new(dst), src);
+    assert_eq!(dst.len(), src.len());
+    match dst {
+        GenericMutSlice::User(dst) => {
+            vm::copy_out_bytes(p_private.pagetable_mut().unwrap(), dst, src)?
+        }
+        GenericMutSlice::Kernel(dst) => dst.copy_from_slice(src),
     }
-
-    unsafe {
-        let dst = ptr::with_exposed_provenance_mut::<u8>(dst);
-        let dst = slice::from_raw_parts_mut(dst, src.len());
-        dst.copy_from_slice(src);
-        Ok(())
-    }
+    Ok(())
 }
 
 /// Copies from either a user address, or kernel address,
@@ -816,18 +802,14 @@ pub fn either_copy_out_bytes(
 pub fn either_copy_in_bytes(
     p_private: &ProcPrivateData,
     dst: &mut [u8],
-    user_src: bool,
-    src: usize,
+    src: GenericSlice<u8>,
 ) -> Result<(), KernelError> {
-    if user_src {
-        return vm::copy_in_bytes(p_private.pagetable().unwrap(), dst, VirtAddr::new(src));
+    assert_eq!(dst.len(), src.len());
+    match src {
+        GenericSlice::User(src) => vm::copy_in_bytes(p_private.pagetable().unwrap(), dst, src)?,
+        GenericSlice::Kernel(src) => dst.copy_from_slice(src),
     }
-    unsafe {
-        let src = ptr::with_exposed_provenance::<u8>(src);
-        let src = slice::from_raw_parts(src, dst.len());
-        dst.copy_from_slice(src);
-        Ok(())
-    }
+    Ok(())
 }
 
 /// Prints a process listing to console.
