@@ -1,6 +1,6 @@
 #![no_std]
 
-use ov6_user_lib::{env, fs, process};
+use ov6_user_lib::{env, fs, os_str::OsStr, process};
 use user::{try_or, usage_and_exit};
 
 fn main() {
@@ -12,7 +12,7 @@ fn main() {
 
     for arg in args {
         try_or!(
-            fs::remove_file(arg),
+            fs::remove_file(OsStr::from_bytes(arg.to_bytes())),
             break,
             e => "{} failed to delete: {e}", arg.to_str().unwrap(),
         );

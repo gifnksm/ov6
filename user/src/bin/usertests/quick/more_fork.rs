@@ -214,8 +214,8 @@ pub fn sbrk_fail() {
 /// test reads/writes from/to allocated memory
 pub fn sbrk_arg() {
     let a = process::grow_break(PAGE_SIZE).unwrap();
-    let mut file = File::create(c"sbrk").unwrap();
-    fs::remove_file(c"sbrk").unwrap();
+    let mut file = File::create("sbrk").unwrap();
+    fs::remove_file("sbrk").unwrap();
     file.write_all(unsafe { slice::from_raw_parts(a, PAGE_SIZE) })
         .unwrap();
     drop(file);

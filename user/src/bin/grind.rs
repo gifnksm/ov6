@@ -48,9 +48,9 @@ fn go(name: char) {
     let mut buf = [0; 999];
     let break0 = process::current_break().addr();
 
-    let _ = fs::create_dir(c"grindir");
-    env::set_current_directory(c"grindir").unwrap();
-    env::set_current_directory(c"/").unwrap();
+    let _ = fs::create_dir("grindir");
+    env::set_current_directory("grindir").unwrap();
+    env::set_current_directory("/").unwrap();
 
     let mut file = None;
 
@@ -66,22 +66,22 @@ fn go(name: char) {
                     .read(true)
                     .write(true)
                     .create(true)
-                    .open(c"grindir/../a");
+                    .open("grindir/../a");
             }
             2 => {
                 let _ = File::options()
                     .read(true)
                     .write(true)
                     .create(true)
-                    .open(c"grindir/../grindir/../b");
+                    .open("grindir/../grindir/../b");
             }
             3 => {
-                let _ = fs::remove_file(c"grindir/../a");
+                let _ = fs::remove_file("grindir/../a");
             }
             4 => {
-                env::set_current_directory(c"grindir").unwrap();
-                let _ = fs::remove_file(c"../b");
-                env::set_current_directory(c"/").unwrap();
+                env::set_current_directory("grindir").unwrap();
+                let _ = fs::remove_file("../b");
+                env::set_current_directory("/").unwrap();
             }
             5 => {
                 let _ = file.take();
@@ -89,7 +89,7 @@ fn go(name: char) {
                     .read(true)
                     .write(true)
                     .create(true)
-                    .open(c"/grindir/../a")
+                    .open("/grindir/../a")
                     .ok();
             }
             6 => {
@@ -98,7 +98,7 @@ fn go(name: char) {
                     .read(true)
                     .write(true)
                     .create(true)
-                    .open(c"/./grindir/./../b")
+                    .open("/./grindir/./../b")
                     .ok();
             }
             7 => {
@@ -112,30 +112,30 @@ fn go(name: char) {
                 }
             }
             9 => {
-                let _ = fs::create_dir(c"grindir/../a");
+                let _ = fs::create_dir("grindir/../a");
                 let _ = File::options()
                     .read(true)
                     .write(true)
                     .create(true)
-                    .open(c"a/../a/./a");
-                let _ = fs::remove_file(c"a/a");
+                    .open("a/../a/./a");
+                let _ = fs::remove_file("a/a");
             }
             10 => {
-                let _ = fs::create_dir(c"/../b");
+                let _ = fs::create_dir("/../b");
                 let _ = File::options()
                     .read(true)
                     .write(true)
                     .create(true)
-                    .open(c"grindir/../b/b");
-                let _ = fs::remove_file(c"b/b");
+                    .open("grindir/../b/b");
+                let _ = fs::remove_file("b/b");
             }
             11 => {
-                let _ = fs::remove_file(c"b");
-                let _ = fs::link(c"../grindir/./../a", c"../b");
+                let _ = fs::remove_file("b");
+                let _ = fs::link("../grindir/./../a", "../b");
             }
             12 => {
-                let _ = fs::remove_file(c"../grindir/../a");
-                let _ = fs::link(c".././b", c"/grindir/../a");
+                let _ = fs::remove_file("../grindir/../a");
+                let _ = fs::link(".././b", "/grindir/../a");
             }
             13 => {
                 process::fork_fn(|| process::exit(0))
@@ -168,11 +168,11 @@ fn go(name: char) {
                         .read(true)
                         .write(true)
                         .create(true)
-                        .open(c"a");
+                        .open("a");
                     process::exit(0);
                 })
                 .unwrap();
-                let _ = env::set_current_directory(c"../grindir/..");
+                let _ = env::set_current_directory("../grindir/..");
                 let _ = process::kill(child.pid());
                 child.wait().unwrap();
             }
@@ -202,15 +202,15 @@ fn go(name: char) {
             }
             20 => {
                 process::fork_fn(|| {
-                    let _ = fs::remove_file(c"a");
-                    let _ = fs::create_dir(c"a");
-                    let _ = env::set_current_directory(c"a");
+                    let _ = fs::remove_file("a");
+                    let _ = fs::create_dir("a");
+                    let _ = env::set_current_directory("a");
                     let _file = File::options()
                         .read(true)
                         .write(true)
                         .create(true)
-                        .open(c"x");
-                    let _ = fs::remove_file(c"x");
+                        .open("x");
+                    let _ = fs::remove_file("x");
                     process::exit(0);
                 })
                 .unwrap()
@@ -218,21 +218,21 @@ fn go(name: char) {
                 .unwrap();
             }
             21 => {
-                let _ = fs::remove_file(c"c");
+                let _ = fs::remove_file("c");
                 // should always succeed. check that there are free i-nodes,
                 // file descriptors, blocks.
                 let mut fd1 = File::options()
                     .read(true)
                     .write(true)
                     .create(true)
-                    .open(c"c")
+                    .open("c")
                     .unwrap();
                 fd1.write_all(b"x").unwrap();
                 let st = fd1.metadata().unwrap();
                 assert_eq!(st.size(), 1);
                 assert!(st.ino() <= 200);
                 drop(fd1);
-                let _ = fs::remove_file(c"c");
+                let _ = fs::remove_file("c");
             }
             22 => {
                 let (arx, atx) = pipe::pipe().unwrap();
@@ -287,8 +287,8 @@ fn go(name: char) {
 }
 
 fn iter() {
-    let _ = fs::remove_file(c"a");
-    let _ = fs::remove_file(c"b");
+    let _ = fs::remove_file("a");
+    let _ = fs::remove_file("b");
 
     let child1 = process::fork_fn(|| {
         RAND_NEXT.fetch_xor(31, Ordering::Relaxed);

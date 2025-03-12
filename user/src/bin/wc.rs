@@ -1,19 +1,22 @@
 #![no_std]
 
-use core::ffi::CStr;
-
 use ov6_user_lib::{
     env,
     fs::File,
     io::{self, Read},
+    os_str::OsStr,
+    path::Path,
     println, process,
 };
 use user::try_or_exit;
 
-fn wc<R>(mut input: R, name: &CStr)
+fn wc<R, P>(mut input: R, name: P)
 where
     R: Read,
+    P: AsRef<Path>,
 {
+    let name = name.as_ref();
+
     let mut l = 0;
     let mut w = 0;
     let mut c = 0;
@@ -44,21 +47,22 @@ where
         }
     }
 
-    println!("{l} {w} {c} {name}", name = name.to_str().unwrap());
+    println!("{l} {w} {c} {name}", name = name.display());
 }
 
 fn main() {
     let args = env::args_cstr();
 
     if args.len() == 0 {
-        wc(io::stdin(), c"");
+        wc(io::stdin(), "");
         process::exit(0);
     }
 
     for path in args {
+        let path = OsStr::from_bytes(path.to_bytes());
         let file = try_or_exit!(
             File::open(path),
-            e => "cannot open {}: {e}", path.to_str().unwrap(),
+            e => "cannot open {}: {e}", path.display(),
         );
         wc(&file, path);
     }

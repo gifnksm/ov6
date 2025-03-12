@@ -7,7 +7,7 @@ use core::{
 use dataview::PodMethods as _;
 pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
 use ov6_syscall::{UserMutRef, UserMutSlice, UserRef, UserSlice, syscall};
-use ov6_types::{fs::RawFd, process::ProcId};
+use ov6_types::{fs::RawFd, path::Path, process::ProcId};
 
 use self::ffi::SyscallExt as _;
 use crate::{
@@ -75,18 +75,18 @@ pub fn exec(path: &CStr, argv: &[*const c_char]) -> Result<Infallible, Ov6Error>
     unreachable!()
 }
 
-pub fn open(path: &CStr, flags: OpenFlags) -> Result<OwnedFd, Ov6Error> {
-    let fd = syscall::Open::call((UserRef::new(path), flags))?;
+pub fn open(path: &Path, flags: OpenFlags) -> Result<OwnedFd, Ov6Error> {
+    let fd = syscall::Open::call((UserSlice::new(path.as_os_str().as_bytes()), flags))?;
     unsafe { Ok(OwnedFd::from_raw_fd(fd)) }
 }
 
-pub fn mknod(path: &CStr, major: u32, minor: i16) -> Result<(), Ov6Error> {
-    syscall::Mknod::call((UserRef::new(path), major, minor))?;
+pub fn mknod(path: &Path, major: u32, minor: i16) -> Result<(), Ov6Error> {
+    syscall::Mknod::call((UserSlice::new(path.as_os_str().as_bytes()), major, minor))?;
     Ok(())
 }
 
-pub fn unlink(path: &CStr) -> Result<(), Ov6Error> {
-    syscall::Unlink::call((UserRef::new(path),))?;
+pub fn unlink(path: &Path) -> Result<(), Ov6Error> {
+    syscall::Unlink::call((UserSlice::new(path.as_os_str().as_bytes()),))?;
     Ok(())
 }
 
@@ -96,18 +96,21 @@ pub fn fstat(fd: impl AsRawFd) -> Result<Stat, Ov6Error> {
     Ok(stat)
 }
 
-pub fn link(old: &CStr, new: &CStr) -> Result<(), Ov6Error> {
-    syscall::Link::call((UserRef::new(old), UserRef::new(new)))?;
+pub fn link(old: &Path, new: &Path) -> Result<(), Ov6Error> {
+    syscall::Link::call((
+        UserSlice::new(old.as_os_str().as_bytes()),
+        UserSlice::new(new.as_os_str().as_bytes()),
+    ))?;
     Ok(())
 }
 
-pub fn mkdir(path: &CStr) -> Result<(), Ov6Error> {
-    syscall::Mkdir::call((UserRef::new(path),))?;
+pub fn mkdir(path: &Path) -> Result<(), Ov6Error> {
+    syscall::Mkdir::call((UserSlice::new(path.as_os_str().as_bytes()),))?;
     Ok(())
 }
 
-pub fn chdir(path: &CStr) -> Result<(), Ov6Error> {
-    syscall::Chdir::call((UserRef::new(path),))?;
+pub fn chdir(path: &Path) -> Result<(), Ov6Error> {
+    syscall::Chdir::call((UserSlice::new(path.as_os_str().as_bytes()),))?;
     Ok(())
 }
 

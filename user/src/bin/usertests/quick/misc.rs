@@ -10,10 +10,12 @@ use ov6_user_lib::{
     error::Ov6Error,
     fs::{self, File},
     io::{Read as _, Write as _},
+    os_str::OsStr,
+    path::Path,
     process,
 };
 
-use crate::{BUF, ECHO_PATH, PAGE_SIZE, expect};
+use crate::{BUF, C_ECHO_PATH, PAGE_SIZE, expect};
 
 pub fn validate() {
     let hi = 1100 * 1024;
@@ -21,9 +23,9 @@ pub fn validate() {
         // try to crash the kernel by passing a bad string pointer
         unsafe {
             let s = &*{
-                ptr::slice_from_raw_parts(ptr::with_exposed_provenance::<u8>(p), 10) as *const CStr
+                ptr::slice_from_raw_parts(ptr::with_exposed_provenance::<u8>(p), 10) as *const Path
             };
-            assert!(fs::link(c"nosuchfile", s).is_err());
+            assert!(fs::link("nosuchfile", s).is_err());
         }
     }
 }
@@ -47,9 +49,10 @@ pub fn bss() {
 /// are larger than a page? or does it write
 /// below the stack and wreck the instructions/data?
 pub fn big_arg() {
-    const FILE_PATH: &CStr = c"bigarg-ok";
+    const FILE_PATH: &str = "bigarg-ok";
 
     let _ = fs::remove_file(FILE_PATH);
+
     let status = process::fork_fn(|| {
         static mut ARGS: [*const c_char; MAX_ARG] = [ptr::null(); MAX_ARG];
         let args = unsafe { (&raw mut ARGS).as_mut().unwrap() };
@@ -62,7 +65,7 @@ pub fn big_arg() {
         // this exec() should fail (and return) because the
         // arguments are too large.
         expect!(
-            process::exec(ECHO_PATH, args),
+            process::exec(C_ECHO_PATH, args),
             Err(Ov6Error::ArgumentListTooLong)
         );
         let _ = File::create(FILE_PATH).unwrap();
@@ -82,14 +85,14 @@ pub fn fs_full() {
     let buf = unsafe { (&raw mut BUF).as_mut() }.unwrap();
     let mut nfiles = 0;
     'outer: for i in 0.. {
-        let mut name = [0_u8; 6];
-        name[0] = b'f';
-        name[1] = b'0' + u8::try_from(i / 1000).unwrap();
-        name[2] = b'0' + u8::try_from((i % 1000) / 100).unwrap();
-        name[3] = b'0' + u8::try_from((i % 100) / 10).unwrap();
-        name[4] = b'0' + u8::try_from(i % 10).unwrap();
-        name[5] = b'\0';
-        let path = CStr::from_bytes_with_nul(&name).unwrap();
+        let name = [
+            b'f',
+            b'0' + u8::try_from(i / 1000).unwrap(),
+            b'0' + u8::try_from((i % 1000) / 100).unwrap(),
+            b'0' + u8::try_from((i % 100) / 10).unwrap(),
+            b'0' + u8::try_from(i % 10).unwrap(),
+        ];
+        let path = OsStr::from_bytes(&name);
         let mut file = match File::create(path) {
             Ok(file) => file,
             Err(Ov6Error::StorageFull) => break,
@@ -108,20 +111,20 @@ pub fn fs_full() {
     }
 
     for n in 0..nfiles {
-        let mut name = [0_u8; 6];
-        name[0] = b'f';
-        name[1] = b'0' + u8::try_from(n / 1000).unwrap();
-        name[2] = b'0' + u8::try_from((n % 1000) / 100).unwrap();
-        name[3] = b'0' + u8::try_from((n % 100) / 10).unwrap();
-        name[4] = b'0' + u8::try_from(n % 10).unwrap();
-        name[5] = b'\0';
-        let path = CStr::from_bytes_with_nul(&name).unwrap();
+        let name = [
+            b'f',
+            b'0' + u8::try_from(n / 1000).unwrap(),
+            b'0' + u8::try_from((n % 1000) / 100).unwrap(),
+            b'0' + u8::try_from((n % 100) / 10).unwrap(),
+            b'0' + u8::try_from(n % 10).unwrap(),
+        ];
+        let path = OsStr::from_bytes(&name);
         fs::remove_file(path).unwrap();
     }
 }
 
 pub fn argp() {
-    let mut file = File::open(c"init").unwrap();
+    let mut file = File::open("init").unwrap();
     unsafe {
         let p = slice::from_raw_parts_mut(process::current_break().sub(1), usize::MAX);
         expect!(file.read(p), Err(Ov6Error::BadAddress));
@@ -257,8 +260,7 @@ pub fn sbrk_last() {
     unsafe {
         let p = top.sub(64);
         p.add(0).write(b'x');
-        p.add(1).write(b'\0');
-        let path = &*(ptr::slice_from_raw_parts(p, 2) as *const CStr);
+        let path = &*(ptr::slice_from_raw_parts(p, 1) as *const Path);
         let mut file = File::create(path).unwrap();
         file.write(slice::from_raw_parts(p, 1)).unwrap();
         drop(file);
@@ -268,7 +270,7 @@ pub fn sbrk_last() {
         assert_eq!(p.add(0).read(), b'x');
     }
 
-    fs::remove_file(c"x").unwrap();
+    fs::remove_file("x").unwrap();
 }
 
 /// does sbrk handle signed int32 wrap-around with
@@ -286,6 +288,6 @@ pub fn sbrk8000() {
 pub fn bad_arg() {
     for _ in 0..50000 {
         let argv = [ptr::with_exposed_provenance(0xffff_ffff), ptr::null()];
-        expect!(process::exec(ECHO_PATH, &argv), Err(Ov6Error::BadAddress));
+        expect!(process::exec(C_ECHO_PATH, &argv), Err(Ov6Error::BadAddress));
     }
 }

@@ -1,7 +1,6 @@
 use alloc::alloc::Global;
 use core::{
     alloc::{Allocator as _, Layout},
-    ffi::CStr,
     hint,
     num::NonZero,
     ptr::NonNull,
@@ -210,7 +209,7 @@ pub fn fork_fork() {
 }
 
 pub fn fork_fork_fork() {
-    const STOP_FORKING_PATH: &CStr = c"stopforking";
+    const STOP_FORKING_PATH: &str = "stopforking";
 
     let _ = fs::remove_file(STOP_FORKING_PATH);
 

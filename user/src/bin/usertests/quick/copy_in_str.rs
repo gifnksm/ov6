@@ -4,35 +4,9 @@ use core::{
 };
 
 use ov6_kernel_params::MAX_PATH;
-use ov6_user_lib::{
-    error::Ov6Error,
-    fs::{self, File},
-    process,
-};
+use ov6_user_lib::{error::Ov6Error, process};
 
-use crate::{ECHO_PATH, PAGE_SIZE, expect};
-
-/// what if you pass ridiculous string pointers to system calls?
-pub fn test1() {
-    let addrs: &[usize] = &[
-        0x8000_0000,
-        0x3f_ffff_e000,
-        0x3f_ffff_f000,
-        0x40_0000_0000,
-        0xffff_ffff_ffff_ffff,
-    ];
-
-    for &addr in addrs {
-        let addr = ptr::with_exposed_provenance::<u8>(addr);
-        let path = unsafe { &*(ptr::slice_from_raw_parts(addr, 8192) as *const CStr) };
-
-        expect!(
-            File::create(path),
-            Err(Ov6Error::BadAddress),
-            "addr={addr:p}"
-        );
-    }
-}
+use crate::{C_ECHO_PATH, PAGE_SIZE, expect};
 
 /// what if a string system call argument is exactly the size
 /// of the kernel buffer it is copied into, so that the null
@@ -40,14 +14,10 @@ pub fn test1() {
 pub fn test2() {
     let mut b = [b'x'; MAX_PATH + 1];
     b[MAX_PATH] = 0;
-    let path = CStr::from_bytes_with_nul(&b).unwrap();
-
-    expect!(fs::remove_file(path), Err(Ov6Error::BadAddress));
-    expect!(File::create(path), Err(Ov6Error::BadAddress));
-    expect!(fs::link(path, path), Err(Ov6Error::BadAddress));
+    let c_path = CStr::from_bytes_with_nul(&b).unwrap();
 
     let args = [c"xx".as_ptr(), ptr::null()];
-    expect!(process::exec(path, &args), Err(Ov6Error::BadAddress));
+    expect!(process::exec(c_path, &args), Err(Ov6Error::BadAddress));
 
     let status = process::fork_fn(|| {
         unsafe {
@@ -56,7 +26,7 @@ pub fn test2() {
             let big = CStr::from_ptr(((&raw const BIG).cast::<c_char>()).cast());
 
             let args = [big.as_ptr(), big.as_ptr(), big.as_ptr(), ptr::null()];
-            expect!(process::exec(ECHO_PATH, &args), Err(Ov6Error::BadAddress));
+            expect!(process::exec(C_ECHO_PATH, &args), Err(Ov6Error::BadAddress));
         }
         process::exit(747);
     })
@@ -78,13 +48,9 @@ pub fn test3() {
     unsafe {
         let b = top.wrapping_sub(1);
         *b = b'x';
-        let path = { &*(ptr::slice_from_raw_parts(b, 1) as *const CStr) };
-
-        expect!(fs::remove_file(path), Err(Ov6Error::BadAddress));
-        expect!(File::create(path), Err(Ov6Error::BadAddress));
-        expect!(fs::link(path, path), Err(Ov6Error::BadAddress));
+        let c_path = { &*(ptr::slice_from_raw_parts(b, 1) as *const CStr) };
 
         let args = [c"xx".as_ptr(), ptr::null()];
-        expect!(process::exec(path, &args), Err(Ov6Error::BadAddress));
+        expect!(process::exec(c_path, &args), Err(Ov6Error::BadAddress));
     }
 }

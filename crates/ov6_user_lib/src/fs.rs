@@ -1,7 +1,5 @@
-use core::ffi::CStr;
-
 use dataview::PodMethods as _;
-use ov6_types::{fs::RawFd, os_str::OsStr};
+use ov6_types::{fs::RawFd, os_str::OsStr, path::Path};
 pub use syscall::StatType;
 
 use crate::{
@@ -97,7 +95,10 @@ impl OpenOptions {
         self
     }
 
-    pub fn open(&self, path: &CStr) -> Result<File, Ov6Error> {
+    pub fn open<P>(&self, path: P) -> Result<File, Ov6Error>
+    where
+        P: AsRef<Path>,
+    {
         let Self {
             read,
             write,
@@ -113,7 +114,7 @@ impl OpenOptions {
         }
         flags.set(OpenFlags::CREATE, *create);
         flags.set(OpenFlags::TRUNC, *truncate);
-        let fd = syscall::open(path, flags)?;
+        let fd = syscall::open(path.as_ref(), flags)?;
         Ok(File { fd })
     }
 }
@@ -129,11 +130,17 @@ impl File {
         OpenOptions::new()
     }
 
-    pub fn open(path: &CStr) -> Result<Self, Ov6Error> {
+    pub fn open<P>(path: P) -> Result<Self, Ov6Error>
+    where
+        P: AsRef<Path>,
+    {
         OpenOptions::new().read(true).open(path)
     }
 
-    pub fn create(path: &CStr) -> Result<Self, Ov6Error> {
+    pub fn create<P>(path: P) -> Result<Self, Ov6Error>
+    where
+        P: AsRef<Path>,
+    {
         OpenOptions::new()
             .write(true)
             .create(true)
@@ -208,16 +215,26 @@ impl Read for &'_ File {
     }
 }
 
-pub fn mknod(path: &CStr, major: u32, minor: i16) -> Result<(), Ov6Error> {
-    syscall::mknod(path, major, minor)
+pub fn mknod<P>(path: P, major: u32, minor: i16) -> Result<(), Ov6Error>
+where
+    P: AsRef<Path>,
+{
+    syscall::mknod(path.as_ref(), major, minor)
 }
 
-pub fn link(old: &CStr, new: &CStr) -> Result<(), Ov6Error> {
-    syscall::link(old, new)
+pub fn link<P, Q>(old: P, new: Q) -> Result<(), Ov6Error>
+where
+    P: AsRef<Path>,
+    Q: AsRef<Path>,
+{
+    syscall::link(old.as_ref(), new.as_ref())
 }
 
-pub fn metadata(path: &CStr) -> Result<Metadata, Ov6Error> {
-    let fd = syscall::open(path, OpenFlags::READ_ONLY)?;
+pub fn metadata<P>(path: P) -> Result<Metadata, Ov6Error>
+where
+    P: AsRef<Path>,
+{
+    let fd = syscall::open(path.as_ref(), OpenFlags::READ_ONLY)?;
     let stat = syscall::fstat(fd.as_fd())?;
     Ok(Metadata {
         dev: stat.dev.cast_unsigned(),
@@ -228,16 +245,25 @@ pub fn metadata(path: &CStr) -> Result<Metadata, Ov6Error> {
     })
 }
 
-pub fn remove_file(path: &CStr) -> Result<(), Ov6Error> {
-    syscall::unlink(path)
+pub fn remove_file<P>(path: P) -> Result<(), Ov6Error>
+where
+    P: AsRef<Path>,
+{
+    syscall::unlink(path.as_ref())
 }
 
-pub fn create_dir(path: &CStr) -> Result<(), Ov6Error> {
-    syscall::mkdir(path)
+pub fn create_dir<P>(path: P) -> Result<(), Ov6Error>
+where
+    P: AsRef<Path>,
+{
+    syscall::mkdir(path.as_ref())
 }
 
-pub fn read_dir(path: &CStr) -> Result<ReadDir, Ov6Error> {
-    let fd = syscall::open(path, OpenFlags::READ_ONLY)?;
+pub fn read_dir<P>(path: P) -> Result<ReadDir, Ov6Error>
+where
+    P: AsRef<Path>,
+{
+    let fd = syscall::open(path.as_ref(), OpenFlags::READ_ONLY)?;
     let st = syscall::fstat(fd.as_fd())?;
     if st.ty != StatType::Dir as i16 {
         return Err(Ov6Error::NotADirectory);

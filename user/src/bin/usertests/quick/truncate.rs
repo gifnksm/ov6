@@ -1,5 +1,3 @@
-use core::ffi::CStr;
-
 use ov6_user_lib::{
     error::Ov6Error,
     fs::{self, File},
@@ -9,7 +7,7 @@ use ov6_user_lib::{
 
 use crate::expect;
 
-const FILE_PATH: &CStr = c"truncfile";
+const FILE_PATH: &str = "truncfile";
 
 /// test `O_TRUNC`.
 pub fn test1() {

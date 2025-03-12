@@ -1,6 +1,6 @@
 #![no_std]
 
-use ov6_user_lib::{env, fs, process};
+use ov6_user_lib::{env, fs, os_str::OsStr, process};
 use user::{try_or_exit, usage_and_exit};
 
 fn main() {
@@ -9,8 +9,8 @@ fn main() {
         usage_and_exit!("old new");
     }
 
-    let old = args.next().unwrap();
-    let new = args.next().unwrap();
+    let old = OsStr::from_bytes(args.next().unwrap().to_bytes());
+    let new = OsStr::from_bytes(args.next().unwrap().to_bytes());
     try_or_exit!(
         fs::link(old, new),
         e => "link {} {} failed: {e}",

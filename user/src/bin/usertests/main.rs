@@ -23,9 +23,10 @@ mod slow;
 const PAGE_SIZE: usize = 4096;
 const KERN_BASE: usize = 0x8000_0000;
 const MAX_VA: usize = 1 << (9 + 9 + 9 + 12 - 1);
-const README_PATH: &CStr = c"README";
-const ECHO_PATH: &CStr = c"echo";
-const ROOT_DIR_PATH: &CStr = c"/";
+const README_PATH: &str = "README";
+const C_ECHO_PATH: &CStr = c"echo";
+const ECHO_PATH: &str = "echo";
+const ROOT_DIR_PATH: &str = "/";
 
 const BUF_SIZE: usize = (MAX_OP_BLOCKS + 2) * FS_BLOCK_SIZE;
 static mut BUF: [u8; BUF_SIZE] = [0; BUF_SIZE];

@@ -4,6 +4,7 @@ use ov6_user_lib::{
     env,
     fs::File,
     io::{self, Read},
+    os_str::OsStr,
     println,
 };
 use user::{try_or, try_or_exit, usage_and_exit};
@@ -62,7 +63,7 @@ fn main() {
     } else {
         for arg in args {
             let file = try_or!(
-                File::open(arg),
+                File::open(OsStr::from_bytes(arg.to_bytes())),
                 continue,
                 e => "cannot open {}: {e}", arg.to_str().unwrap(),
             );

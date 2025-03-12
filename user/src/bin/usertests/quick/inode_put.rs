@@ -1,5 +1,3 @@
-use core::ffi::CStr;
-
 use ov6_user_lib::{
     env,
     error::Ov6Error,
@@ -9,8 +7,8 @@ use ov6_user_lib::{
 
 use crate::{ROOT_DIR_PATH, expect};
 
-const IPUTDIR_PATH: &CStr = c"iputdir";
-const OIDIR_PATH: &CStr = c"oidir";
+const IPUTDIR_PATH: &str = "iputdir";
+const OIDIR_PATH: &str = "oidir";
 
 /// does the error path in `open()` for attempt to write a
 /// directory call `Inode::put()` in a transaction?
@@ -50,7 +48,7 @@ pub fn exit_test() {
     let status = process::fork_fn(|| {
         fs::create_dir(IPUTDIR_PATH).unwrap();
         env::set_current_directory(IPUTDIR_PATH).unwrap();
-        fs::remove_file(c"../iputdir").unwrap();
+        fs::remove_file("../iputdir").unwrap();
         process::exit(0);
     })
     .unwrap()
@@ -63,6 +61,6 @@ pub fn exit_test() {
 pub fn chdir_test() {
     fs::create_dir(IPUTDIR_PATH).unwrap();
     env::set_current_directory(IPUTDIR_PATH).unwrap();
-    fs::remove_file(c"../iputdir").unwrap();
+    fs::remove_file("../iputdir").unwrap();
     env::set_current_directory(ROOT_DIR_PATH).unwrap();
 }

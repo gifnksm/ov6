@@ -4,6 +4,8 @@ use core::{
     sync::atomic::{AtomicPtr, AtomicUsize, Ordering},
 };
 
+use ov6_types::path::Path;
+
 use crate::{error::Ov6Error, os::ov6::syscall};
 
 pub(crate) static ARGC: AtomicUsize = AtomicUsize::new(0);
@@ -85,6 +87,9 @@ impl ExactSizeIterator for ArgsCStr {
     }
 }
 
-pub fn set_current_directory(path: &CStr) -> Result<(), Ov6Error> {
-    syscall::chdir(path)
+pub fn set_current_directory<P>(path: P) -> Result<(), Ov6Error>
+where
+    P: AsRef<Path>,
+{
+    syscall::chdir(path.as_ref())
 }

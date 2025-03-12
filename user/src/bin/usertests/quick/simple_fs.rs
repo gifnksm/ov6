@@ -1,5 +1,5 @@
 use alloc::vec;
-use core::{ffi::CStr, ptr};
+use core::ptr;
 
 use ov6_fs_types::{FS_BLOCK_SIZE, MAX_FILE};
 use ov6_user_lib::{
@@ -11,14 +11,15 @@ use ov6_user_lib::{
         fd::{AsRawFd as _, RawFd},
         ov6::syscall,
     },
+    os_str::OsStr,
     process,
 };
 
-use crate::{BUF, ECHO_PATH, expect};
+use crate::{BUF, C_ECHO_PATH, ECHO_PATH, expect};
 
-const NOT_EXIST_PATH: &CStr = c"doesnotexist";
-const SMALL_PATH: &CStr = c"small";
-const BIG_PATH: &CStr = c"big";
+const NOT_EXIST_PATH: &str = "doesnotexist";
+const SMALL_PATH: &str = "small";
+const BIG_PATH: &str = "big";
 
 pub fn open_test() {
     let file = File::open(ECHO_PATH).unwrap();
@@ -128,11 +129,11 @@ pub fn write_big_test() {
 pub fn create_test() {
     const N: usize = 52;
 
-    let mut name = *b"a_\0";
+    let mut name = *b"a_";
 
     for i in 0..N {
         name[1] = b'0' + u8::try_from(i).unwrap();
-        let path = CStr::from_bytes_with_nul(&name).unwrap();
+        let path = OsStr::from_bytes(&name);
         let _file = File::options()
             .create(true)
             .read(true)
@@ -143,21 +144,21 @@ pub fn create_test() {
 
     for i in 0..N {
         name[1] = b'0' + u8::try_from(i).unwrap();
-        let path = CStr::from_bytes_with_nul(&name).unwrap();
+        let path = OsStr::from_bytes(&name);
         fs::remove_file(path).unwrap();
     }
 }
 
 pub fn dir_test() {
-    const DIR_PATH: &CStr = c"dir0";
+    const DIR_PATH: &str = "dir0";
     fs::create_dir(DIR_PATH).unwrap();
     env::set_current_directory(DIR_PATH).unwrap();
-    env::set_current_directory(c"..").unwrap();
+    env::set_current_directory("..").unwrap();
     fs::remove_file(DIR_PATH).unwrap();
 }
 
 pub fn exec_test() {
-    const ECHO_OK_PATH: &CStr = c"echo-ok";
+    const ECHO_OK_PATH: &str = "echo-ok";
 
     let echo_argv = [c"echo".as_ptr(), c"OK".as_ptr(), ptr::null()];
     let _ = fs::remove_file(ECHO_OK_PATH);
@@ -167,7 +168,7 @@ pub fn exec_test() {
         let file = File::create(ECHO_OK_PATH).unwrap();
         assert_eq!(file.as_raw_fd(), STDOUT_FD);
 
-        process::exec(ECHO_PATH, &echo_argv).unwrap();
+        process::exec(C_ECHO_PATH, &echo_argv).unwrap();
         unreachable!();
     })
     .unwrap()

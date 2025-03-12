@@ -12,11 +12,11 @@ use user::{message, try_or_panic};
 const CONSOLE: u32 = 1;
 
 fn open_console() -> Result<File, Ov6Error> {
-    File::options().read(true).write(true).open(c"console")
+    File::options().read(true).write(true).open("console")
 }
 
 fn create_console() -> Result<(), Ov6Error> {
-    fs::mknod(c"console", CONSOLE, 0)
+    fs::mknod("console", CONSOLE, 0)
 }
 
 fn main() {

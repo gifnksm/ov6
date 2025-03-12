@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use core::alloc::AllocError;
 
 use arrayvec::ArrayVec;
-use ov6_syscall::{OpenFlags, ReturnType, syscall as sys};
+use ov6_syscall::{OpenFlags, ReturnType, UserSlice, syscall as sys};
 use ov6_types::{fs::RawFd, os_str::OsStr, path::Path};
 
 use crate::{
@@ -20,6 +20,20 @@ use crate::{
 /// Takes over file reference from caller on success.
 fn fd_alloc(private: &mut ProcPrivateData, file: File) -> Result<RawFd, KernelError> {
     private.add_ofile(file)
+}
+
+fn fetch_path<'a>(
+    private: &ProcPrivateData,
+    user_path: UserSlice<u8>,
+    path_out: &'a mut [u8; MAX_PATH],
+) -> Result<&'a Path, KernelError> {
+    if user_path.len() > MAX_PATH {
+        return Err(KernelError::PathTooLong);
+    }
+
+    let path_out = &mut path_out[..user_path.len()];
+    vm::copy_in_bytes(private.pagetable().unwrap(), path_out, user_path)?;
+    Ok(Path::new(OsStr::from_bytes(path_out)))
 }
 
 pub fn sys_dup(
@@ -84,16 +98,12 @@ pub fn sys_link(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Link> {
     let private = private.as_mut().unwrap();
-    let Ok((old_ptr, new_ptr)) = super::decode_arg::<sys::Link>(private.trapframe().unwrap());
+    let Ok((user_old, user_new)) = super::decode_arg::<sys::Link>(private.trapframe().unwrap());
 
-    let mut new = [0; MAX_PATH];
     let mut old = [0; MAX_PATH];
-
-    let old = super::fetch_str(private, VirtAddr::new(old_ptr.addr()), &mut old)?;
-    let new = super::fetch_str(private, VirtAddr::new(new_ptr.addr()), &mut new)?;
-
-    let old = Path::new(OsStr::from_bytes(old));
-    let new = Path::new(OsStr::from_bytes(new));
+    let mut new = [0; MAX_PATH];
+    let old = fetch_path(private, user_old, &mut old)?;
+    let new = fetch_path(private, user_new, &mut new)?;
 
     let tx = fs::begin_tx();
     fs::ops::link(&tx, private, old, new)?;
@@ -105,10 +115,9 @@ pub fn sys_unlink(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Unlink> {
     let private = private.as_mut().unwrap();
-    let Ok((path_ptr,)) = super::decode_arg::<sys::Unlink>(private.trapframe().unwrap());
+    let Ok((user_path,)) = super::decode_arg::<sys::Unlink>(private.trapframe().unwrap());
     let mut path = [0; MAX_PATH];
-    let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
-    let path = Path::new(OsStr::from_bytes(path));
+    let path = fetch_path(private, user_path, &mut path)?;
 
     let tx = fs::begin_tx();
     fs::ops::unlink(&tx, private, path)?;
@@ -120,11 +129,10 @@ pub fn sys_open(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Open> {
     let private = private.as_mut().unwrap();
-    let mut path = [0; MAX_PATH];
-    let (path_ptr, mode) =
+    let (user_path, mode) =
         super::decode_arg::<sys::Open>(private.trapframe().unwrap()).map_err(KernelError::from)?;
-    let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
-    let path = Path::new(OsStr::from_bytes(path));
+    let mut path = [0; MAX_PATH];
+    let path = fetch_path(private, user_path, &mut path)?;
 
     let tx = fs::begin_tx();
     let mut ip = if mode.contains(OpenFlags::CREATE) {
@@ -163,11 +171,9 @@ pub fn sys_mkdir(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Mkdir> {
     let private = private.as_mut().unwrap();
-    let Ok((path_ptr,)) = super::decode_arg::<sys::Mkdir>(private.trapframe().unwrap());
-
+    let Ok((user_path,)) = super::decode_arg::<sys::Mkdir>(private.trapframe().unwrap());
     let mut path = [0; MAX_PATH];
-    let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
-    let path = Path::new(OsStr::from_bytes(path));
+    let path = fetch_path(private, user_path, &mut path)?;
 
     let tx = fs::begin_tx();
     let _ip = fs::ops::create(&tx, private, path, T_DIR, DeviceNo::ROOT, 0)?;
@@ -180,11 +186,10 @@ pub fn sys_mknod(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Mknod> {
     let private = private.as_mut().unwrap();
-    let (path_ptr, major, minor) =
+    let (user_path, major, minor) =
         super::decode_arg::<sys::Mknod>(private.trapframe().unwrap()).map_err(KernelError::from)?;
     let mut path = [0; MAX_PATH];
-    let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
-    let path = Path::new(OsStr::from_bytes(path));
+    let path = fetch_path(private, user_path, &mut path)?;
 
     let tx = fs::begin_tx();
     let _ip = fs::ops::create(&tx, private, path, T_DEVICE, DeviceNo::new(major), minor)?;
@@ -197,10 +202,9 @@ pub fn sys_chdir(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Chdir> {
     let private = private.as_mut().unwrap();
-    let Ok((path_ptr,)) = super::decode_arg::<sys::Chdir>(private.trapframe().unwrap());
+    let Ok((user_path,)) = super::decode_arg::<sys::Chdir>(private.trapframe().unwrap());
     let mut path = [0; MAX_PATH];
-    let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
-    let path = Path::new(OsStr::from_bytes(path));
+    let path = fetch_path(private, user_path, &mut path)?;
 
     let tx = fs::begin_tx();
     let mut ip = fs::path::resolve(&tx, private, path)?;

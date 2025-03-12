@@ -1,4 +1,4 @@
-use core::{ffi::CStr, slice};
+use core::slice;
 
 use ov6_user_lib::{
     error::Ov6Error,
@@ -9,7 +9,7 @@ use ov6_user_lib::{
 
 use crate::{README_PATH, expect};
 
-const FILE_PATH: &CStr = c"rw_sbrk";
+const FILE_PATH: &str = "rw_sbrk";
 
 /// See if the kernel refuses to read/write user memory that the
 /// application doesn't have anymore, because it returned it.

@@ -1,4 +1,4 @@
-use core::{ffi::CStr, ptr, slice};
+use core::{ptr, slice};
 
 use ov6_user_lib::{
     error::Ov6Error,
@@ -10,7 +10,7 @@ use ov6_user_lib::{
 
 use crate::expect;
 
-const FILE_PATH: &CStr = c"copyin1";
+const FILE_PATH: &str = "copyin1";
 
 /// what if you pass ridiculous pointers to system calls
 /// that read user memory with copyin?

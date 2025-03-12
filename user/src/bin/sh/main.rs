@@ -2,7 +2,7 @@
 
 extern crate alloc;
 
-use alloc::{ffi::CString, string::String};
+use alloc::string::String;
 use core::mem;
 
 use ov6_user_lib::{
@@ -31,7 +31,7 @@ fn get_cmd(buf: &mut String) -> Result<Option<&str>, Ov6Error> {
 
 fn main() {
     // Ensure that three file descriptors are open.
-    while let Ok(file) = File::options().read(true).write(true).open(c"console") {
+    while let Ok(file) = File::options().read(true).write(true).open("console") {
         if file.as_raw_fd().get() < 3 {
             mem::forget(file);
             continue;
@@ -56,7 +56,7 @@ fn main() {
                 message!("Usage: cd <dir>");
                 continue;
             };
-            try_or!(env::set_current_directory(&CString::new(dir).unwrap()),
+            try_or!(env::set_current_directory(dir),
                 continue,
                 e => "cannot cd {dir}: {e}",
             );

@@ -1,10 +1,11 @@
-use core::{ffi::CStr, ptr, slice};
+use core::{ptr, slice};
 
 use ov6_fs_types::{FS_BLOCK_SIZE, MAX_FILE};
 use ov6_user_lib::{
     error::Ov6Error,
     fs::{self, File},
     io::Write as _,
+    os_str::OsStr,
     process,
 };
 
@@ -14,31 +15,31 @@ use crate::{BUF, expect};
 pub fn big_dir() {
     const N: usize = 500;
 
-    const FILE_PATH: &CStr = c"bd";
+    const FILE_PATH: &str = "bd";
 
     let _ = fs::remove_file(FILE_PATH);
 
     let _ = File::create(FILE_PATH).unwrap();
 
     for i in 0..N {
-        let mut name = [0; 4];
-        name[0] = b'x';
-        name[1] = b'0' + u8::try_from(i / 64).unwrap();
-        name[2] = b'0' + u8::try_from(i % 64).unwrap();
-        name[3] = b'\0';
-        let path = CStr::from_bytes_with_nul(&name).unwrap();
+        let name = [
+            b'x',
+            b'0' + u8::try_from(i / 64).unwrap(),
+            b'0' + u8::try_from(i % 64).unwrap(),
+        ];
+        let path = OsStr::from_bytes(&name);
         fs::link(FILE_PATH, path).unwrap();
     }
 
     fs::remove_file(FILE_PATH).unwrap();
 
     for i in 0..N {
-        let mut name = [0; 4];
-        name[0] = b'x';
-        name[1] = b'0' + u8::try_from(i / 64).unwrap();
-        name[2] = b'0' + u8::try_from(i % 64).unwrap();
-        name[3] = b'\0';
-        let path = CStr::from_bytes_with_nul(&name).unwrap();
+        let name = [
+            b'x',
+            b'0' + u8::try_from(i / 64).unwrap(),
+            b'0' + u8::try_from(i % 64).unwrap(),
+        ];
+        let path = OsStr::from_bytes(&name);
         fs::remove_file(path).unwrap();
     }
 }
@@ -53,11 +54,9 @@ pub fn many_writes() {
 
     for ci in 0..nchildren {
         process::fork_fn(|| {
-            let mut name = [0; 3];
-            name[0] = b'b';
-            name[1] = b'a' + u8::try_from(ci).unwrap();
-            name[2] = b'\0';
-            let path = CStr::from_bytes_with_nul(&name).unwrap();
+            let name = [b'b', b'a' + u8::try_from(ci).unwrap()];
+            let path = OsStr::from_bytes(&name);
+
             let _ = fs::remove_file(path);
 
             for _ in 0..howmany {
@@ -84,7 +83,7 @@ pub fn many_writes() {
 /// out of blocks. `assumed_free` may need to be raised to be more than
 /// the number of free blocks. this test takes a long time.
 pub fn bad_write() {
-    const FILE_PATH: &CStr = c"junk";
+    const FILE_PATH: &str = "junk";
 
     let assumed_free = 600;
 
@@ -108,12 +107,12 @@ pub fn bad_write() {
 
 /// can the kernel tolerate running out of disk space?
 pub fn disk_full() {
-    const DIR_PATH: &CStr = c"diskfulldir";
+    const DIR_PATH: &str = "diskfulldir";
     let _ = fs::remove_file(DIR_PATH);
 
     'outer: for fc in b'0'..0o177 {
-        let name = [b'b', b'i', b'g', fc, b'\0'];
-        let path = CStr::from_bytes_with_nul(&name).unwrap();
+        let name = [b'b', b'i', b'g', fc];
+        let path = OsStr::from_bytes(&name);
         let Ok(mut file) = File::create(path) else {
             break;
         };
@@ -137,9 +136,8 @@ pub fn disk_full() {
             b'z',
             b'0' + u8::try_from(i / 32).unwrap(),
             b'0' + u8::try_from(i % 32).unwrap(),
-            b'\0',
         ];
-        let path = CStr::from_bytes_with_nul(&name).unwrap();
+        let path = OsStr::from_bytes(&name);
         let _ = fs::remove_file(path);
         match File::create(path) {
             Ok(_) => continue,
@@ -158,15 +156,14 @@ pub fn disk_full() {
             b'z',
             b'0' + u8::try_from(i / 32).unwrap(),
             b'0' + u8::try_from(i % 32).unwrap(),
-            b'\0',
         ];
-        let path = CStr::from_bytes_with_nul(&name).unwrap();
+        let path = OsStr::from_bytes(&name);
         let _ = fs::remove_file(path);
     }
 
     for fc in b'0'..0o177 {
-        let name = [b'b', b'i', b'g', fc, b'\0'];
-        let path = CStr::from_bytes_with_nul(&name).unwrap();
+        let name = [b'b', b'i', b'g', fc];
+        let path = OsStr::from_bytes(&name);
         let _ = fs::remove_file(path);
     }
 }
@@ -179,9 +176,8 @@ pub fn out_of_inodes() {
             b'z',
             b'0' + u8::try_from(i / 32).unwrap(),
             b'0' + u8::try_from(i % 32).unwrap(),
-            b'\0',
         ];
-        let path = CStr::from_bytes_with_nul(&name).unwrap();
+        let path = OsStr::from_bytes(&name);
         let _ = fs::remove_file(path);
         match File::create(path) {
             Ok(_) => continue,
@@ -197,9 +193,8 @@ pub fn out_of_inodes() {
             b'z',
             b'0' + u8::try_from(i / 32).unwrap(),
             b'0' + u8::try_from(i % 32).unwrap(),
-            b'\0',
         ];
-        let path = CStr::from_bytes_with_nul(&name).unwrap();
+        let path = OsStr::from_bytes(&name);
         let _ = fs::remove_file(path);
     }
 }

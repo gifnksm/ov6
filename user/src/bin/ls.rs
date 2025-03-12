@@ -1,14 +1,13 @@
 #![no_std]
 
-use core::ffi::CStr;
-
 use ov6_user_lib::{
     env,
     fs::{self, Metadata, StatType},
     os_str::OsStr,
+    path::Path,
     println, process,
 };
-use user::{ensure_or, try_or};
+use user::try_or;
 
 fn print_entry(name: &OsStr, meta: &Metadata) {
     let ty = match meta.ty() {
@@ -25,7 +24,11 @@ fn print_entry(name: &OsStr, meta: &Metadata) {
     )
 }
 
-fn ls(path: &CStr) {
+fn ls<P>(path: P)
+where
+    P: AsRef<Path>,
+{
+    let path = path.as_ref();
     let meta = try_or!(
         fs::metadata(path),
         return,
@@ -47,23 +50,11 @@ fn ls(path: &CStr) {
                     e => "cannot read directory entry: {e}",
                 );
                 let name = ent.name();
-                let mut buf = [0; 512];
-                let path_len = path.to_bytes().len();
-                ensure_or!(
-                    path_len + name.len() + 2 <= buf.len(),
-                    continue,
-                    "path too long"
-                );
-                buf[..path_len].copy_from_slice(path.to_bytes());
-                buf[path_len] = b'/';
-                buf[path_len + 1..][..name.len()].copy_from_slice(name.as_bytes());
-                buf[path_len + 1 + name.len()] = 0;
-                let file_path =
-                    CStr::from_bytes_with_nul(&buf[..=path_len + 1 + name.len()]).unwrap();
+                let file_path = path.join(name);
                 let meta = try_or!(
-                    fs::metadata(file_path),
+                    fs::metadata(&file_path),
                     continue,
-                    e => "cannot stat {}: {e}", file_path.to_str().unwrap(),
+                    e => "cannot stat {}: {e}", file_path.display(),
                 );
                 print_entry(name, &meta);
             }
@@ -75,11 +66,11 @@ fn main() {
     let args = env::args_cstr();
 
     if args.len() < 1 {
-        ls(c".");
+        ls(".");
         process::exit(0);
     }
     for arg in args {
-        ls(arg);
+        ls(OsStr::from_bytes(arg.to_bytes()));
     }
     process::exit(0);
 }

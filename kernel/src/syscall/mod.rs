@@ -89,6 +89,18 @@ where
     }
 }
 
+impl<T> Arg for Register<T, 4>
+where
+    T: RegisterValue<Repr = Self>,
+{
+    type DecodeError = T::DecodeError;
+    type Target = T;
+
+    fn decode_arg(tf: &TrapFrame) -> Result<Self::Target, Self::DecodeError> {
+        Self::new([tf.a0, tf.a1, tf.a2, tf.a3]).try_decode()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReturnValue {
     Ret0,

@@ -15,7 +15,6 @@ mod truncate;
 pub const TESTS: &[(&str, TestFn)] = &[
     test_entry!(copy_in::test),
     test_entry!(copy_out::test),
-    test_entry!(copy_in_str::test1),
     test_entry!(copy_in_str::test2),
     test_entry!(copy_in_str::test3),
     test_entry!(rw_sbrk::test),

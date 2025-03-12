@@ -1,5 +1,3 @@
-use core::ffi::CStr;
-
 use ov6_fs_types::FS_BLOCK_SIZE;
 use ov6_kernel_params::{MAX_OP_BLOCKS, NINODE};
 use ov6_user_lib::{
@@ -7,6 +5,7 @@ use ov6_user_lib::{
     error::Ov6Error,
     fs::{self, File},
     io::{Read as _, Write as _},
+    os_str::OsStr,
     process,
 };
 
@@ -15,7 +14,7 @@ use crate::{BUF, README_PATH, expect};
 /// two processes write to the same file descriptor
 /// is the offset shared? does inode locking work?
 pub fn shared_fd() {
-    const FILE_PATH: &CStr = c"sharedfd";
+    const FILE_PATH: &str = "sharedfd";
     const N: usize = 1000;
     const SIZE: usize = 10;
 
@@ -69,7 +68,7 @@ pub fn four_files() {
     let buf = unsafe { (&raw mut BUF).as_mut() }.unwrap();
     let buf = &mut buf[..SIZE];
 
-    let names = [c"f0", c"f1", c"f2", c"f3"];
+    let names = ["f0", "f1", "f2", "f3"];
     let bytes = [b'0', b'1', b'2', b'3'];
     for (&name, &b) in names.iter().zip(&bytes) {
         let _ = fs::remove_file(name);
@@ -112,20 +111,19 @@ pub fn four_files() {
 pub fn create_delete() {
     const N: usize = 20;
     const NCHILD: usize = 4;
-    let mut name = [0; 32];
+    let mut name = [0; 2];
 
     for pi in 0..NCHILD {
         process::fork_fn(|| {
             name[0] = b'p' + u8::try_from(pi).unwrap();
-            name[2] = b'\0';
             for i in 0..N {
                 name[1] = b'0' + u8::try_from(i).unwrap();
-                let path = CStr::from_bytes_until_nul(&name).unwrap();
+                let path = OsStr::from_bytes(&name);
                 let file = File::create(path).unwrap();
                 drop(file);
                 if i > 0 && (i % 2) == 0 {
                     name[1] = b'0' + u8::try_from(i / 2).unwrap();
-                    let path = CStr::from_bytes_until_nul(&name).unwrap();
+                    let path = OsStr::from_bytes(&name);
                     fs::remove_file(path).unwrap();
                 }
             }
@@ -143,7 +141,7 @@ pub fn create_delete() {
         for pi in 0..NCHILD {
             name[0] = b'p' + u8::try_from(pi).unwrap();
             name[1] = b'0' + u8::try_from(i).unwrap();
-            let path = CStr::from_bytes_until_nul(&name).unwrap();
+            let path = OsStr::from_bytes(&name);
             let file = File::open(path);
             assert!(
                 (1..N / 2).contains(&i) || file.is_ok(),
@@ -162,7 +160,7 @@ pub fn create_delete() {
         for pi in 0..NCHILD {
             name[0] = b'p' + u8::try_from(pi).unwrap();
             name[1] = b'0' + u8::try_from(i).unwrap();
-            let path = CStr::from_bytes_until_nul(&name).unwrap();
+            let path = OsStr::from_bytes(&name);
             let _ = fs::remove_file(path);
         }
     }
@@ -170,7 +168,7 @@ pub fn create_delete() {
 
 /// can I unlink a file and still read it?
 pub fn unlink_read() {
-    const FILE_PATH: &CStr = c"unlinkread";
+    const FILE_PATH: &str = "unlinkread";
 
     File::create(FILE_PATH)
         .unwrap()
@@ -199,8 +197,8 @@ pub fn unlink_read() {
 }
 
 pub fn link() {
-    const FILE1_PATH: &CStr = c"lf1";
-    const FILE2_PATH: &CStr = c"lf2";
+    const FILE1_PATH: &str = "lf1";
+    const FILE2_PATH: &str = "lf2";
 
     let mut file = File::create(FILE1_PATH).unwrap();
     file.write_all(b"hello").unwrap();
@@ -228,24 +226,23 @@ pub fn link() {
         Err(Ov6Error::FsEntryNotFound)
     );
 
-    expect!(fs::link(c".", FILE1_PATH), Err(Ov6Error::NotADirectory));
+    expect!(fs::link(".", FILE1_PATH), Err(Ov6Error::NotADirectory));
 }
 
 /// test concurrent create/link/unlink of the same file
 pub fn concreate() {
     const N: usize = 40;
 
-    let mut file = [0; 3];
+    let mut file = [0; 2];
     file[0] = b'C';
-    file[2] = b'\0';
     for i in 0..N {
         file[1] = b'0' + u8::try_from(i).unwrap();
-        let path = CStr::from_bytes_until_nul(&file).unwrap();
+        let path = OsStr::from_bytes(&file);
         let _ = fs::remove_file(path);
 
         let res = process::fork().unwrap();
         if (res.is_parent() && (i % 3) == 1) || (res.is_child() && (i % 5) == 1) {
-            let _ = fs::link(c"C0", path);
+            let _ = fs::link("C0", path);
         } else {
             let file = File::create(path).unwrap();
             drop(file);
@@ -260,7 +257,7 @@ pub fn concreate() {
 
     let mut n = 0;
     let mut fa = [0; N];
-    let dir = fs::read_dir(c".").unwrap();
+    let dir = fs::read_dir(".").unwrap();
     for entry in dir {
         let entry = entry.unwrap();
         if entry.name().len() == 2 && entry.name().as_bytes()[0] == b'C' {
@@ -274,7 +271,7 @@ pub fn concreate() {
 
     for i in 0..N {
         file[1] = b'0' + u8::try_from(i).unwrap();
-        let path = CStr::from_bytes_until_nul(&file).unwrap();
+        let path = OsStr::from_bytes(&file);
 
         let res = process::fork().unwrap();
         if ((i % 3) == 0 && res.is_child()) || ((i % 3) == 1 && res.is_parent()) {
@@ -302,7 +299,7 @@ pub fn concreate() {
 /// another concurrent link/unlink/create test,
 /// to look for deadlocks.
 pub fn link_unlink() {
-    let _ = fs::remove_file(c"x");
+    let _ = fs::remove_file("x");
 
     let res = process::fork().unwrap();
 
@@ -311,13 +308,13 @@ pub fn link_unlink() {
         x = x.wrapping_mul(1_103_515_245).wrapping_add(12_345);
         match x % 3 {
             0 => {
-                let _ = File::options().create(true).open(c"x");
+                let _ = File::options().create(true).open("x");
             }
             1 => {
-                let _ = fs::link(c"cat", c"x");
+                let _ = fs::link("cat", "x");
             }
             _ => {
-                let _ = fs::remove_file(c"x");
+                let _ = fs::remove_file("x");
             }
         }
     }
@@ -328,97 +325,97 @@ pub fn link_unlink() {
     let (_, status) = process::wait().unwrap();
     assert!(status.success());
 
-    let _ = fs::remove_file(c"x");
+    let _ = fs::remove_file("x");
 }
 
 pub fn subdir() {
-    let _ = fs::remove_file(c"ff");
-    fs::create_dir(c"dd").unwrap();
+    let _ = fs::remove_file("ff");
+    fs::create_dir("dd").unwrap();
 
-    let mut file = File::create(c"dd/ff").unwrap();
+    let mut file = File::create("dd/ff").unwrap();
     file.write_all(b"ff").unwrap();
     drop(file);
 
-    expect!(fs::remove_file(c"dd"), Err(Ov6Error::DirectoryNotEmpty));
+    expect!(fs::remove_file("dd"), Err(Ov6Error::DirectoryNotEmpty));
 
-    fs::create_dir(c"/dd/dd").unwrap();
+    fs::create_dir("/dd/dd").unwrap();
 
-    let mut file = File::create(c"dd/dd/ff").unwrap();
+    let mut file = File::create("dd/dd/ff").unwrap();
     file.write_all(b"FF").unwrap();
     drop(file);
 
-    let mut file = File::open(c"dd/dd/../ff").unwrap();
+    let mut file = File::open("dd/dd/../ff").unwrap();
     let mut buf = [0; 2];
     file.read_exact(&mut buf).unwrap();
     assert_eq!(buf, *b"ff");
     drop(file);
 
-    fs::link(c"dd/dd/ff", c"dd/dd/ffff").unwrap();
-    fs::remove_file(c"dd/dd/ff").unwrap();
-    expect!(File::open(c"dd/dd/ff"), Err(Ov6Error::FsEntryNotFound));
+    fs::link("dd/dd/ff", "dd/dd/ffff").unwrap();
+    fs::remove_file("dd/dd/ff").unwrap();
+    expect!(File::open("dd/dd/ff"), Err(Ov6Error::FsEntryNotFound));
 
-    env::set_current_directory(c"dd").unwrap();
-    env::set_current_directory(c"dd/../../dd").unwrap();
-    env::set_current_directory(c"dd/../../../dd").unwrap();
-    env::set_current_directory(c"./..").unwrap();
+    env::set_current_directory("dd").unwrap();
+    env::set_current_directory("dd/../../dd").unwrap();
+    env::set_current_directory("dd/../../../dd").unwrap();
+    env::set_current_directory("./..").unwrap();
 
-    let mut file = File::open(c"dd/dd/ffff").unwrap();
+    let mut file = File::open("dd/dd/ffff").unwrap();
     let mut buf = [0; 2];
     file.read_exact(&mut buf).unwrap();
     drop(file);
 
-    expect!(File::open(c"dd/dd/ff"), Err(Ov6Error::FsEntryNotFound));
+    expect!(File::open("dd/dd/ff"), Err(Ov6Error::FsEntryNotFound));
 
-    expect!(File::create(c"dd/ff/ff"), Err(Ov6Error::NotADirectory));
-    expect!(File::create(c"dd/xx/ff"), Err(Ov6Error::FsEntryNotFound));
+    expect!(File::create("dd/ff/ff"), Err(Ov6Error::NotADirectory));
+    expect!(File::create("dd/xx/ff"), Err(Ov6Error::FsEntryNotFound));
     expect!(
-        File::options().create(true).read(true).open(c"dd"),
+        File::options().create(true).read(true).open("dd"),
         Err(Ov6Error::AlreadyExists)
     );
     expect!(
-        File::options().read(true).write(true).open(c"dd"),
+        File::options().read(true).write(true).open("dd"),
         Err(Ov6Error::IsADirectory)
     );
     expect!(
-        File::options().write(true).open(c"dd"),
+        File::options().write(true).open("dd"),
         Err(Ov6Error::IsADirectory)
     );
     expect!(
-        fs::link(c"dd/ff/ff", c"dd/dd/xx"),
+        fs::link("dd/ff/ff", "dd/dd/xx"),
         Err(Ov6Error::NotADirectory)
     );
     expect!(
-        fs::link(c"dd/xx/ff", c"dd/dd/xx"),
+        fs::link("dd/xx/ff", "dd/dd/xx"),
         Err(Ov6Error::FsEntryNotFound)
     );
     expect!(
-        fs::link(c"dd/ff", c"dd/dd/ffff"),
+        fs::link("dd/ff", "dd/dd/ffff"),
         Err(Ov6Error::AlreadyExists)
     );
-    expect!(fs::create_dir(c"dd/ff/ff"), Err(Ov6Error::NotADirectory));
-    expect!(fs::create_dir(c"dd/xx/ff"), Err(Ov6Error::FsEntryNotFound));
-    expect!(fs::create_dir(c"dd/dd/ffff"), Err(Ov6Error::AlreadyExists));
-    expect!(fs::remove_file(c"dd/xx/ff"), Err(Ov6Error::FsEntryNotFound));
-    expect!(fs::remove_file(c"dd/ff/ff"), Err(Ov6Error::NotADirectory));
+    expect!(fs::create_dir("dd/ff/ff"), Err(Ov6Error::NotADirectory));
+    expect!(fs::create_dir("dd/xx/ff"), Err(Ov6Error::FsEntryNotFound));
+    expect!(fs::create_dir("dd/dd/ffff"), Err(Ov6Error::AlreadyExists));
+    expect!(fs::remove_file("dd/xx/ff"), Err(Ov6Error::FsEntryNotFound));
+    expect!(fs::remove_file("dd/ff/ff"), Err(Ov6Error::NotADirectory));
     expect!(
-        env::set_current_directory(c"dd/ff"),
+        env::set_current_directory("dd/ff"),
         Err(Ov6Error::NotADirectory)
     );
     expect!(
-        env::set_current_directory(c"dd/xx"),
+        env::set_current_directory("dd/xx"),
         Err(Ov6Error::FsEntryNotFound)
     );
 
-    fs::remove_file(c"dd/dd/ffff").unwrap();
-    fs::remove_file(c"dd/ff").unwrap();
-    expect!(fs::remove_file(c"dd"), Err(Ov6Error::DirectoryNotEmpty));
-    fs::remove_file(c"dd/dd").unwrap();
-    fs::remove_file(c"dd").unwrap();
+    fs::remove_file("dd/dd/ffff").unwrap();
+    fs::remove_file("dd/ff").unwrap();
+    expect!(fs::remove_file("dd"), Err(Ov6Error::DirectoryNotEmpty));
+    fs::remove_file("dd/dd").unwrap();
+    fs::remove_file("dd").unwrap();
 }
 
 /// test writes that are larger than the log.
 pub fn big_write() {
-    const FILE_PATH: &CStr = c"bigwrite";
+    const FILE_PATH: &str = "bigwrite";
     let buf = unsafe { (&raw mut BUF).as_mut() }.unwrap();
 
     let _ = fs::remove_file(FILE_PATH);
@@ -434,7 +431,7 @@ pub fn big_write() {
 }
 
 pub fn big_file() {
-    const FILE_PATH: &CStr = c"bigfile.dat";
+    const FILE_PATH: &str = "bigfile.dat";
     const N: usize = 20;
     const SIZE: usize = 600;
 
@@ -468,12 +465,12 @@ pub fn big_file() {
 pub fn fourteen() {
     // DIR_SIZE is 14
 
-    const N14: &CStr = c"12345678901234";
-    const N14_15: &CStr = c"12345678901234/123456789012345";
-    const N15_15_15: &CStr = c"123456789012345/123456789012345/123456789012345";
-    const N14_14_14: &CStr = c"12345678901234/12345678901234/12345678901234";
-    const N14_14: &CStr = c"12345678901234/12345678901234";
-    const N15_14: &CStr = c"123456789012345/12345678901234";
+    const N14: &str = "12345678901234";
+    const N14_15: &str = "12345678901234/123456789012345";
+    const N15_15_15: &str = "123456789012345/123456789012345/123456789012345";
+    const N14_14_14: &str = "12345678901234/12345678901234/12345678901234";
+    const N14_14: &str = "12345678901234/12345678901234";
+    const N15_14: &str = "123456789012345/12345678901234";
 
     fs::create_dir(N14).unwrap();
     fs::create_dir(N14_15).unwrap();
@@ -492,61 +489,61 @@ pub fn fourteen() {
 }
 
 pub fn rm_dot() {
-    fs::create_dir(c"dots").unwrap();
-    env::set_current_directory(c"dots").unwrap();
-    expect!(fs::remove_file(c"."), Err(Ov6Error::InvalidInput));
-    expect!(fs::remove_file(c".."), Err(Ov6Error::InvalidInput));
+    fs::create_dir("dots").unwrap();
+    env::set_current_directory("dots").unwrap();
+    expect!(fs::remove_file("."), Err(Ov6Error::InvalidInput));
+    expect!(fs::remove_file(".."), Err(Ov6Error::InvalidInput));
 
-    env::set_current_directory(c"/").unwrap();
-    expect!(fs::remove_file(c"dots/."), Err(Ov6Error::InvalidInput));
-    expect!(fs::remove_file(c"dots/.."), Err(Ov6Error::InvalidInput));
-    fs::remove_file(c"dots").unwrap();
+    env::set_current_directory("/").unwrap();
+    expect!(fs::remove_file("dots/."), Err(Ov6Error::InvalidInput));
+    expect!(fs::remove_file("dots/.."), Err(Ov6Error::InvalidInput));
+    fs::remove_file("dots").unwrap();
 }
 
 pub fn dir_file() {
-    let _file = File::create(c"dirfile").unwrap();
+    let _file = File::create("dirfile").unwrap();
     expect!(
-        env::set_current_directory(c"dirfile"),
+        env::set_current_directory("dirfile"),
         Err(Ov6Error::NotADirectory)
     );
-    expect!(File::open(c"dirfile/xx"), Err(Ov6Error::NotADirectory));
-    expect!(File::create(c"dirfile/xx"), Err(Ov6Error::NotADirectory));
-    expect!(fs::create_dir(c"dirfile/xx"), Err(Ov6Error::NotADirectory));
-    expect!(fs::remove_file(c"dirfile/xx"), Err(Ov6Error::NotADirectory));
+    expect!(File::open("dirfile/xx"), Err(Ov6Error::NotADirectory));
+    expect!(File::create("dirfile/xx"), Err(Ov6Error::NotADirectory));
+    expect!(fs::create_dir("dirfile/xx"), Err(Ov6Error::NotADirectory));
+    expect!(fs::remove_file("dirfile/xx"), Err(Ov6Error::NotADirectory));
     expect!(
-        fs::link(README_PATH, c"dirfile/xx"),
+        fs::link(README_PATH, "dirfile/xx"),
         Err(Ov6Error::NotADirectory)
     );
-    fs::remove_file(c"dirfile").unwrap();
+    fs::remove_file("dirfile").unwrap();
 
     expect!(
-        File::options().read(true).write(true).open(c"."),
+        File::options().read(true).write(true).open("."),
         Err(Ov6Error::IsADirectory),
     );
-    let mut file = File::open(c".").unwrap();
+    let mut file = File::open(".").unwrap();
     expect!(file.write(b"x"), Err(Ov6Error::BadFileDescriptor));
 }
 
 /// test that `inode_put()` is called at the end of `_namei()`.
 /// also tests empty file names.
 pub fn iref() {
-    const DIR_PATH: &CStr = c"irefd";
+    const DIR_PATH: &str = "irefd";
     for _ in 0..=NINODE {
         fs::create_dir(DIR_PATH).unwrap();
         env::set_current_directory(DIR_PATH).unwrap();
 
-        expect!(fs::create_dir(c""), Err(Ov6Error::AlreadyExists));
-        expect!(fs::link(c"README", c""), Err(Ov6Error::AlreadyExists));
-        let _ = File::open(c"").unwrap();
-        let _file = File::create(c"xx").unwrap();
-        fs::remove_file(c"xx").unwrap();
+        expect!(fs::create_dir(""), Err(Ov6Error::AlreadyExists));
+        expect!(fs::link("README", ""), Err(Ov6Error::AlreadyExists));
+        let _ = File::open("").unwrap();
+        let _file = File::create("xx").unwrap();
+        fs::remove_file("xx").unwrap();
     }
 
     // clean up
     for _ in 0..=NINODE {
-        env::set_current_directory(c"..").unwrap();
+        env::set_current_directory("..").unwrap();
         fs::remove_file(DIR_PATH).unwrap();
     }
 
-    env::set_current_directory(c"/").unwrap();
+    env::set_current_directory("/").unwrap();
 }

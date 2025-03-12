@@ -79,7 +79,6 @@ impl Command<'_> {
                     RedirectFd::Stdin => (STDIN_FD, "stdin"),
                     RedirectFd::Stdout => (STDOUT_FD, "stdout"),
                 };
-                let path = CString::new(file).unwrap();
                 let mut options = File::options();
                 match mode {
                     RedirectMode::Input => options.read(true),
@@ -88,7 +87,7 @@ impl Command<'_> {
                 };
                 unsafe { util::close_or_exit(fd, fd_name) }
                 let _file = try_or_exit!(
-                    options.open(&path),
+                    options.open(file),
                     e => "open {} failed: {e}", file
                 );
                 cmd.run();
