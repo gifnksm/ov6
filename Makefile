@@ -54,19 +54,22 @@ target/ov6/%.debug: target/$(RUST_CROSS_TARGET)/% | $$(dir $$@)
 target/ov6/%: target/$(RUST_CROSS_TARGET)/% target/ov6/%.debug | $$(dir $$@)
 	$(OBJCOPY) --strip-debug --strip-unneeded --remove-section=".gnu_debuglink" --add-gnu-debuglink="$@.debug" $< $@
 
-target/$(RUST_CROSS_TARGET)/initcode/initcode:
+target/$(RUST_CROSS_TARGET)/initcode/initcode: FORCE
 	cargo build -p user --bin initcode --profile initcode --target $(RUST_CROSS_TARGET)
 
 $I/initcode.bin: $I/initcode
 	$(OBJCOPY) -S -O binary $< $@
 
-$(RX)/kernel: $I/initcode.bin
+$(RX)/kernel: $I/initcode.bin FORCE
 	INIT_CODE_PATH="$(PWD)/$I/initcode.bin" \
 		cargo build -p kernel $(CARGO_PROFILE_FLAG) --target $(RUST_CROSS_TARGET) --features initcode_env
 
+$(RX)/user.stamp: FORCE
+	cargo build -p user --target $(RUST_CROSS_TARGET) $(CARGO_PROFILE_FLAG)
+	touch $@
+
 define user_rule
-$$(RX)/$(1):
-	cargo build -p user --bin $(1) $$(CARGO_PROFILE_FLAG) --target $$(RUST_CROSS_TARGET)
+$$(RX)/$(1): $$(RX)/user.stamp
 
 endef
 
@@ -80,15 +83,6 @@ $(RN)/mkfs:
 
 fs.img: $(RN)/mkfs README $(R_RUPROGS)
 	$(RN)/mkfs $@ README $(R_RUPROGS)
-
-# convert Cargo's .d file (absolute path -> relative path)
-target/%.rel.d: target/%.d
-	sed "s@$$(pwd)/@@g" $< > $@
-
--include $(RX)/kernel.rel.d
--include $(addsuffix .rel.d,$(RX_RUPROGS))
--include $(RN)/mkfs.rel.d
--include $(RXI)/initcode.rel.d
 
 clean:
 	rm -f fs.img .gdbinit
