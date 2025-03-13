@@ -22,8 +22,6 @@ pub(crate) enum KernelError {
     AddressNotMapped(VirtAddr),
     #[error("inaccessible memory: {0:#x}")]
     InaccessibleMemory(VirtAddr),
-    #[error("unterminated string: addr={0:#x}, len={1}")]
-    UnterminatedString(VirtAddr, usize),
     #[error("bad file descriptor: fd={0}, pid={1}")]
     FileDescriptorNotFound(RawFd, ProcId),
     #[error("file descriptor not readable")]
@@ -102,8 +100,7 @@ impl From<KernelError> for SyscallError {
             KernelError::NoChildProcess => Self::NoChildProcess,
             KernelError::TooLargeVirtualAddress(_)
             | KernelError::AddressNotMapped(_)
-            | KernelError::InaccessibleMemory(_)
-            | KernelError::UnterminatedString(_, _) => Self::BadAddress,
+            | KernelError::InaccessibleMemory(_) => Self::BadAddress,
             KernelError::FileDescriptorNotFound(_, _)
             | KernelError::FileDescriptorNotReadable
             | KernelError::FileDescriptorNotWritable

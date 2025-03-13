@@ -1,9 +1,6 @@
 #![no_std]
 
-use core::{
-    ptr,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use ov6_user_lib::{
     env,
@@ -246,8 +243,7 @@ fn go(name: char) {
                     let atx2 = atx.try_clone().unwrap();
                     assert_eq!(atx2.as_raw_fd(), STDOUT_FD);
                     drop(atx);
-                    let args = [c"echo".as_ptr(), c"hi".as_ptr(), ptr::null()];
-                    process::exec(c"grindir/../echo", &args).unwrap();
+                    process::exec("grindir/../echo", &["echo", "hi"]).unwrap();
                     unreachable!();
                 }
 
@@ -262,8 +258,7 @@ fn go(name: char) {
                     let btx2 = btx.try_clone().unwrap();
                     assert_eq!(btx2.as_raw_fd(), STDOUT_FD);
                     drop(btx);
-                    let args = [c"cat".as_ptr(), ptr::null()];
-                    process::exec(c"/cat", &args).unwrap();
+                    process::exec("/cat", &["cat"]).unwrap();
                     unreachable!();
                 }
 

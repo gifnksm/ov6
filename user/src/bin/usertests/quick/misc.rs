@@ -1,9 +1,4 @@
-use core::{
-    cell::UnsafeCell,
-    ffi::{CStr, c_char},
-    mem::MaybeUninit,
-    ptr, slice,
-};
+use core::{cell::UnsafeCell, mem::MaybeUninit, ptr, slice};
 
 use ov6_kernel_params::{MAX_ARG, USER_STACK};
 use ov6_user_lib::{
@@ -15,7 +10,7 @@ use ov6_user_lib::{
     process,
 };
 
-use crate::{BUF, C_ECHO_PATH, PAGE_SIZE, expect};
+use crate::{BUF, ECHO_PATH, PAGE_SIZE, expect};
 
 pub fn validate() {
     let hi = 1100 * 1024;
@@ -54,18 +49,12 @@ pub fn big_arg() {
     let _ = fs::remove_file(FILE_PATH);
 
     let status = process::fork_fn(|| {
-        static mut ARGS: [*const c_char; MAX_ARG] = [ptr::null(); MAX_ARG];
-        let args = unsafe { (&raw mut ARGS).as_mut().unwrap() };
-        let mut big = [b' '; 400];
-        *big.last_mut().unwrap() = b'\0';
-        for arg in &mut args[..MAX_ARG - 1] {
-            *arg = big.as_ptr().cast::<c_char>();
-        }
-        args[MAX_ARG - 1] = ptr::null();
+        static BIG: &OsStr = OsStr::from_bytes(&[b' '; 400]);
+        const ARGS: [&OsStr; MAX_ARG] = [BIG; MAX_ARG];
         // this exec() should fail (and return) because the
         // arguments are too large.
         expect!(
-            process::exec(C_ECHO_PATH, args),
+            process::exec(ECHO_PATH, &ARGS),
             Err(Ov6Error::ArgumentListTooLong)
         );
         let _ = File::create(FILE_PATH).unwrap();
@@ -190,8 +179,8 @@ pub fn no_write() {
 /// call arguments) resulted in a kernel page faults.
 pub fn pg_bug() {
     let big = ptr::with_exposed_provenance::<u8>(0xeaeb_0b5b_0000_2f5e);
-    let argv = &[ptr::null()];
-    let path = unsafe { &*(ptr::slice_from_raw_parts(big, 10) as *const CStr) };
+    let argv: &[&str] = &[];
+    let path = unsafe { &*(ptr::slice_from_raw_parts(big, 10) as *const OsStr) };
     expect!(process::exec(path, argv), Err(Ov6Error::BadAddress));
 }
 
@@ -287,7 +276,10 @@ pub fn sbrk8000() {
 /// arguments is invalid. the test passes if the kernel doesn't panic.
 pub fn bad_arg() {
     for _ in 0..50000 {
-        let argv = [ptr::with_exposed_provenance(0xffff_ffff), ptr::null()];
-        expect!(process::exec(C_ECHO_PATH, &argv), Err(Ov6Error::BadAddress));
+        let argv = [unsafe {
+            &*(ptr::slice_from_raw_parts::<u8>(ptr::with_exposed_provenance(0xffff_ffff), 1)
+                as *const OsStr)
+        }];
+        expect!(process::exec(ECHO_PATH, &argv), Err(Ov6Error::BadAddress));
     }
 }

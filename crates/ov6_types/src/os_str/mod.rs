@@ -29,22 +29,22 @@ impl OsStr {
     }
 
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.inner.len()
     }
 
     #[must_use]
-    pub fn from_bytes(slice: &[u8]) -> &Self {
+    pub const fn from_bytes(slice: &[u8]) -> &Self {
         Self::from_inner(slice)
     }
 
     #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
+    pub const fn as_bytes(&self) -> &[u8] {
         &self.inner
     }
 
@@ -53,12 +53,12 @@ impl OsStr {
         Display { os_str: self }
     }
 
-    fn from_inner(inner: &[u8]) -> &Self {
+    const fn from_inner(inner: &[u8]) -> &Self {
         unsafe { &*(ptr::from_ref(inner) as *const Self) }
     }
 
     #[cfg(feature = "alloc")]
-    fn from_inner_mut(inner: &mut [u8]) -> &mut Self {
+    const fn from_inner_mut(inner: &mut [u8]) -> &mut Self {
         unsafe { &mut *(ptr::from_mut(inner) as *mut Self) }
     }
 }

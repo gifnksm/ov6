@@ -1,7 +1,6 @@
 use crate::{TestFn, test_entry};
 
 mod copy_in;
-mod copy_in_str;
 mod copy_out;
 mod inode_put;
 mod misc;
@@ -15,8 +14,6 @@ mod truncate;
 pub const TESTS: &[(&str, TestFn)] = &[
     test_entry!(copy_in::test),
     test_entry!(copy_out::test),
-    test_entry!(copy_in_str::test2),
-    test_entry!(copy_in_str::test3),
     test_entry!(rw_sbrk::test),
     test_entry!(truncate::test1),
     test_entry!(truncate::test2),

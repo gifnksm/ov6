@@ -171,11 +171,14 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub struct UserSlice<T> {
     addr: usize,
     len: usize,
     _phantom: PhantomData<T>,
 }
+
+unsafe impl<T> Pod for UserSlice<T> where T: Pod {}
 
 impl<T> UserSlice<T> {
     #[must_use]
@@ -188,7 +191,7 @@ impl<T> UserSlice<T> {
     }
 
     #[must_use]
-    pub fn from_raw_parts(addr: usize, len: usize) -> Self {
+    pub const fn from_raw_parts(addr: usize, len: usize) -> Self {
         Self {
             addr,
             len,
@@ -197,18 +200,18 @@ impl<T> UserSlice<T> {
     }
 
     #[must_use]
-    pub fn addr(&self) -> usize {
+    pub const fn addr(&self) -> usize {
         self.addr
     }
 
     #[expect(clippy::len_without_is_empty)]
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.len
     }
 
     #[must_use]
-    pub fn nth(&self, n: usize) -> UserRef<T> {
+    pub const fn nth(&self, n: usize) -> UserRef<T> {
         assert!(n < self.len());
         UserRef {
             addr: self.addr + n * size_of::<T>(),
@@ -217,7 +220,7 @@ impl<T> UserSlice<T> {
     }
 
     #[must_use]
-    pub fn skip(&self, amt: usize) -> Self {
+    pub const fn skip(&self, amt: usize) -> Self {
         assert!(amt <= self.len);
         Self {
             addr: self.addr + amt,
@@ -227,7 +230,7 @@ impl<T> UserSlice<T> {
     }
 
     #[must_use]
-    pub fn take(&self, amt: usize) -> Self {
+    pub const fn take(&self, amt: usize) -> Self {
         assert!(amt <= self.len);
         Self {
             addr: self.addr,
@@ -238,11 +241,14 @@ impl<T> UserSlice<T> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[repr(C)]
 pub struct UserMutSlice<T> {
     addr: usize,
     len: usize,
     _phantom: PhantomData<T>,
 }
+
+unsafe impl<T> Pod for UserMutSlice<T> where T: Pod {}
 
 impl<T> UserMutSlice<T> {
     #[must_use]
@@ -255,7 +261,7 @@ impl<T> UserMutSlice<T> {
     }
 
     #[must_use]
-    pub fn from_raw_parts(addr: usize, len: usize) -> Self {
+    pub const fn from_raw_parts(addr: usize, len: usize) -> Self {
         Self {
             addr,
             len,
@@ -264,18 +270,18 @@ impl<T> UserMutSlice<T> {
     }
 
     #[must_use]
-    pub fn addr(&self) -> usize {
+    pub const fn addr(&self) -> usize {
         self.addr
     }
 
     #[expect(clippy::len_without_is_empty)]
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.len
     }
 
     #[must_use]
-    pub fn nth_mut(&mut self, n: usize) -> UserMutRef<T> {
+    pub const fn nth_mut(&mut self, n: usize) -> UserMutRef<T> {
         assert!(n < self.len());
         UserMutRef {
             addr: self.addr + n * size_of::<T>(),
@@ -284,7 +290,7 @@ impl<T> UserMutSlice<T> {
     }
 
     #[must_use]
-    pub fn skip_mut(&self, amt: usize) -> Self {
+    pub const fn skip_mut(&self, amt: usize) -> Self {
         assert!(amt <= self.len);
         Self {
             addr: self.addr + amt,
@@ -294,7 +300,7 @@ impl<T> UserMutSlice<T> {
     }
 
     #[must_use]
-    pub fn take_mut(&self, amt: usize) -> Self {
+    pub const fn take_mut(&self, amt: usize) -> Self {
         assert!(amt <= self.len);
         Self {
             addr: self.addr,

@@ -62,7 +62,7 @@ syscall!(Write, write(a0, a1, a2));
 syscall!(Read, read(a0, a1, a2));
 syscall!(Close, close(a0));
 syscall!(Kill, kill(a0));
-syscall!(Exec, exec(a0, a1, a2));
+syscall!(Exec, exec(a0, a1, a2, a3));
 syscall!(Open, open(a0, a1, a2));
 syscall!(Mknod, mknod(a0, a1, a2, a3));
 syscall!(Unlink, unlink(a0, a1));

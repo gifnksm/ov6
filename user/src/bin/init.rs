@@ -1,7 +1,5 @@
 #![no_std]
 
-use core::ptr;
-
 use ov6_user_lib::{
     error::Ov6Error,
     fs::{self, File},
@@ -35,9 +33,8 @@ fn main() {
 
         let sh = try_or_panic!(
             process::fork_fn(|| {
-                let argv = [c"sh".as_ptr(), ptr::null()];
                 try_or_panic!(
-                    process::exec(c"sh", &argv),
+                    process::exec("sh", &["sh"]),
                     e => "exec sh failed: {e}",
                 );
                 unreachable!()

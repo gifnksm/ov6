@@ -1,8 +1,11 @@
 use core::convert::Infallible;
 
+use alloc_crate::vec::Vec;
+use ov6_syscall::UserSlice;
 pub use ov6_types::process::ProcId;
+use ov6_types::{os_str::OsStr, path::Path};
 
-pub use crate::os::ov6::syscall::{exec, exit, fork, kill, wait};
+pub use crate::os::ov6::syscall::{exit, fork, kill, wait};
 use crate::{error::Ov6Error, os::ov6::syscall};
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,4 +107,25 @@ where
         unreachable!();
     };
     Ok(ForkFnHandle { pid })
+}
+
+pub fn exec<P, A>(path: P, argv: &[A]) -> Result<Infallible, Ov6Error>
+where
+    P: AsRef<Path>,
+    A: AsRef<OsStr>,
+{
+    if argv.len() < 10 {
+        let mut new_argv = [const { UserSlice::from_raw_parts(0, 0) }; 10];
+        for (dst, src) in new_argv.iter_mut().zip(argv) {
+            *dst = UserSlice::new(src.as_ref().as_bytes());
+        }
+        syscall::exec(path.as_ref(), &new_argv[..argv.len()])
+    } else {
+        let argv = argv
+            .iter()
+            .map(|s| UserSlice::new(s.as_ref().as_bytes()))
+            .collect::<Vec<_>>();
+
+        syscall::exec(path.as_ref(), &argv)
+    }
 }

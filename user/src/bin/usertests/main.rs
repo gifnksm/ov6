@@ -4,7 +4,6 @@
 extern crate alloc;
 
 use alloc::{borrow::ToOwned as _, string::String};
-use core::ffi::CStr;
 
 use ov6_fs_types::FS_BLOCK_SIZE;
 use ov6_kernel_params::MAX_OP_BLOCKS;
@@ -24,7 +23,6 @@ const PAGE_SIZE: usize = 4096;
 const KERN_BASE: usize = 0x8000_0000;
 const MAX_VA: usize = 1 << (9 + 9 + 9 + 12 - 1);
 const README_PATH: &str = "README";
-const C_ECHO_PATH: &CStr = c"echo";
 const ECHO_PATH: &str = "echo";
 const ROOT_DIR_PATH: &str = "/";
 

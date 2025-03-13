@@ -1,5 +1,5 @@
 use alloc::boxed::Box;
-use core::{ffi::CStr, slice};
+use core::slice;
 
 use dataview::PodMethods as _;
 use ov6_syscall::UserMutSlice;
@@ -35,7 +35,7 @@ pub fn exec(
     p: &Proc,
     private: &mut ProcPrivateData,
     path: &Path,
-    argv: &[Box<[u8; PAGE_SIZE], PageFrameAllocator>],
+    argv: &[(usize, Box<[u8; PAGE_SIZE], PageFrameAllocator>)],
 ) -> Result<(usize, usize), KernelError> {
     let tx = fs::begin_tx();
     let mut ip = fs::path::resolve(&tx, private, path)?;
@@ -173,20 +173,21 @@ fn push_arguments(
     pagetable: &mut UserPageTable,
     mut sp: usize,
     stack_base: usize,
-    argv: &[Box<[u8; PAGE_SIZE], PageFrameAllocator>],
+    argv: &[(usize, Box<[u8; PAGE_SIZE], PageFrameAllocator>)],
 ) -> Result<(usize, usize), KernelError> {
     assert!(argv.len() < MAX_ARG);
     let mut ustack = [0_usize; MAX_ARG];
 
-    for (arg, uarg) in argv.iter().zip(&mut ustack) {
-        let arg = CStr::from_bytes_until_nul(arg.as_slice()).unwrap();
-        sp -= arg.to_bytes_with_nul().len();
+    for ((arg_len, arg_data), uarg) in argv.iter().zip(&mut ustack) {
+        let src = &arg_data[..*arg_len];
+        sp -= src.len() + 1;
         if sp < stack_base {
             return Err(KernelError::ArgumentListTooLarge);
         }
-        let src = arg.to_bytes_with_nul();
         let dst = UserMutSlice::from_raw_parts(sp, src.len());
         vm::copy_out_bytes(pagetable, dst, src)?;
+        let dst = UserMutSlice::from_raw_parts(sp + src.len(), 1);
+        vm::copy_out_bytes(pagetable, dst, &[0])?;
         *uarg = sp;
     }
     ustack[argv.len()] = 0;

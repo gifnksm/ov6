@@ -1,12 +1,8 @@
-use core::{
-    convert::Infallible,
-    ffi::{CStr, c_char},
-    ptr,
-};
+use core::{convert::Infallible, ptr};
 
 use dataview::PodMethods as _;
 pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
-use ov6_syscall::{UserMutRef, UserMutSlice, UserRef, UserSlice, syscall};
+use ov6_syscall::{UserMutRef, UserMutSlice, UserSlice, syscall};
 use ov6_types::{fs::RawFd, path::Path, process::ProcId};
 
 use self::ffi::SyscallExt as _;
@@ -66,12 +62,11 @@ pub fn kill(pid: ProcId) -> Result<(), Ov6Error> {
     Ok(())
 }
 
-pub fn exec(path: &CStr, argv: &[*const c_char]) -> Result<Infallible, Ov6Error> {
-    assert!(
-        argv.last().unwrap().is_null(),
-        "last element of argv must be null"
-    );
-    syscall::Exec::call((UserRef::new(path), UserSlice::new(argv)))?;
+pub fn exec(path: &Path, argv: &[UserSlice<u8>]) -> Result<Infallible, Ov6Error> {
+    syscall::Exec::call((
+        UserSlice::new(path.as_os_str().as_bytes()),
+        UserSlice::new(argv),
+    ))?;
     unreachable!()
 }
 

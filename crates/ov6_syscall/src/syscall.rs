@@ -1,13 +1,9 @@
-use core::{
-    convert::Infallible,
-    ffi::{CStr, c_char},
-};
+use core::convert::Infallible;
 
 use ov6_types::{fs::RawFd, process::ProcId};
 
 use crate::{
-    OpenFlags, Stat, Syscall, SyscallCode, UserMutRef, UserMutSlice, UserRef, UserSlice,
-    error::SyscallError,
+    OpenFlags, Stat, Syscall, SyscallCode, UserMutRef, UserMutSlice, UserSlice, error::SyscallError,
 };
 
 macro_rules! syscall {
@@ -39,7 +35,7 @@ syscall!(Wait => fn(UserMutRef<i32>) -> Result<ProcId, SyscallError>);
 syscall!(Pipe => fn(UserMutRef<[RawFd; 2]>) -> Result<(), SyscallError>);
 syscall!(Read => fn(RawFd, UserMutSlice<u8>) -> Result<usize, SyscallError>);
 syscall!(Kill => fn(ProcId) -> Result<(), SyscallError>);
-syscall!(Exec => fn(UserRef<CStr>, UserSlice<*const c_char>) -> Result<Infallible, SyscallError>);
+syscall!(Exec => fn(UserSlice<u8>, UserSlice<UserSlice<u8>>) -> Result<Infallible, SyscallError>);
 syscall!(Fstat => fn(RawFd, UserMutRef<Stat>) -> Result<(), SyscallError>);
 syscall!(Chdir => fn(UserSlice<u8>) -> Result<(), SyscallError>);
 syscall!(Dup => fn(RawFd) -> Result<RawFd, SyscallError>);

@@ -9,10 +9,9 @@ use crate::{
     error::KernelError,
     file::File,
     fs::{self, DeviceNo, Inode, T_DEVICE, T_DIR, T_FILE},
-    memory::{PAGE_SIZE, VirtAddr, page::PageFrameAllocator, vm},
+    memory::{PAGE_SIZE, page::PageFrameAllocator, vm},
     param::{MAX_ARG, MAX_PATH},
     proc::{Proc, ProcPrivateData, ProcPrivateDataGuard, exec},
-    syscall,
 };
 
 /// Allocates a file descriptor for the given `File`.
@@ -222,28 +221,24 @@ pub fn sys_exec(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> Result<(usize, usize), KernelError> {
     let private = private.as_mut().unwrap();
-    let Ok((path_ptr, uargv)) = super::decode_arg::<sys::Exec>(private.trapframe().unwrap());
+    let Ok((user_path, uargv)) = super::decode_arg::<sys::Exec>(private.trapframe().unwrap());
     let mut path = [0; MAX_PATH];
-    let path = super::fetch_str(private, VirtAddr::new(path_ptr.addr()), &mut path)?;
-    let path = Path::new(OsStr::from_bytes(path));
+    let path = fetch_path(private, user_path, &mut path)?;
 
-    let mut argv: ArrayVec<Box<[u8; PAGE_SIZE], PageFrameAllocator>, { MAX_ARG - 1 }> =
+    let mut argv: ArrayVec<(usize, Box<[u8; PAGE_SIZE], PageFrameAllocator>), { MAX_ARG - 1 }> =
         ArrayVec::new();
 
     for i in 0..uargv.len() {
-        let uarg = VirtAddr::new(vm::copy_in(
-            private.pagetable().unwrap(),
-            uargv.nth(i).cast::<usize>(),
-        )?);
-        if uarg.addr() == 0 {
-            break;
+        let uarg = vm::copy_in(private.pagetable().unwrap(), uargv.nth(i))?;
+        if uarg.len() > PAGE_SIZE {
+            return Err(KernelError::ArgumentListTooLarge);
         }
 
         let mut buf = Box::try_new_in([0; PAGE_SIZE], PageFrameAllocator)
             .map_err(|AllocError| KernelError::NoFreePage)?;
-        syscall::fetch_str(private, uarg, buf.as_mut_slice())?;
+        vm::copy_in_bytes(private.pagetable().unwrap(), &mut buf[..uarg.len()], uarg)?;
 
-        if argv.try_push(buf).is_err() {
+        if argv.try_push((uarg.len(), buf)).is_err() {
             return Err(KernelError::ArgumentListTooLong);
         }
     }

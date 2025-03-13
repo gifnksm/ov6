@@ -3,27 +3,12 @@ use ov6_syscall::{
 };
 
 use crate::{
-    error::KernelError,
-    memory::{VirtAddr, vm},
     println,
-    proc::{Proc, ProcPrivateData, ProcPrivateDataGuard, TrapFrame},
+    proc::{Proc, ProcPrivateDataGuard, TrapFrame},
 };
 
 mod file;
 mod proc;
-
-/// Fetches the nul-terminated string at addr from the current process.
-///
-/// Returns length of the string, not including nul.
-fn fetch_str<'a>(
-    private: &ProcPrivateData,
-    addr: VirtAddr,
-    buf: &'a mut [u8],
-) -> Result<&'a [u8], KernelError> {
-    vm::copy_in_str(private.pagetable().unwrap(), buf, addr)?;
-    let len = buf.iter().position(|&c| c == 0).unwrap();
-    Ok(&buf[..len])
-}
 
 fn decode_arg<S>(
     tf: &TrapFrame,

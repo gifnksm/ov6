@@ -1,5 +1,4 @@
 use alloc::vec;
-use core::ptr;
 
 use ov6_fs_types::{FS_BLOCK_SIZE, MAX_FILE};
 use ov6_user_lib::{
@@ -15,7 +14,7 @@ use ov6_user_lib::{
     process,
 };
 
-use crate::{BUF, C_ECHO_PATH, ECHO_PATH, expect};
+use crate::{BUF, ECHO_PATH, expect};
 
 const NOT_EXIST_PATH: &str = "doesnotexist";
 const SMALL_PATH: &str = "small";
@@ -160,7 +159,7 @@ pub fn dir_test() {
 pub fn exec_test() {
     const ECHO_OK_PATH: &str = "echo-ok";
 
-    let echo_argv = [c"echo".as_ptr(), c"OK".as_ptr(), ptr::null()];
+    let echo_argv = ["echo", "OK"];
     let _ = fs::remove_file(ECHO_OK_PATH);
 
     let status = process::fork_fn(|| {
@@ -168,7 +167,7 @@ pub fn exec_test() {
         let file = File::create(ECHO_OK_PATH).unwrap();
         assert_eq!(file.as_raw_fd(), STDOUT_FD);
 
-        process::exec(C_ECHO_PATH, &echo_argv).unwrap();
+        process::exec(ECHO_PATH, &echo_argv).unwrap();
         unreachable!();
     })
     .unwrap()

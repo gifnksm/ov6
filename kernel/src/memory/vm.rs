@@ -93,39 +93,3 @@ pub fn copy_in_bytes(
 
     Ok(())
 }
-
-/// Copies a null-terminated string from user to kernel.
-///
-/// Copies bytes to `dst` from virtual address `src_va` in a given page table,
-/// until a '\0', or max.
-pub fn copy_in_str(
-    pagetable: &UserPageTable,
-    mut dst: &mut [u8],
-    mut src_va: VirtAddr,
-) -> Result<(), KernelError> {
-    while !dst.is_empty() {
-        let va0 = src_va.page_rounddown();
-        let src_page = pagetable.fetch_page(va0, PtEntryFlags::UR)?;
-
-        let offset = src_va.addr() - va0.addr();
-        let mut n = PAGE_SIZE - offset;
-        if n > dst.len() {
-            n = dst.len();
-        }
-
-        let mut p = &src_page[offset..];
-        while n > 0 {
-            if p[0] == b'\0' {
-                dst[0] = b'\0';
-                return Ok(());
-            }
-            dst[0] = p[0];
-            n -= 1;
-            p = &p[1..];
-            dst = &mut dst[1..];
-        }
-
-        src_va = va0.byte_add(PAGE_SIZE);
-    }
-    Err(KernelError::UnterminatedString(src_va, dst.len()))
-}
