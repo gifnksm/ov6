@@ -1,6 +1,9 @@
 #![no_std]
 
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::{
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
 
 use ov6_user_lib::{
     env,
@@ -318,7 +321,7 @@ fn main() {
         .wait()
         .unwrap();
 
-        thread::sleep(20);
+        thread::sleep(Duration::from_secs(2));
         RAND_NEXT.fetch_add(1, Ordering::Relaxed);
     }
 }

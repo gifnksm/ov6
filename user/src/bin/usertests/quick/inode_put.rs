@@ -1,3 +1,5 @@
+use core::time::Duration;
+
 use ov6_user_lib::{
     env,
     error::Ov6Error,
@@ -36,7 +38,7 @@ pub fn open_test() {
     })
     .unwrap();
 
-    thread::sleep(1);
+    thread::sleep(Duration::from_millis(100));
     fs::remove_file(OIDIR_PATH).unwrap();
 
     let status = child.wait().unwrap();

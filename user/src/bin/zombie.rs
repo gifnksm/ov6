@@ -1,5 +1,7 @@
 #![no_std]
 
+use core::time::Duration;
+
 use ov6_user_lib::{process, thread};
 use user::try_or_exit;
 
@@ -10,5 +12,5 @@ fn main() {
     );
 
     // let child exit before parent.
-    thread::sleep(5);
+    thread::sleep(Duration::from_millis(500));
 }

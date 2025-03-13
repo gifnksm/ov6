@@ -4,6 +4,7 @@ use core::{
     hint,
     num::NonZero,
     ptr::NonNull,
+    time::Duration,
 };
 
 use ov6_user_lib::{
@@ -87,7 +88,7 @@ pub fn kill_status() {
             }
         })
         .unwrap();
-        thread::sleep(1);
+        thread::sleep(Duration::from_millis(100));
         process::kill(child.pid()).unwrap();
         let status = child.wait().unwrap();
         assert_eq!(status.code(), -1);
@@ -224,10 +225,10 @@ pub fn fork_fork_fork() {
         }
     })
     .unwrap();
-    thread::sleep(20); // two seconds
+    thread::sleep(Duration::from_secs(2));
     let _ = File::create(STOP_FORKING_PATH).unwrap();
     child.wait().unwrap();
-    thread::sleep(10); // one second
+    thread::sleep(Duration::from_secs(1));
 }
 
 /// regression test. does `reparent()` violate the parent-then-child

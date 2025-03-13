@@ -1,5 +1,5 @@
 use alloc::slice;
-use core::ptr;
+use core::{ptr, time::Duration};
 
 use ov6_user_lib::{
     error::Ov6Error,
@@ -178,7 +178,7 @@ pub fn sbrk_fail() {
             let _ = process::grow_break(BIG - process::current_break().addr());
             tx.write(b"x").unwrap();
             loop {
-                thread::sleep(1000);
+                thread::sleep(Duration::from_secs(100));
             }
         };
         *pid = Some(p);
