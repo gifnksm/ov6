@@ -12,6 +12,7 @@ use ov6_user_lib::{
     io::{Read as _, Write as _},
     pipe,
     process::{self},
+    time::Instant,
 };
 use user::{message, usage_and_exit};
 
@@ -37,7 +38,9 @@ enum TestError {
 type TestFn = fn();
 
 fn run(name: &str, test: TestFn) -> Result<(), TestError> {
-    eprint!("test {name}: ");
+    eprint!("{name:-30} ");
+
+    let start = Instant::now();
 
     let status = process::fork_fn(|| {
         test();
@@ -47,12 +50,22 @@ fn run(name: &str, test: TestFn) -> Result<(), TestError> {
     .wait()
     .unwrap();
 
+    let elapsed = start.elapsed();
+
     if !status.success() {
-        eprintln!("FAILED");
+        eprintln!(
+            "FAIL [{:3}.{:03}s]",
+            elapsed.as_secs(),
+            elapsed.subsec_millis()
+        );
         return Err(TestError::TestFailed);
     }
 
-    eprintln!("OK");
+    eprintln!(
+        "PASS [{:3}.{:03}s]",
+        elapsed.as_secs(),
+        elapsed.subsec_millis()
+    );
     Ok(())
 }
 
@@ -126,8 +139,14 @@ fn count_free_pages() -> usize {
 fn drive_tests(param: &Param) -> Result<(), TestError> {
     loop {
         eprint!("freepages: ");
+        let start = Instant::now();
         let free0 = count_free_pages();
-        eprintln!("{free0}");
+        let elapsed = start.elapsed();
+        eprintln!(
+            "{free0} [{:3}.{:03}s]",
+            elapsed.as_secs(),
+            elapsed.subsec_millis()
+        );
 
         eprintln!("starting");
 
@@ -150,15 +169,21 @@ fn drive_tests(param: &Param) -> Result<(), TestError> {
         }
 
         eprint!("freepages: ");
+        let start = Instant::now();
         let free1 = count_free_pages();
-        eprintln!("{free1}");
+        let elapsed = start.elapsed();
+        eprintln!(
+            "{free1} [{:3}.{:03}s]",
+            elapsed.as_secs(),
+            elapsed.subsec_millis()
+        );
 
         if free0 != free1 {
-            eprintln!("FAILED -- lost some free pages {free1} (out of {free0})");
+            eprintln!("freepages: FAIL -- lost some free pages {free1} (out of {free0})");
             return Err(TestError::TestFailed);
         }
 
-        eprintln!("freepages: OK");
+        eprintln!("freepages: PASS");
 
         if param.continuous == Continuous::Once {
             break;
@@ -223,13 +248,26 @@ impl Param {
 
 fn main() {
     let param = Param::parse();
-    match drive_tests(&param) {
+
+    let start = Instant::now();
+    let res = drive_tests(&param);
+    let elapsed = start.elapsed();
+
+    match res {
         Ok(()) => {
-            message!("ALL TESTS PASSED");
+            message!(
+                "ALL TESTS PASSED [{:3}.{:03}s]",
+                elapsed.as_secs(),
+                elapsed.subsec_millis(),
+            );
             process::exit(0);
         }
         Err(TestError::TestFailed) => {
-            message!("TEST FAILED");
+            message!(
+                "TEST FAILED [{:3}.{:03}s]",
+                elapsed.as_secs(),
+                elapsed.subsec_millis()
+            );
             process::exit(1);
         }
     }
