@@ -69,7 +69,6 @@ extern "C" fn main() -> ! {
         memory::page::init(); // physical page allocator
         memory::vm_kernel::init(); // create kernel page table
         memory::vm_kernel::init_hart(); // turn on paging
-        proc::init(); // process table
         interrupt::trap::init_hart(); // install kernel trap vectort
         interrupt::plic::init(); // set up interrupt controller
         interrupt::plic::init_hart(); // ask PLIC for device interrupts

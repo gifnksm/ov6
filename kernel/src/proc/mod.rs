@@ -4,6 +4,7 @@ use core::{
     cell::UnsafeCell,
     cmp,
     ffi::c_void,
+    mem,
     num::NonZero,
     ops::{Deref, DerefMut},
     panic::Location,
@@ -197,17 +198,6 @@ pub struct ProcPrivateData {
 }
 
 impl ProcPrivateData {
-    const fn new() -> Self {
-        Self {
-            pid: None,
-            kstack: VirtAddr::new(0),
-            pagetable: None,
-            trapframe: None,
-            ofile: [const { None }; NOFILE],
-            cwd: None,
-        }
-    }
-
     pub fn kstack(&self) -> VirtAddr {
         self.kstack
     }
@@ -300,10 +290,10 @@ pub struct Proc {
     parent: Parent,
     child_ended: SpinLockCondVar,
     /// `true` if `private` is referenced
-    private_taken: AtomicBool,
+    private_borrowed: AtomicBool,
     taken_location: AtomicPtr<Location<'static>>,
     /// Process private data.
-    private: UnsafeCell<ProcPrivateData>,
+    private: UnsafeCell<Option<ProcPrivateData>>,
 }
 
 unsafe impl Sync for Proc {}
@@ -314,9 +304,9 @@ impl Proc {
             shared: ProcShared::new(),
             parent: Parent::new(),
             child_ended: SpinLockCondVar::new(),
-            private_taken: AtomicBool::new(false),
+            private_borrowed: AtomicBool::new(false),
             taken_location: AtomicPtr::new(ptr::from_ref(Location::caller()).cast_mut()),
-            private: UnsafeCell::new(ProcPrivateData::new()),
+            private: UnsafeCell::new(None),
         }
     }
 
@@ -336,8 +326,9 @@ impl Proc {
     }
 
     #[track_caller]
-    pub fn take_private(&self) -> ProcPrivateDataGuard {
-        if self.private_taken.swap(true, Ordering::Acquire) {
+    #[expect(clippy::mut_from_ref)]
+    fn borrow_private_raw(&self) -> &mut Option<ProcPrivateData> {
+        if self.private_borrowed.swap(true, Ordering::Acquire) {
             let taker = unsafe { self.taken_location.load(Ordering::Relaxed).as_ref() }.unwrap();
             panic!("ProcPrivateData is already taken at {taker}");
         }
@@ -346,10 +337,56 @@ impl Proc {
             Ordering::Relaxed,
         );
 
+        unsafe { self.private.get().as_mut().unwrap() }
+    }
+
+    #[track_caller]
+    fn init_private(&self, data: ProcPrivateData) -> ProcPrivateDataGuard {
+        let private = self.borrow_private_raw();
+        assert!(private.is_none());
+        *private = Some(data);
+
         ProcPrivateDataGuard {
-            private_taken: &self.private_taken,
-            private: unsafe { self.private.get().as_mut() }.unwrap(),
+            private_taken: &self.private_borrowed,
+            private: private.as_mut().unwrap(),
         }
+    }
+
+    fn drop_private(&self, guard: ProcPrivateDataGuard) {
+        // to avoid two multiple mutable reference to `ProcPrivateData` exists
+        // concurrently
+        let addr = ptr::from_mut(guard.private).addr();
+        mem::forget(guard);
+
+        let private_opt = unsafe { self.private.get().as_mut().unwrap() };
+        assert_eq!(
+            private_opt
+                .as_mut()
+                .map_or(ptr::null_mut(), ptr::from_mut)
+                .addr(),
+            addr
+        );
+        let private = unsafe { self.private.get().as_mut().unwrap() }
+            .take()
+            .unwrap();
+        assert!(private.ofile.iter().all(Option::is_none));
+        assert!(private.cwd.is_none());
+
+        self.private_borrowed.store(false, Ordering::Release);
+    }
+
+    #[track_caller]
+    pub fn borrow_private(&self) -> Option<ProcPrivateDataGuard> {
+        let Some(private) = self.borrow_private_raw() else {
+            // process already exited
+            self.private_borrowed.store(false, Ordering::Release);
+            return None;
+        };
+
+        Some(ProcPrivateDataGuard {
+            private_taken: &self.private_borrowed,
+            private,
+        })
     }
 
     fn is_child_of(&self, parent: &Self, wait_lock: &mut SpinLockGuard<WaitLock>) -> bool {
@@ -373,14 +410,14 @@ impl Proc {
     /// If there is no UNUSED proc, returns None.
     /// This function also locks the proc.
     fn lock_unused_proc()
-    -> Result<(&'static Self, SpinLockGuard<'static, ProcSharedData>), KernelError> {
-        for p in &PROC {
+    -> Result<(usize, &'static Self, SpinLockGuard<'static, ProcSharedData>), KernelError> {
+        for (i, p) in PROC.iter().enumerate() {
             let shared = p.shared.lock();
             if shared.state != ProcState::Unused {
                 drop(shared);
                 continue;
             }
-            return Ok((p, shared));
+            return Ok((i, p, shared));
         }
         Err(KernelError::NoFreeProc)
     }
@@ -399,35 +436,42 @@ impl Proc {
         ),
         KernelError,
     > {
-        let (p, mut shared) = Self::lock_unused_proc()?;
+        let (i, p, mut shared) = Self::lock_unused_proc()?;
 
         let pid = Self::allocate_pid();
         shared.pid = Some(pid);
         shared.state = ProcState::Used;
-        let mut private = p.take_private();
 
-        let res: Result<(), KernelError> = (|| {
-            private.pid = Some(pid);
-            // Allocate a trapframe page.
-            private.trapframe = Some(
-                Box::try_new_in(TrapFrame::zeroed(), PageFrameAllocator)
-                    .map_err(|AllocError| KernelError::NoFreePage)?,
-            );
-            // An empty user page table.
-            private.pagetable = Some(UserPageTable::new(private.trapframe().unwrap())?);
-            // Set up new context to start executing ad forkret,
+        let res: Result<ProcPrivateData, KernelError> = (|| {
+            let trapframe = Box::try_new_in(TrapFrame::zeroed(), PageFrameAllocator)
+                .map_err(|AllocError| KernelError::NoFreePage)?;
+
+            let private = ProcPrivateData {
+                pid: Some(pid),
+                kstack: layout::kstack(i),
+                pagetable: Some(UserPageTable::new(&trapframe)?),
+                trapframe: Some(trapframe),
+                ofile: [const { None }; NOFILE],
+                cwd: None,
+            };
+
+            // Set up new context to start executing at forkret,
             // which returns to user space.
             shared.context.clear();
             shared.context.ra = forkret as usize;
             shared.context.sp = private.kstack.byte_add(KSTACK_PAGES * PAGE_SIZE).addr();
-            Ok(())
+            Ok(private)
         })();
 
-        if res.is_err() {
-            p.free(private, &mut shared);
-            drop(shared);
-            return Err(KernelError::NoFreeProc);
-        }
+        let private = match res {
+            Ok(private) => private,
+            Err(e) => {
+                p.free(&mut shared);
+                return Err(e);
+            }
+        };
+
+        let private = p.init_private(private);
 
         Ok((p, shared, private))
     }
@@ -436,14 +480,7 @@ impl Proc {
     /// including user pages.
     ///
     /// p.lock must be held.
-    fn free(&self, mut private: ProcPrivateDataGuard, shared: &mut SpinLockGuard<ProcSharedData>) {
-        private.pid = None;
-        if let Some(tf) = private.trapframe.take() {
-            drop(tf);
-        }
-        if let Some(pt) = private.pagetable.take() {
-            drop(pt);
-        }
+    fn free(&self, shared: &mut SpinLockGuard<ProcSharedData>) {
         unsafe {
             self.parent.reset();
         }
@@ -451,16 +488,7 @@ impl Proc {
         shared.name.clear();
         shared.killed = false;
 
-        // update state after dropping private
-        drop(private);
         shared.state = ProcState::Unused;
-    }
-}
-
-/// Initialize the proc table.
-pub fn init() {
-    for (i, p) in PROC.iter().enumerate() {
-        p.take_private().kstack = layout::kstack(i);
     }
 }
 
@@ -530,7 +558,7 @@ pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Result<ProcId, Ker
         .unwrap()
         .try_clone(np_private.pagetable_mut().unwrap())
     {
-        np.free(np_private, &mut np_shared);
+        np.free(&mut np_shared);
         drop(np_shared);
         return Err(e);
     }
@@ -617,7 +645,8 @@ pub fn exit(p: &Proc, mut p_private: ProcPrivateDataGuard, status: i32) -> ! {
             exit_status: status,
         };
 
-        drop(p_private); // drop mutable reference
+        p.drop_private(p_private);
+
         drop(wait_lock);
         shared
     };
@@ -651,8 +680,6 @@ pub fn wait(
             have_kids = true;
             if let ProcState::Zombie { exit_status } = pp_shared.state {
                 // Found one.
-                let pp_private = pp.take_private();
-
                 let pid = pp_shared.pid.unwrap();
                 if user_status.addr() != 0 {
                     p_private
@@ -660,7 +687,7 @@ pub fn wait(
                         .unwrap()
                         .copy_out(user_status, &exit_status)?;
                 }
-                pp.free(pp_private, &mut pp_shared);
+                pp.free(&mut pp_shared);
                 return Ok(pid);
             }
         }
@@ -691,8 +718,12 @@ extern "C" fn forkret() {
 
     // Still holding `p->shared` from `scheduler()`.
     let p = Proc::current();
-    let private = p.take_private();
     let _ = unsafe { p.shared.remember_locked() }; // unlock here
+    let Some(private) = p.borrow_private() else {
+        // process is already exited (in zombie state)
+        yield_(p);
+        unreachable!();
+    };
 
     if FIRST.load(Ordering::Acquire) {
         // File system initialization must be run in the context of a
