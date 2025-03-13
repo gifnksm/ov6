@@ -439,37 +439,18 @@ impl_value!([] Result<Option<ProcId>, SyscallError>, RegisterDecodeError, 2, res
 impl_value!([] Result<ProcId, SyscallError>, RegisterDecodeError, 2, result_encode_11, result_decode_11);
 impl_value!([] Result<RawFd, SyscallError>, RegisterDecodeError, 2, result_encode_11, result_decode_11);
 
-fn tuple_encode_1<T>((v0,): (T,)) -> Register<(T,), 1>
+fn tuple1_encode<T, const N: usize>((v0,): (T,)) -> Register<(T,), N>
 where
-    T: RegisterValue<Repr = Register<T, 1>>,
+    T: RegisterValue<Repr = Register<T, N>>,
 {
-    let [a0] = v0.encode().a;
-    Register::new([a0])
+    Register::new(v0.encode().a)
 }
 
-fn tuple_decode_1<T>(repr: Register<(T,), 1>) -> Result<(T,), T::DecodeError>
+fn tuple1_decode<T, const N: usize>(repr: Register<(T,), N>) -> Result<(T,), T::DecodeError>
 where
-    T: RegisterValue<Repr = Register<T, 1>>,
+    T: RegisterValue<Repr = Register<T, N>>,
 {
-    let [a0] = repr.a;
-    let v0 = Register::new([a0]).try_decode()?;
-    Ok((v0,))
-}
-
-fn tuple_encode_2<T>((v0,): (T,)) -> Register<(T,), 2>
-where
-    T: RegisterValue<Repr = Register<T, 2>>,
-{
-    let [a0, a1] = v0.encode().a;
-    Register::new([a0, a1])
-}
-
-fn tuple_decode_2<T>(repr: Register<(T,), 2>) -> Result<(T,), T::DecodeError>
-where
-    T: RegisterValue<Repr = Register<T, 2>>,
-{
-    let [a0, a1] = repr.a;
-    let v0 = Register::new([a0, a1]).try_decode()?;
+    let v0 = Register::new(repr.a).try_decode()?;
     Ok((v0,))
 }
 
@@ -591,23 +572,23 @@ impl_value!(
     [](i32,),
     RegisterDecodeError,
     1,
-    tuple_encode_1,
-    tuple_decode_1
+    tuple1_encode,
+    tuple1_decode
 );
-impl_value!([](u64,), Infallible, 1, tuple_encode_1, tuple_decode_1);
-impl_value!([](isize,), Infallible, 1, tuple_encode_1, tuple_decode_1);
-impl_value!([](RawFd,), Infallible, 1, tuple_encode_1, tuple_decode_1);
+impl_value!([](u64,), Infallible, 1, tuple1_encode, tuple1_decode);
+impl_value!([](isize,), Infallible, 1, tuple1_encode, tuple1_decode);
+impl_value!([](RawFd,), Infallible, 1, tuple1_encode, tuple1_decode);
 impl_value!(
     [](ProcId,),
     RegisterDecodeError,
     1,
-    tuple_encode_1,
-    tuple_decode_1
+    tuple1_encode,
+    tuple1_decode
 );
-impl_value!([T: ?Sized](UserRef<T>,), Infallible, 1, tuple_encode_1, tuple_decode_1);
-impl_value!([T: ?Sized](UserMutRef<T>,), Infallible, 1, tuple_encode_1, tuple_decode_1);
-impl_value!([T](UserSlice<T>,), Infallible, 2, tuple_encode_2, tuple_decode_2);
-impl_value!([T](UserMutSlice<T>,), Infallible, 2, tuple_encode_2, tuple_decode_2);
+impl_value!([T: ?Sized](UserRef<T>,), Infallible, 1, tuple1_encode, tuple1_decode);
+impl_value!([T: ?Sized](UserMutRef<T>,), Infallible, 1, tuple1_encode, tuple1_decode);
+impl_value!([T](UserSlice<T>,), Infallible, 2, tuple1_encode, tuple1_decode);
+impl_value!([T](UserMutSlice<T>,), Infallible, 2, tuple1_encode, tuple1_decode);
 
 impl_value!([T: ?Sized] (RawFd, UserMutRef<T>), Infallible, 2, tuple_encode_11, tuple_decode_11);
 impl_value!([T: ?Sized] (RawFd, UserRef<T>), Infallible, 2, tuple_encode_11, tuple_decode_11);
