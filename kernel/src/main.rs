@@ -6,7 +6,7 @@
 #![no_main]
 
 use core::{
-    arch::global_asm,
+    arch::naked_asm,
     hint,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -27,17 +27,40 @@ mod start;
 mod sync;
 mod syscall;
 
-global_asm!(
-    include_str!("entry.s"),
-    STACK0 = sym self::start::STACK0,
-    STACK_SIZE = const self::start::STACK_SIZE,
-    start = sym self::start::start,
-);
+#[naked]
+#[unsafe(link_section = ".text.init")]
+#[unsafe(export_name = "_entry")]
+extern "C" fn entry() {
+    unsafe {
+        naked_asm!(
+            // Workaround for spurious LLVM error
+            // See also:
+            //  - <https://github.com/rust-embedded/riscv/issues/175>
+            //  - <https://github.com/rust-embedded/riscv/pull/176>
+            r#".attribute arch, "rv64imac""#,
 
-static STARTED: AtomicBool = AtomicBool::new(false);
+            // set up a stack for kernel.t
+            // sp = STACK0 + (hartid * STACK_SIZE)
+            "la sp, {stack0}",
+            "li a0, {stack_size}",
+            "csrr a1, mhartid",
+            "addi a1, a1, 1",
+            "mul a0, a0, a1",
+            "add sp, sp, a0",
+
+            // jump to start
+            "call {start}",
+            stack0 = sym self::start::STACK0,
+            stack_size = const self::start::STACK_SIZE,
+            start = sym self::start::start,
+        );
+    }
+}
 
 // start() jumps here in supervisor mode on all CPUs.
 extern "C" fn main() -> ! {
+    static STARTED: AtomicBool = AtomicBool::new(false);
+
     if cpu::id() == 0 {
         console::init();
         println!();
