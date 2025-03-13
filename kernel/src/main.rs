@@ -67,8 +67,8 @@ extern "C" fn main() -> ! {
         println!("ov6 kernel is booting");
         println!();
         memory::page::init(); // physical page allocator
-        memory::kernel::init(); // create kernel page table
-        memory::kernel::init_hart(); // turn on paging
+        memory::vm_kernel::init(); // create kernel page table
+        memory::vm_kernel::init_hart(); // turn on paging
         proc::init(); // process table
         interrupt::trap::init_hart(); // install kernel trap vectort
         interrupt::plic::init(); // set up interrupt controller
@@ -83,7 +83,7 @@ extern "C" fn main() -> ! {
             hint::spin_loop();
         }
         println!("hart {} starting", cpu::id());
-        memory::kernel::init_hart(); // turn on paging
+        memory::vm_kernel::init_hart(); // turn on paging
         interrupt::trap::init_hart(); // install kernel trap vector
         interrupt::plic::init_hart(); // ask PLIC for device interrupts
     }

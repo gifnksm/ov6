@@ -4,7 +4,6 @@ use ov6_syscall::{Stat, StatType, UserMutRef};
 use crate::{
     error::KernelError,
     fs::{self, Inode},
-    memory::vm,
     proc::ProcPrivateData,
 };
 
@@ -37,6 +36,6 @@ pub(super) fn stat_inode(
     };
     drop(lip);
     drop(ip);
-    vm::copy_out(private.pagetable_mut().unwrap(), dst, &st)?;
+    private.pagetable_mut().unwrap().copy_out(dst, &st)?;
     Ok(())
 }

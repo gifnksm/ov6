@@ -9,7 +9,7 @@ use crate::{
     error::KernelError,
     file::File,
     fs::{self, DeviceNo, Inode, T_DEVICE, T_DIR, T_FILE},
-    memory::{PAGE_SIZE, page::PageFrameAllocator, vm},
+    memory::{PAGE_SIZE, page::PageFrameAllocator},
     param::{MAX_ARG, MAX_PATH},
     proc::{Proc, ProcPrivateData, ProcPrivateDataGuard, exec},
 };
@@ -31,7 +31,10 @@ fn fetch_path<'a>(
     }
 
     let path_out = &mut path_out[..user_path.len()];
-    vm::copy_in_bytes(private.pagetable().unwrap(), path_out, user_path)?;
+    private
+        .pagetable()
+        .unwrap()
+        .copy_in_bytes(path_out, user_path)?;
     Ok(Path::new(OsStr::from_bytes(path_out)))
 }
 
@@ -229,14 +232,17 @@ pub fn sys_exec(
         ArrayVec::new();
 
     for i in 0..uargv.len() {
-        let uarg = vm::copy_in(private.pagetable().unwrap(), uargv.nth(i))?;
+        let uarg = private.pagetable().unwrap().copy_in(uargv.nth(i))?;
         if uarg.len() > PAGE_SIZE {
             return Err(KernelError::ArgumentListTooLarge);
         }
 
         let mut buf = Box::try_new_in([0; PAGE_SIZE], PageFrameAllocator)
             .map_err(|AllocError| KernelError::NoFreePage)?;
-        vm::copy_in_bytes(private.pagetable().unwrap(), &mut buf[..uarg.len()], uarg)?;
+        private
+            .pagetable()
+            .unwrap()
+            .copy_in_bytes(&mut buf[..uarg.len()], uarg)?;
 
         if argv.try_push((uarg.len(), buf)).is_err() {
             return Err(KernelError::ArgumentListTooLong);
@@ -265,7 +271,7 @@ pub fn sys_pipe(
     };
 
     let fds = [rfd, wfd];
-    if let Err(e) = vm::copy_out(private.pagetable_mut().unwrap(), fd_array, &fds) {
+    if let Err(e) = private.pagetable_mut().unwrap().copy_out(fd_array, &fds) {
         private.unset_ofile(rfd);
         private.unset_ofile(wfd);
         return Err(e.into());

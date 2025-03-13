@@ -11,7 +11,7 @@ use crate::{
     fs::{self, LockedTxInode},
     memory::{
         PAGE_SIZE, PageRound as _, VirtAddr, page::PageFrameAllocator, page_table::PtEntryFlags,
-        user::UserPageTable, vm,
+        vm_user::UserPageTable,
     },
     param::{MAX_ARG, USER_STACK},
     proc::{
@@ -185,9 +185,9 @@ fn push_arguments(
             return Err(KernelError::ArgumentListTooLarge);
         }
         let dst = UserMutSlice::from_raw_parts(sp, src.len());
-        vm::copy_out_bytes(pagetable, dst, src)?;
+        pagetable.copy_out_bytes(dst, src)?;
         let dst = UserMutSlice::from_raw_parts(sp + src.len(), 1);
-        vm::copy_out_bytes(pagetable, dst, &[0])?;
+        pagetable.copy_out_bytes(dst, &[0])?;
         *uarg = sp;
     }
     ustack[argv.len()] = 0;
@@ -205,6 +205,6 @@ fn push_arguments(
         )
     };
     let dst = UserMutSlice::from_raw_parts(sp, src.len());
-    vm::copy_out_bytes(pagetable, dst, src)?;
+    pagetable.copy_out_bytes(dst, src)?;
     Ok((sp, argv.len()))
 }

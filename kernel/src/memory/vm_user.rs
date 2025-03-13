@@ -1,6 +1,9 @@
 use alloc::boxed::Box;
 use core::{ptr, slice};
 
+use dataview::{Pod, PodMethods as _};
+use ov6_syscall::{UserMutRef, UserMutSlice, UserRef, UserSlice};
+
 use super::{
     PAGE_SIZE, PageRound as _, PhysAddr, PhysPageNum, VirtAddr,
     layout::{TRAMPOLINE, TRAPFRAME},
@@ -194,6 +197,76 @@ impl UserPageTable {
         flags: PtEntryFlags,
     ) -> Result<&mut [u8; PAGE_SIZE], KernelError> {
         self.pt.fetch_page_mut(va, flags)
+    }
+
+    /// Copies from user to kernel.
+    pub fn copy_out<T>(&mut self, mut dst: UserMutRef<T>, src: &T) -> Result<(), KernelError>
+    where
+        T: Pod,
+    {
+        self.copy_out_bytes(dst.as_bytes_mut(), src.as_bytes())
+    }
+
+    /// Copies from kernel to user.
+    pub fn copy_out_bytes(
+        &mut self,
+        dst: UserMutSlice<u8>,
+        mut src: &[u8],
+    ) -> Result<(), KernelError> {
+        assert_eq!(dst.len(), src.len());
+        let mut dst_va = VirtAddr::new(dst.addr());
+
+        while !src.is_empty() {
+            let va0 = dst_va.page_rounddown();
+            if va0 >= VirtAddr::MAX {
+                return Err(KernelError::TooLargeVirtualAddress(dst_va));
+            }
+
+            let offset = dst_va.addr() - va0.addr();
+            let mut n = PAGE_SIZE - offset;
+            if n > src.len() {
+                n = src.len();
+            }
+
+            let dst_page = self.fetch_page_mut(va0, PtEntryFlags::UW)?;
+            let dst = &mut dst_page[offset..][..n];
+            dst.copy_from_slice(&src[..n]);
+            src = &src[n..];
+            dst_va = va0.byte_add(PAGE_SIZE);
+        }
+
+        Ok(())
+    }
+
+    /// Copies from user to kernel.
+    pub fn copy_in<T>(&self, src: UserRef<T>) -> Result<T, KernelError>
+    where
+        T: Pod,
+    {
+        let mut dst = T::zeroed();
+        self.copy_in_bytes(dst.as_bytes_mut(), src.as_bytes())?;
+        Ok(dst)
+    }
+
+    /// Copies from user to kernel.
+    pub fn copy_in_bytes(&self, mut dst: &mut [u8], src: UserSlice<u8>) -> Result<(), KernelError> {
+        assert_eq!(src.len(), dst.len());
+        let mut src_va = VirtAddr::new(src.addr());
+        while !dst.is_empty() {
+            let va0 = src_va.page_rounddown();
+            let offset = src_va.addr() - va0.addr();
+            let mut n = PAGE_SIZE - offset;
+            if n > dst.len() {
+                n = dst.len();
+            }
+            let src_page = self.fetch_page(va0, PtEntryFlags::UR)?;
+            let src = &src_page[offset..][..n];
+            dst[..n].copy_from_slice(src);
+            dst = &mut dst[n..];
+            src_va = va0.byte_add(PAGE_SIZE);
+        }
+
+        Ok(())
     }
 }
 

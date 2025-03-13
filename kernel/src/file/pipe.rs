@@ -5,7 +5,7 @@ use ov6_syscall::{UserMutSlice, UserSlice};
 use super::{File, FileData, FileDataArc, SpecificData};
 use crate::{
     error::KernelError,
-    memory::{page::PageFrameAllocator, vm},
+    memory::page::PageFrameAllocator,
     proc::{Proc, ProcPrivateData},
     sync::{SpinLock, SpinLockCondVar},
 };
@@ -105,11 +105,11 @@ impl PipeFile {
             }
 
             let mut byte = [0];
-            if let Err(e) = vm::copy_in_bytes(
-                private.pagetable().unwrap(),
-                &mut byte,
-                src.skip(nwritten).take(1),
-            ) {
+            if let Err(e) = private
+                .pagetable()
+                .unwrap()
+                .copy_in_bytes(&mut byte, src.skip(nwritten).take(1))
+            {
                 if nwritten > 0 {
                     break;
                 }
@@ -146,11 +146,11 @@ impl PipeFile {
             let ch = pipe.data[pipe.nread % PIPE_SIZE];
             pipe.nread += 1;
 
-            if let Err(e) = vm::copy_out_bytes(
-                private.pagetable_mut().unwrap(),
-                dst.skip_mut(nread).take_mut(1),
-                &[ch],
-            ) {
+            if let Err(e) = private
+                .pagetable_mut()
+                .unwrap()
+                .copy_out_bytes(dst.skip_mut(nread).take_mut(1), &[ch])
+            {
                 if nread > 0 {
                     break;
                 }

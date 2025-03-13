@@ -28,13 +28,12 @@ use crate::{
     fs::{self, DeviceNo, Inode},
     interrupt::{self, trap},
     memory::{
-        PAGE_SIZE, PhysAddr, VirtAddr,
+        PAGE_SIZE, VirtAddr,
         addr::{GenericMutSlice, GenericSlice},
-        layout::{KSTACK_PAGES, kstack},
-        page::{self, PageFrameAllocator},
-        page_table::{PageTable, PtEntryFlags},
-        user::UserPageTable,
-        vm,
+        layout::{self, KSTACK_PAGES},
+        page::PageFrameAllocator,
+        page_table::PtEntryFlags,
+        vm_user::UserPageTable,
     },
     param::{NOFILE, NPROC},
     println,
@@ -458,26 +457,10 @@ impl Proc {
     }
 }
 
-/// Allocates a page for each process's kernel stack.
-///
-/// Map it high in memory, followed by an invalid
-/// guard page.
-pub fn map_stacks(kpgtbl: &mut PageTable) {
-    for (i, _p) in PROC.iter().enumerate() {
-        for k in 0..KSTACK_PAGES {
-            let pa = page::alloc_page().unwrap();
-            let va = kstack(i).byte_add(k * PAGE_SIZE);
-            kpgtbl
-                .map_page(va, PhysAddr::new(pa.addr().get()), PtEntryFlags::RW)
-                .unwrap();
-        }
-    }
-}
-
 /// Initialize the proc table.
 pub fn init() {
     for (i, p) in PROC.iter().enumerate() {
-        p.take_private().kstack = kstack(i);
+        p.take_private().kstack = layout::kstack(i);
     }
 }
 
@@ -651,7 +634,7 @@ pub fn exit(p: &Proc, mut p_private: ProcPrivateDataGuard, status: i32) -> ! {
 pub fn wait(
     p: &Proc,
     p_private: &mut ProcPrivateData,
-    addr: UserMutRef<i32>,
+    user_status: UserMutRef<i32>,
 ) -> Result<ProcId, KernelError> {
     let mut wait_lock = wait_lock::lock();
 
@@ -671,8 +654,11 @@ pub fn wait(
                 let pp_private = pp.take_private();
 
                 let pid = pp_shared.pid.unwrap();
-                if addr.addr() != 0 {
-                    vm::copy_out(p_private.pagetable_mut().unwrap(), addr, &exit_status)?;
+                if user_status.addr() != 0 {
+                    p_private
+                        .pagetable_mut()
+                        .unwrap()
+                        .copy_out(user_status, &exit_status)?;
                 }
                 pp.free(pp_private, &mut pp_shared);
                 return Ok(pid);
@@ -789,9 +775,10 @@ pub fn either_copy_out_bytes(
 ) -> Result<(), KernelError> {
     assert_eq!(dst.len(), src.len());
     match dst {
-        GenericMutSlice::User(dst) => {
-            vm::copy_out_bytes(p_private.pagetable_mut().unwrap(), dst, src)?
-        }
+        GenericMutSlice::User(dst) => p_private
+            .pagetable_mut()
+            .unwrap()
+            .copy_out_bytes(dst, src)?,
         GenericMutSlice::Kernel(dst) => dst.copy_from_slice(src),
     }
     Ok(())
@@ -806,7 +793,7 @@ pub fn either_copy_in_bytes(
 ) -> Result<(), KernelError> {
     assert_eq!(dst.len(), src.len());
     match src {
-        GenericSlice::User(src) => vm::copy_in_bytes(p_private.pagetable().unwrap(), dst, src)?,
+        GenericSlice::User(src) => p_private.pagetable().unwrap().copy_in_bytes(dst, src)?,
         GenericSlice::Kernel(src) => dst.copy_from_slice(src),
     }
     Ok(())

@@ -24,6 +24,8 @@
 
 use core::arch::global_asm;
 
+use ov6_kernel_params::NPROC;
+
 use crate::memory::{PAGE_SIZE, VirtAddr};
 
 // qemu puts UART registers here in physical memory.
@@ -98,6 +100,7 @@ pub const TRAMPOLINE: VirtAddr = VirtAddr::MAX.byte_sub(PAGE_SIZE);
 pub const TRAPFRAME: VirtAddr = TRAMPOLINE.byte_sub(PAGE_SIZE);
 
 pub const fn kstack(p: usize) -> VirtAddr {
+    assert!(p < NPROC);
     TRAPFRAME.byte_sub((1 + (p + 1) * (KSTACK_GUARD_PAGES + KSTACK_PAGES)) * PAGE_SIZE)
 }
 

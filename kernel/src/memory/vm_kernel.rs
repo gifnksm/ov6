@@ -1,9 +1,14 @@
 use alloc::boxed::Box;
 
 use once_init::OnceInit;
+use ov6_kernel_params::NPROC;
 use riscv::{asm, register::satp};
 
-use super::{page::PageFrameAllocator, page_table::PageTable};
+use super::{
+    layout::{self, KSTACK_PAGES},
+    page::{self, PageFrameAllocator},
+    page_table::PageTable,
+};
 use crate::{
     error::KernelError,
     interrupt::trampoline,
@@ -12,7 +17,6 @@ use crate::{
         layout::{KERN_BASE, PHYS_TOP, PLIC, TEXT_END, TRAMPOLINE, UART0, VIRTIO0},
         page_table::PtEntryFlags,
     },
-    proc,
 };
 
 /// The kernel's page table address.
@@ -84,9 +88,21 @@ impl KernelPageTable {
                 .unwrap();
 
             // allocate and map a kernel stack for each process.
-            proc::map_stacks(&mut kpgtbl);
+            map_proc_stacks(&mut kpgtbl);
         }
 
         Self(kpgtbl)
+    }
+}
+
+fn map_proc_stacks(kpgtbl: &mut PageTable) {
+    for i in 0..NPROC {
+        for k in 0..KSTACK_PAGES {
+            let pa = page::alloc_page().unwrap();
+            let va = layout::kstack(i).byte_add(k * PAGE_SIZE);
+            kpgtbl
+                .map_page(va, PhysAddr::new(pa.addr().get()), PtEntryFlags::RW)
+                .unwrap();
+        }
     }
 }

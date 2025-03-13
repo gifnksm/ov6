@@ -8,9 +8,8 @@ pub const PAGE_SHIFT: usize = 12;
 
 pub mod addr;
 pub mod heap;
-pub mod kernel;
 pub mod layout;
 pub mod page;
 pub mod page_table;
-pub mod user;
-pub mod vm;
+pub mod vm_kernel;
+pub mod vm_user;
