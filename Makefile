@@ -14,7 +14,7 @@ R=target/ov6/$(PROFILE)
 I=target/ov6/initcode
 RN=target/$(PROFILE)
 
-RUST_CROSS_TARGET=riscv64gc-unknown-none-elf
+RUST_CROSS_TARGET=riscv64imac-unknown-none-elf
 RX=target/$(RUST_CROSS_TARGET)/$(PROFILE)
 RXI=target/$(RUST_CROSS_TARGET)/initcode
 

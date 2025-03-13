@@ -12,7 +12,7 @@ license.workspace = true
 keywords.workspace = true
 publish.workspace = true
 
-forced-target = "riscv64gc-unknown-none-elf"
+forced-target = "riscv64imac-unknown-none-elf"
 
 [lints]
 workspace = true

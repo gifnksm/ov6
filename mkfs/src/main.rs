@@ -1,5 +1,5 @@
-// Workaround for `cargo doc --workspace --target riscv64gc-unknown-none-elf` to
-// work
+// Workaround for `cargo doc --workspace --target riscv64imac-unknown-none-elf`
+// to work
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg(not(target_os = "none"))]
 
