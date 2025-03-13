@@ -1,16 +1,15 @@
 use core::arch::asm;
 
 use riscv::register::{
-    mcounteren,
     medeleg::{self, Medeleg},
     mepc, mhartid,
     mideleg::{self, Mideleg},
-    mie, mstatus, pmpaddr0, pmpcfg0,
+    mstatus, pmpaddr0, pmpcfg0,
     satp::{self, Satp},
     sie,
 };
 
-use crate::{cpu, main, param::NCPU};
+use crate::{cpu, interrupt::timer, main, param::NCPU};
 
 // entry.s needs one stack per CPU.
 pub const STACK_SIZE: usize = 4096;
@@ -56,7 +55,7 @@ pub extern "C" fn start() -> ! {
     }
 
     // ask for clock interrupts;
-    timerinit();
+    timer::init();
 
     // keep each CPU's hartid in its tp register, for `cpu::id()`.
     let id = mhartid::read();
@@ -66,30 +65,5 @@ pub extern "C" fn start() -> ! {
 
     unsafe {
         asm!("mret", options(noreturn));
-    }
-}
-
-/// Ask each hart to generate timer interrupts.
-fn timerinit() {
-    // enable supervisor-mode timer interrupts.
-    unsafe {
-        mie::set_stimer();
-    }
-
-    // enable the sstc extension (i.e. stimecmp).
-    unsafe {
-        asm!("csrs menvcfg, {}", in(reg) 1_u64 << 63);
-    }
-
-    // allow supervisor to use stimecmp and time.
-    unsafe {
-        mcounteren::set_tm();
-    }
-
-    // ask for the very first timer interrupt.
-    unsafe {
-        let time: u64;
-        asm!("csrr {}, time", out(reg) time);
-        asm!("csrw stimecmp, {}", in(reg) time);
     }
 }

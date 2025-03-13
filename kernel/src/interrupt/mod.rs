@@ -11,6 +11,7 @@ use crate::{cpu, param::NCPU};
 
 mod kernel_vec;
 pub mod plic;
+pub mod timer;
 pub mod trampoline;
 pub mod trap;
 

@@ -2,7 +2,7 @@ use ov6_syscall::{ReturnType, syscall as sys};
 
 use crate::{
     error::KernelError,
-    interrupt::trap::{TICKS, TICKS_UPDATED},
+    interrupt::timer::{TICKS, TICKS_UPDATED},
     proc::{self, Proc, ProcPrivateDataGuard},
 };
 

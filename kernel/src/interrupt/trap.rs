@@ -1,4 +1,4 @@
-use core::{arch::asm, mem};
+use core::mem;
 
 use riscv::{
     interrupt::{
@@ -13,7 +13,7 @@ use riscv::{
     },
 };
 
-use super::{kernel_vec, plic, trampoline};
+use super::{kernel_vec, plic, timer, trampoline};
 use crate::{
     console::uart,
     cpu, fs, interrupt,
@@ -23,12 +23,8 @@ use crate::{
     },
     println,
     proc::{self, Proc, ProcPrivateDataGuard},
-    sync::{SpinLock, SpinLockCondVar},
     syscall,
 };
-
-pub static TICKS: SpinLock<u64> = SpinLock::new(0);
-pub static TICKS_UPDATED: SpinLockCondVar = SpinLockCondVar::new();
 
 pub fn init_hart() {
     let mut stvec = stvec::Stvec::from_bits(0);
@@ -217,24 +213,6 @@ pub extern "C" fn trap_kernel() {
     }
 }
 
-fn handle_clock_interrupt() {
-    if cpu::id() == 0 {
-        let mut ticks = TICKS.lock();
-        *ticks += 1;
-        TICKS_UPDATED.notify();
-        drop(ticks);
-    }
-
-    // ask for the next timer interrupt. this also clears
-    // the interrupt request. 100_0000 is about a tenth
-    // of a second.
-    let time: usize;
-    unsafe {
-        asm!("csrr {}, time", out(reg) time);
-        asm!("csrw stimecmp, {}", in(reg) time + 100_0000);
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IntrKind {
     Timer,
@@ -252,7 +230,7 @@ fn handle_dev_interrupt(int: Interrupt) -> IntrKind {
     match int {
         Interrupt::SupervisorSoft => IntrKind::NotRecognized,
         Interrupt::SupervisorTimer => {
-            handle_clock_interrupt();
+            timer::handle_interrupt();
             IntrKind::Timer
         }
         Interrupt::SupervisorExternal => {
