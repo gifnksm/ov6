@@ -96,10 +96,10 @@ cargo-clippy:
 	cargo clippy --workspace
 
 cargo-test:
-	cargo test --workspace
+	cargo nextest run --workspace
 
 cargo-miri-test:
-	cargo miri test --workspace
+	cargo miri nextest run --workspace
 
 typos:
 	typos
