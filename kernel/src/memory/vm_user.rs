@@ -135,7 +135,7 @@ impl UserPageTable {
         self.size = new_size;
     }
 
-    pub fn try_clone(&self, target: &mut Self) -> Result<(), KernelError> {
+    pub fn try_clone_into(&self, target: &mut Self) -> Result<(), KernelError> {
         target.shrink_to(0);
 
         (|| {

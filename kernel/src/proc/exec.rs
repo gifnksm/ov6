@@ -52,7 +52,7 @@ pub fn exec(
         return Err(KernelError::InvalidExecutable);
     }
 
-    let mut pt = UserPageTable::new(private.trapframe().unwrap())?;
+    let mut pt = UserPageTable::new(private.trapframe())?;
 
     // Load program into memory.
     load_segments(private, &mut lip, &mut pt, &elf)?;
@@ -77,8 +77,8 @@ pub fn exec(
 
     // Commit to the user image.
     private.update_pagetable(pt);
-    private.trapframe_mut().unwrap().epc = elf.entry.try_into().unwrap(); // initial pogram counter = main
-    private.trapframe_mut().unwrap().sp = sp; // initial stack pointer
+    private.trapframe_mut().epc = elf.entry.try_into().unwrap(); // initial pogram counter = main
+    private.trapframe_mut().sp = sp; // initial stack pointer
 
     Ok((argc, argv))
 }

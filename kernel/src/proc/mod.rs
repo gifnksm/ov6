@@ -184,13 +184,13 @@ impl ProcShared {
 }
 
 pub struct ProcPrivateData {
-    pid: Option<ProcId>,
+    pid: ProcId,
     /// Virtual address of kernel stack.
     kstack: VirtAddr,
     /// User page table,
-    pagetable: Option<UserPageTable>,
+    pagetable: UserPageTable,
     /// Data page for trampoline.S
-    trapframe: Option<Box<TrapFrame, PageFrameAllocator>>,
+    trapframe: Box<TrapFrame, PageFrameAllocator>,
     /// Open files
     ofile: [Option<File>; NOFILE],
     /// Current directory
@@ -203,34 +203,34 @@ impl ProcPrivateData {
     }
 
     pub fn size(&self) -> usize {
-        self.pagetable.as_ref().unwrap().size()
+        self.pagetable.size()
     }
 
-    pub fn pagetable(&self) -> Option<&UserPageTable> {
-        self.pagetable.as_ref()
+    pub fn pagetable(&self) -> &UserPageTable {
+        &self.pagetable
     }
 
-    pub fn pagetable_mut(&mut self) -> Option<&mut UserPageTable> {
-        self.pagetable.as_mut()
+    pub fn pagetable_mut(&mut self) -> &mut UserPageTable {
+        &mut self.pagetable
     }
 
     pub fn update_pagetable(&mut self, pt: UserPageTable) {
-        self.pagetable.replace(pt);
+        self.pagetable = pt;
     }
 
-    pub fn trapframe(&self) -> Option<&TrapFrame> {
-        self.trapframe.as_deref()
+    pub fn trapframe(&self) -> &TrapFrame {
+        &self.trapframe
     }
 
-    pub fn trapframe_mut(&mut self) -> Option<&mut TrapFrame> {
-        self.trapframe.as_deref_mut()
+    pub fn trapframe_mut(&mut self) -> &mut TrapFrame {
+        &mut self.trapframe
     }
 
     pub fn ofile(&self, fd: RawFd) -> Result<&File, KernelError> {
         self.ofile
             .get(fd.get())
             .and_then(|x| x.as_ref())
-            .ok_or_else(|| KernelError::FileDescriptorNotFound(fd, self.pid.unwrap()))
+            .ok_or(KernelError::FileDescriptorNotFound(fd, self.pid))
     }
 
     pub fn add_ofile(&mut self, file: File) -> Result<RawFd, KernelError> {
@@ -447,10 +447,10 @@ impl Proc {
                 .map_err(|AllocError| KernelError::NoFreePage)?;
 
             let private = ProcPrivateData {
-                pid: Some(pid),
+                pid,
                 kstack: layout::kstack(i),
-                pagetable: Some(UserPageTable::new(&trapframe)?),
-                trapframe: Some(trapframe),
+                pagetable: UserPageTable::new(&trapframe)?,
+                trapframe,
                 ofile: [const { None }; NOFILE],
                 cwd: None,
             };
@@ -508,14 +508,10 @@ pub fn user_init() {
 
     // allocate one user page and copy initcode's instructions
     // and data into it.
-    private
-        .pagetable_mut()
-        .unwrap()
-        .map_first(INIT_CODE)
-        .unwrap();
+    private.pagetable_mut().map_first(INIT_CODE).unwrap();
 
     // prepare for the very first `return` from kernel to user.
-    let trapframe = private.trapframe_mut().unwrap();
+    let trapframe = private.trapframe_mut();
     trapframe.epc = 0; // user program counter
     trapframe.sp = PAGE_SIZE; // user stack pointer
 
@@ -532,7 +528,7 @@ pub fn user_init() {
 
 /// Grows user memory by `n` Bytes.
 pub fn grow_proc(private: &mut ProcPrivateData, increment: isize) -> Result<(), KernelError> {
-    let pagetable = private.pagetable_mut().unwrap();
+    let pagetable = private.pagetable_mut();
     let old_sz = pagetable.size();
     let new_sz = old_sz.saturating_add_signed(increment);
     match new_sz.cmp(&old_sz) {
@@ -555,8 +551,7 @@ pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Result<ProcId, Ker
     // Copy use memory from parent to child.
     if let Err(e) = p_private
         .pagetable()
-        .unwrap()
-        .try_clone(np_private.pagetable_mut().unwrap())
+        .try_clone_into(np_private.pagetable_mut())
     {
         np.free(&mut np_shared);
         drop(np_shared);
@@ -564,11 +559,11 @@ pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Result<ProcId, Ker
     }
 
     // Copy saved user registers.
-    *np_private.trapframe_mut().unwrap() = *p_private.trapframe().unwrap();
+    *np_private.trapframe_mut() = *p_private.trapframe();
 
     // Cause fork to return 0 in the child.
     let child_ret: ReturnType<sys::Fork> = Ok(None);
-    ReturnValue::from(child_ret.encode()).store(np_private.trapframe_mut().unwrap());
+    ReturnValue::from(child_ret.encode()).store(np_private.trapframe_mut());
 
     // increment refereence counts on open file descriptors.
     for (of, nof) in p_private.ofile.iter().zip(&mut np_private.ofile) {
@@ -684,7 +679,6 @@ pub fn wait(
                 if user_status.addr() != 0 {
                     p_private
                         .pagetable_mut()
-                        .unwrap()
                         .copy_out(user_status, &exit_status)?;
                 }
                 pp.free(&mut pp_shared);
@@ -806,10 +800,7 @@ pub fn either_copy_out_bytes(
 ) -> Result<(), KernelError> {
     assert_eq!(dst.len(), src.len());
     match dst {
-        GenericMutSlice::User(dst) => p_private
-            .pagetable_mut()
-            .unwrap()
-            .copy_out_bytes(dst, src)?,
+        GenericMutSlice::User(dst) => p_private.pagetable_mut().copy_out_bytes(dst, src)?,
         GenericMutSlice::Kernel(dst) => dst.copy_from_slice(src),
     }
     Ok(())
@@ -824,7 +815,7 @@ pub fn either_copy_in_bytes(
 ) -> Result<(), KernelError> {
     assert_eq!(dst.len(), src.len());
     match src {
-        GenericSlice::User(src) => p_private.pagetable().unwrap().copy_in_bytes(dst, src)?,
+        GenericSlice::User(src) => p_private.pagetable().copy_in_bytes(dst, src)?,
         GenericSlice::Kernel(src) => dst.copy_from_slice(src),
     }
     Ok(())

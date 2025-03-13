@@ -36,6 +36,6 @@ pub(super) fn stat_inode(
     };
     drop(lip);
     drop(ip);
-    private.pagetable_mut().unwrap().copy_out(dst, &st)?;
+    private.pagetable_mut().copy_out(dst, &st)?;
     Ok(())
 }

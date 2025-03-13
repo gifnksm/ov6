@@ -31,10 +31,7 @@ fn fetch_path<'a>(
     }
 
     let path_out = &mut path_out[..user_path.len()];
-    private
-        .pagetable()
-        .unwrap()
-        .copy_in_bytes(path_out, user_path)?;
+    private.pagetable().copy_in_bytes(path_out, user_path)?;
     Ok(Path::new(OsStr::from_bytes(path_out)))
 }
 
@@ -43,7 +40,7 @@ pub fn sys_dup(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Dup> {
     let private = private.as_mut().unwrap();
-    let Ok((fd,)) = super::decode_arg::<sys::Dup>(private.trapframe().unwrap());
+    let Ok((fd,)) = super::decode_arg::<sys::Dup>(private.trapframe());
     let file = private.ofile(fd)?;
     let file = file.clone();
     let fd = fd_alloc(private, file)?;
@@ -55,7 +52,7 @@ pub fn sys_read(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Read> {
     let private = private.as_mut().unwrap();
-    let Ok((fd, data)) = super::decode_arg::<sys::Read>(private.trapframe().unwrap());
+    let Ok((fd, data)) = super::decode_arg::<sys::Read>(private.trapframe());
     let file = private.ofile(fd)?;
     let n = file.clone().read(p, private, data)?;
     Ok(n)
@@ -66,7 +63,7 @@ pub fn sys_write(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Write> {
     let private = private.as_mut().unwrap();
-    let Ok((fd, data)) = super::decode_arg::<sys::Write>(private.trapframe().unwrap());
+    let Ok((fd, data)) = super::decode_arg::<sys::Write>(private.trapframe());
     let file = private.ofile(fd)?;
     let n = file.clone().write(p, private, data)?;
     Ok(n)
@@ -77,7 +74,7 @@ pub fn sys_close(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Close> {
     let private = private.as_mut().unwrap();
-    let Ok((fd,)) = super::decode_arg::<sys::Close>(private.trapframe().unwrap());
+    let Ok((fd,)) = super::decode_arg::<sys::Close>(private.trapframe());
     let _file = private.ofile(fd)?;
     private.unset_ofile(fd);
     Ok(())
@@ -88,7 +85,7 @@ pub fn sys_fstat(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Fstat> {
     let private = private.as_mut().unwrap();
-    let Ok((fd, stat)) = super::decode_arg::<sys::Fstat>(private.trapframe().unwrap());
+    let Ok((fd, stat)) = super::decode_arg::<sys::Fstat>(private.trapframe());
     let file = private.ofile(fd)?;
     file.clone().stat(private, stat)?;
     Ok(())
@@ -100,7 +97,7 @@ pub fn sys_link(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Link> {
     let private = private.as_mut().unwrap();
-    let Ok((user_old, user_new)) = super::decode_arg::<sys::Link>(private.trapframe().unwrap());
+    let Ok((user_old, user_new)) = super::decode_arg::<sys::Link>(private.trapframe());
 
     let mut old = [0; MAX_PATH];
     let mut new = [0; MAX_PATH];
@@ -117,7 +114,7 @@ pub fn sys_unlink(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Unlink> {
     let private = private.as_mut().unwrap();
-    let Ok((user_path,)) = super::decode_arg::<sys::Unlink>(private.trapframe().unwrap());
+    let Ok((user_path,)) = super::decode_arg::<sys::Unlink>(private.trapframe());
     let mut path = [0; MAX_PATH];
     let path = fetch_path(private, user_path, &mut path)?;
 
@@ -132,7 +129,7 @@ pub fn sys_open(
 ) -> ReturnType<sys::Open> {
     let private = private.as_mut().unwrap();
     let (user_path, mode) =
-        super::decode_arg::<sys::Open>(private.trapframe().unwrap()).map_err(KernelError::from)?;
+        super::decode_arg::<sys::Open>(private.trapframe()).map_err(KernelError::from)?;
     let mut path = [0; MAX_PATH];
     let path = fetch_path(private, user_path, &mut path)?;
 
@@ -173,7 +170,7 @@ pub fn sys_mkdir(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Mkdir> {
     let private = private.as_mut().unwrap();
-    let Ok((user_path,)) = super::decode_arg::<sys::Mkdir>(private.trapframe().unwrap());
+    let Ok((user_path,)) = super::decode_arg::<sys::Mkdir>(private.trapframe());
     let mut path = [0; MAX_PATH];
     let path = fetch_path(private, user_path, &mut path)?;
 
@@ -189,7 +186,7 @@ pub fn sys_mknod(
 ) -> ReturnType<sys::Mknod> {
     let private = private.as_mut().unwrap();
     let (user_path, major, minor) =
-        super::decode_arg::<sys::Mknod>(private.trapframe().unwrap()).map_err(KernelError::from)?;
+        super::decode_arg::<sys::Mknod>(private.trapframe()).map_err(KernelError::from)?;
     let mut path = [0; MAX_PATH];
     let path = fetch_path(private, user_path, &mut path)?;
 
@@ -204,7 +201,7 @@ pub fn sys_chdir(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Chdir> {
     let private = private.as_mut().unwrap();
-    let Ok((user_path,)) = super::decode_arg::<sys::Chdir>(private.trapframe().unwrap());
+    let Ok((user_path,)) = super::decode_arg::<sys::Chdir>(private.trapframe());
     let mut path = [0; MAX_PATH];
     let path = fetch_path(private, user_path, &mut path)?;
 
@@ -224,7 +221,7 @@ pub fn sys_exec(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> Result<(usize, usize), KernelError> {
     let private = private.as_mut().unwrap();
-    let Ok((user_path, uargv)) = super::decode_arg::<sys::Exec>(private.trapframe().unwrap());
+    let Ok((user_path, uargv)) = super::decode_arg::<sys::Exec>(private.trapframe());
     let mut path = [0; MAX_PATH];
     let path = fetch_path(private, user_path, &mut path)?;
 
@@ -232,7 +229,7 @@ pub fn sys_exec(
         ArrayVec::new();
 
     for i in 0..uargv.len() {
-        let uarg = private.pagetable().unwrap().copy_in(uargv.nth(i))?;
+        let uarg = private.pagetable().copy_in(uargv.nth(i))?;
         if uarg.len() > PAGE_SIZE {
             return Err(KernelError::ArgumentListTooLarge);
         }
@@ -241,7 +238,6 @@ pub fn sys_exec(
             .map_err(|AllocError| KernelError::NoFreePage)?;
         private
             .pagetable()
-            .unwrap()
             .copy_in_bytes(&mut buf[..uarg.len()], uarg)?;
 
         if argv.try_push((uarg.len(), buf)).is_err() {
@@ -257,7 +253,7 @@ pub fn sys_pipe(
     private: &mut Option<ProcPrivateDataGuard>,
 ) -> ReturnType<sys::Pipe> {
     let private = private.as_mut().unwrap();
-    let Ok((fd_array,)) = super::decode_arg::<sys::Pipe>(private.trapframe().unwrap());
+    let Ok((fd_array,)) = super::decode_arg::<sys::Pipe>(private.trapframe());
 
     let (rf, wf) = File::new_pipe()?;
 
@@ -271,7 +267,7 @@ pub fn sys_pipe(
     };
 
     let fds = [rfd, wfd];
-    if let Err(e) = private.pagetable_mut().unwrap().copy_out(fd_array, &fds) {
+    if let Err(e) = private.pagetable_mut().copy_out(fd_array, &fds) {
         private.unset_ofile(rfd);
         private.unset_ofile(wfd);
         return Err(e.into());

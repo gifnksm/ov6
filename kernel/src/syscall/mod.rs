@@ -141,13 +141,13 @@ where
 
 pub fn syscall(p: &'static Proc, private: &mut Option<ProcPrivateDataGuard>) {
     let private_ref = private.as_mut().unwrap();
-    let n = private_ref.trapframe().unwrap().a7;
+    let n = private_ref.trapframe().a7;
     let Some(ty) = SyscallCode::from_repr(n) else {
         let shared = p.shared().lock();
         let pid = shared.pid();
         let name = shared.name().display();
         println!("{pid} {name}: unknown sys call {n}");
-        private_ref.trapframe_mut().unwrap().a0 = usize::MAX;
+        private_ref.trapframe_mut().a0 = usize::MAX;
         return;
     };
     let _ = private_ref;
@@ -179,5 +179,5 @@ pub fn syscall(p: &'static Proc, private: &mut Option<ProcPrivateDataGuard>) {
         SyscallCode::Close => call(self::file::sys_close, p, private),
     };
     let private_ref = private.as_mut().unwrap();
-    ret.store(private_ref.trapframe_mut().unwrap());
+    ret.store(private_ref.trapframe_mut());
 }
