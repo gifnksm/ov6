@@ -4,7 +4,6 @@ use ov6_user_lib::{
     env,
     fs::File,
     io::{self, Read},
-    os_str::OsStr,
     path::Path,
     println, process,
 };
@@ -51,7 +50,7 @@ where
 }
 
 fn main() {
-    let args = env::args_cstr();
+    let args = env::args_os();
 
     if args.len() == 0 {
         wc(io::stdin(), "");
@@ -59,7 +58,6 @@ fn main() {
     }
 
     for path in args {
-        let path = OsStr::from_bytes(path.to_bytes());
         let file = try_or_exit!(
             File::open(path),
             e => "cannot open {}: {e}", path.display(),

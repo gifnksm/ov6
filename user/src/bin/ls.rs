@@ -63,14 +63,14 @@ where
 }
 
 fn main() {
-    let args = env::args_cstr();
+    let args = env::args_os();
 
     if args.len() < 1 {
         ls(".");
         process::exit(0);
     }
     for arg in args {
-        ls(OsStr::from_bytes(arg.to_bytes()));
+        ls(arg);
     }
     process::exit(0);
 }

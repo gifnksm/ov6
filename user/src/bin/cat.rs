@@ -4,7 +4,6 @@ use ov6_user_lib::{
     env,
     fs::File,
     io::{self, Read, Write as _},
-    os_str::OsStr,
     process,
 };
 use user::try_or_exit;
@@ -31,7 +30,7 @@ where
 }
 
 fn main() {
-    let args = env::args_cstr();
+    let args = env::args_os();
     if args.len() == 0 {
         cat(io::stdin());
         process::exit(0);
@@ -39,8 +38,8 @@ fn main() {
 
     for arg in args {
         let file = try_or_exit!(
-            File::open(OsStr::from_bytes(arg.to_bytes())),
-            e => "cannot open file {file}: {e}", file = arg.to_str().unwrap(),
+            File::open(arg),
+            e => "cannot open file {file}: {e}", file = arg.display(),
         );
         cat(&file);
     }

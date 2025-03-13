@@ -1,10 +1,10 @@
 #![no_std]
 
-use ov6_user_lib::{env, fs, os_str::OsStr, process};
+use ov6_user_lib::{env, fs, process};
 use user::{try_or, usage_and_exit};
 
 fn main() {
-    let args = env::args_cstr();
+    let args = env::args_os();
 
     if args.len() < 1 {
         usage_and_exit!("files...");
@@ -12,9 +12,9 @@ fn main() {
 
     for arg in args {
         try_or!(
-            fs::create_dir(OsStr::from_bytes(arg.to_bytes())),
+            fs::create_dir(arg),
             break,
-            e => "{} failed to create: {e}", arg.to_str().unwrap(),
+            e => "{} failed to create: {e}", arg.display(),
         );
     }
 

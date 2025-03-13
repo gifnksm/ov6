@@ -146,12 +146,12 @@ pub fn create_delete() {
             assert!(
                 (1..N / 2).contains(&i) || file.is_ok(),
                 "oops create_delete {} didn't exist",
-                path.to_str().unwrap()
+                path.display(),
             );
             assert!(
                 !((1..N / 2).contains(&i) && file.is_ok()),
                 "oops create_delete {} did exist",
-                path.to_str().unwrap()
+                path.display(),
             )
         }
     }

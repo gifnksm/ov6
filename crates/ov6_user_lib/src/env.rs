@@ -4,7 +4,7 @@ use core::{
     sync::atomic::{AtomicPtr, AtomicUsize, Ordering},
 };
 
-use ov6_types::path::Path;
+use ov6_types::{os_str::OsStr, path::Path};
 
 use crate::{error::Ov6Error, os::ov6::syscall};
 
@@ -28,9 +28,10 @@ fn argv() -> &'static [*const c_char] {
 }
 
 #[must_use]
-pub fn arg0() -> &'static str {
+pub fn arg0() -> &'static OsStr {
     let arg0 = argv().first().expect("argc should be greater than 1");
-    unsafe { CStr::from_ptr(*arg0).to_str().unwrap() }
+    let cstr = unsafe { CStr::from_ptr(*arg0) };
+    OsStr::from_bytes(cstr.to_bytes())
 }
 
 #[must_use]
@@ -42,11 +43,11 @@ pub fn args() -> Args {
 }
 
 #[must_use]
-pub fn args_cstr() -> ArgsCStr {
+pub fn args_os() -> ArgsOs {
     let args = argv();
     let mut iter = args.iter();
     iter.next(); // Skip the program name
-    ArgsCStr { iter }
+    ArgsOs { iter }
 }
 
 pub struct Args {
@@ -69,19 +70,22 @@ impl ExactSizeIterator for Args {
     }
 }
 
-pub struct ArgsCStr {
+pub struct ArgsOs {
     iter: slice::Iter<'static, *const c_char>,
 }
 
-impl Iterator for ArgsCStr {
-    type Item = &'static CStr;
+impl Iterator for ArgsOs {
+    type Item = &'static OsStr;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|&arg| unsafe { CStr::from_ptr(arg) })
+        self.iter.next().map(|&arg| {
+            let cstr = unsafe { CStr::from_ptr(arg) };
+            OsStr::from_bytes(cstr.to_bytes())
+        })
     }
 }
 
-impl ExactSizeIterator for ArgsCStr {
+impl ExactSizeIterator for ArgsOs {
     fn len(&self) -> usize {
         self.iter.len()
     }

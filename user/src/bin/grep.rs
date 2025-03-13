@@ -4,7 +4,6 @@ use ov6_user_lib::{
     env,
     fs::File,
     io::{self, Read},
-    os_str::OsStr,
     println,
 };
 use user::{try_or, try_or_exit, usage_and_exit};
@@ -46,16 +45,15 @@ where
 fn main() {
     let mut buf = [0; 1024];
 
-    let mut args = env::args_cstr();
+    let mut args = env::args_os();
 
     let Some(pattern) = args.next() else {
         usage_and_exit!("pattern [file...]");
     };
 
-    let pattern = try_or_exit!(
-        pattern.to_str(),
-        e => "parse pattern error: {e}",
-    );
+    let Some(pattern) = pattern.to_str() else {
+        usage_and_exit!("pattern must be valid UTF-8");
+    };
 
     if args.len() == 0 {
         let stdin = io::stdin();
@@ -63,9 +61,9 @@ fn main() {
     } else {
         for arg in args {
             let file = try_or!(
-                File::open(OsStr::from_bytes(arg.to_bytes())),
+                File::open(arg),
                 continue,
-                e => "cannot open {}: {e}", arg.to_str().unwrap(),
+                e => "cannot open {}: {e}", arg.display(),
             );
             grep(pattern, file, &mut buf);
         }
