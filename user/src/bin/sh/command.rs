@@ -11,8 +11,6 @@ use user::try_or_exit;
 
 use crate::util;
 
-pub(super) const MAX_ARGS: usize = 10;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RedirectMode {
     Input,
@@ -29,7 +27,7 @@ pub(super) enum RedirectFd {
 #[derive(Debug)]
 pub(super) enum Command<'a> {
     Exec {
-        argv: Arc<Mutex<[Option<&'a str>; MAX_ARGS]>>,
+        argv: Arc<Mutex<Vec<&'a str>>>,
     },
     Redirect {
         cmd: Box<Command<'a>>,
@@ -55,10 +53,9 @@ impl Command<'_> {
         match self {
             Command::Exec { argv } => {
                 let argv = argv.lock();
-                if argv[0].is_none() {
+                if argv.is_empty() {
                     process::exit(0);
                 }
-                let argv = argv.iter().flatten().collect::<Vec<_>>();
                 try_or_exit!(
                     process::exec(argv[0], &argv),
                     e => "exec {} failed: {e}", argv[0],
