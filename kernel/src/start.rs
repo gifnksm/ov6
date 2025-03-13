@@ -1,7 +1,11 @@
 use core::arch::asm;
 
 use riscv::register::{
-    mcounteren, mepc, mhartid, mie, mstatus, pmpaddr0, pmpcfg0,
+    mcounteren,
+    medeleg::{self, Medeleg},
+    mepc, mhartid,
+    mideleg::{self, Mideleg},
+    mie, mstatus, pmpaddr0, pmpcfg0,
     satp::{self, Satp},
     sie,
 };
@@ -33,11 +37,13 @@ pub extern "C" fn start() -> ! {
 
     // delegate all interrupts and exceptions to supervisor mode.
     unsafe {
-        asm!("csrw medeleg, {}", in(reg) 0xffff);
-        asm!("csrw mideleg, {}", in(reg) 0xffff);
-        sie::set_sext();
-        sie::set_stimer();
-        sie::set_ssoft();
+        medeleg::write(Medeleg::from_bits(0xffff));
+        mideleg::write(Mideleg::from_bits(0xffff));
+        let mut sie = sie::read();
+        sie.set_sext(true);
+        sie.set_stimer(true);
+        sie.set_ssoft(true);
+        sie::write(sie);
     }
 
     // configure Physical Memory Protection to give supervisor mode

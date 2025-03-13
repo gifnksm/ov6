@@ -141,11 +141,7 @@ pub fn trap_user_ret(mut private: ProcPrivateDataGuard) {
     tf.kernel_satp = satp::read().bits(); // kernel page table
     tf.kernel_sp = kstack.byte_add(KSTACK_PAGES * PAGE_SIZE).addr(); // process's kernel stack
     tf.kernel_trap = trap_user as usize;
-    let hartid: usize;
-    unsafe {
-        asm!("mv {}, tp", out(reg) hartid);
-    }
-    tf.kernel_hartid = hartid;
+    tf.kernel_hartid = cpu::id();
 
     // set up the registers that trampoline.S's sret will use
     // to get to user space.

@@ -1,9 +1,7 @@
-use core::{
-    arch::{asm, naked_asm},
-    mem::offset_of,
-};
+use core::{arch::naked_asm, mem::offset_of};
 
 use ov6_kernel_params::NCPU;
+use riscv::asm;
 
 use super::{PROC, ProcSharedData, ProcState};
 use crate::{
@@ -112,11 +110,9 @@ pub fn schedule() -> ! {
         }
 
         if !found {
-            unsafe {
-                // nothing to run, stop running on this core until an interrupt.
-                interrupt::enable();
-                asm!("wfi");
-            }
+            // nothing to run, stop running on this core until an interrupt.
+            interrupt::enable();
+            asm::wfi();
         }
     }
 }
