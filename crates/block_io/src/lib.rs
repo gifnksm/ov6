@@ -459,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "block io cache expects the size greater than 0")]
+    #[should_panic(expected = "size must be greater than 0")]
     fn test_block_io_cache_init_zero() {
         let device = MockDevice::new(10);
         BlockIoCache::new(device, 0);

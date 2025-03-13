@@ -108,7 +108,7 @@ where
     where
         V: Default,
     {
-        assert!(size > 0);
+        assert!(size > 0, "size must be greater than 0");
 
         let mut list = LinkedList::new_in(alloc.clone());
         for _ in 0..size {
