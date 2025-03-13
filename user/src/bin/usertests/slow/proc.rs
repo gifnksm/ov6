@@ -1,4 +1,8 @@
-use ov6_user_lib::{io::STDOUT_FD, os::ov6::syscall, process};
+use ov6_user_lib::{
+    io::STDOUT_FD,
+    os::{fd::AsRawFd as _, ov6::syscall},
+    pipe, process,
+};
 
 use crate::{ECHO_PATH, PAGE_SIZE};
 
@@ -7,6 +11,7 @@ use crate::{ECHO_PATH, PAGE_SIZE};
 /// doesn't cause a panic.
 pub fn execout() {
     for avail in 0..15 {
+        let (_rx, tx) = pipe::pipe().unwrap();
         let status = process::fork_fn(|| {
             // allocate all of memory.
             loop {
@@ -24,7 +29,12 @@ pub fn execout() {
                 unsafe { process::shrink_break(PAGE_SIZE) }.unwrap();
             }
 
+            // suppress output to the console
             unsafe { syscall::close(STDOUT_FD) }.unwrap();
+            // without this, echo will panic and exit with status 1
+            let tx = tx.try_clone().unwrap();
+            assert_eq!(tx.as_raw_fd(), STDOUT_FD);
+
             let args = [ECHO_PATH, "x"];
             let _ = process::exec(ECHO_PATH, &args);
             process::exit(0);
@@ -32,6 +42,6 @@ pub fn execout() {
         .unwrap()
         .wait()
         .unwrap();
-        assert!(status.success() || status.code() == -1);
+        assert!(status.success());
     }
 }

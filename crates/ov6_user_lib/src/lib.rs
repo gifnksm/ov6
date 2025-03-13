@@ -37,6 +37,6 @@ fn lang_start<T>(main: fn() -> T, argc: isize, argv: *const *const u8, _: u8) ->
 #[cfg(all(not(feature = "std"), not(test)))]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    println!("panic: {info}");
+    eprintln!("panic: {info}");
     process::exit(1);
 }

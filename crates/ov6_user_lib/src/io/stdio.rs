@@ -11,10 +11,12 @@ use crate::{
     sync::spin::{Mutex, MutexGuard},
 };
 
+#[track_caller]
 pub fn _print(args: fmt::Arguments) {
     stdout().write_fmt(args).unwrap();
 }
 
+#[track_caller]
 pub fn _eprint(args: fmt::Arguments) {
     stderr().write_fmt(args).unwrap();
 }
