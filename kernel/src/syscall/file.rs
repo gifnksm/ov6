@@ -2,16 +2,17 @@ use alloc::boxed::Box;
 use core::alloc::AllocError;
 
 use arrayvec::ArrayVec;
-use ov6_syscall::{OpenFlags, ReturnType, UserSlice, syscall as sys};
+use ov6_syscall::{OpenFlags, UserSlice, syscall as sys};
 use ov6_types::{fs::RawFd, os_str::OsStr, path::Path};
 
+use super::SyscallExt;
 use crate::{
     error::KernelError,
     file::File,
     fs::{self, DeviceNo, Inode, T_DEVICE, T_DIR, T_FILE},
     memory::{PAGE_SIZE, page::PageFrameAllocator},
     param::{MAX_ARG, MAX_PATH},
-    proc::{Proc, ProcPrivateData, ProcPrivateDataGuard, exec},
+    proc::{Proc, ProcPrivateData, exec},
 };
 
 /// Allocates a file descriptor for the given `File`.
@@ -35,192 +36,189 @@ fn fetch_path<'a>(
     Ok(Path::new(OsStr::from_bytes(path_out)))
 }
 
-pub fn sys_dup(
-    _p: &'static Proc,
-    private: &mut Option<ProcPrivateDataGuard>,
-) -> ReturnType<sys::Dup> {
-    let private = private.as_mut().unwrap();
-    let Ok((fd,)) = super::decode_arg::<sys::Dup>(private.trapframe());
-    let file = private.ofile(fd)?;
-    let file = file.clone();
-    let fd = fd_alloc(private, file)?;
-    Ok(fd)
+impl SyscallExt for sys::Dup {
+    type Private<'a> = ProcPrivateData;
+
+    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+        let Ok((fd,)) = Self::decode_arg(private.trapframe());
+        let file = private.ofile(fd)?;
+        let file = file.clone();
+        let fd = fd_alloc(private, file)?;
+        Ok(fd)
+    }
 }
 
-pub fn sys_read(
-    p: &'static Proc,
-    private: &mut Option<ProcPrivateDataGuard>,
-) -> ReturnType<sys::Read> {
-    let private = private.as_mut().unwrap();
-    let Ok((fd, data)) = super::decode_arg::<sys::Read>(private.trapframe());
-    let file = private.ofile(fd)?;
-    let n = file.clone().read(p, private, data)?;
-    Ok(n)
+impl SyscallExt for sys::Read {
+    type Private<'a> = ProcPrivateData;
+
+    fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+        let Ok((fd, data)) = Self::decode_arg(private.trapframe());
+        let file = private.ofile(fd)?;
+        let n = file.clone().read(p, private, data)?;
+        Ok(n)
+    }
 }
 
-pub fn sys_write(
-    p: &'static Proc,
-    private: &mut Option<ProcPrivateDataGuard>,
-) -> ReturnType<sys::Write> {
-    let private = private.as_mut().unwrap();
-    let Ok((fd, data)) = super::decode_arg::<sys::Write>(private.trapframe());
-    let file = private.ofile(fd)?;
-    let n = file.clone().write(p, private, data)?;
-    Ok(n)
+impl SyscallExt for sys::Write {
+    type Private<'a> = ProcPrivateData;
+
+    fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+        let Ok((fd, data)) = Self::decode_arg(private.trapframe());
+        let file = private.ofile(fd)?;
+        let n = file.clone().write(p, private, data)?;
+        Ok(n)
+    }
 }
 
-pub fn sys_close(
-    _p: &'static Proc,
-    private: &mut Option<ProcPrivateDataGuard>,
-) -> ReturnType<sys::Close> {
-    let private = private.as_mut().unwrap();
-    let Ok((fd,)) = super::decode_arg::<sys::Close>(private.trapframe());
-    let _file = private.ofile(fd)?;
-    private.unset_ofile(fd);
-    Ok(())
+impl SyscallExt for sys::Close {
+    type Private<'a> = ProcPrivateData;
+
+    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+        let Ok((fd,)) = Self::decode_arg(private.trapframe());
+        let _file = private.ofile(fd)?;
+        private.unset_ofile(fd);
+        Ok(())
+    }
 }
 
-pub fn sys_fstat(
-    _p: &'static Proc,
-    private: &mut Option<ProcPrivateDataGuard>,
-) -> ReturnType<sys::Fstat> {
-    let private = private.as_mut().unwrap();
-    let Ok((fd, stat)) = super::decode_arg::<sys::Fstat>(private.trapframe());
-    let file = private.ofile(fd)?;
-    file.clone().stat(private, stat)?;
-    Ok(())
+impl SyscallExt for sys::Fstat {
+    type Private<'a> = ProcPrivateData;
+
+    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+        let Ok((fd, stat)) = Self::decode_arg(private.trapframe());
+        let file = private.ofile(fd)?;
+        file.clone().stat(private, stat)?;
+        Ok(())
+    }
 }
 
-/// Creates the path `new` as a link to the same inode as `old`.
-pub fn sys_link(
-    _p: &'static Proc,
-    private: &mut Option<ProcPrivateDataGuard>,
-) -> ReturnType<sys::Link> {
-    let private = private.as_mut().unwrap();
-    let Ok((user_old, user_new)) = super::decode_arg::<sys::Link>(private.trapframe());
+impl SyscallExt for sys::Link {
+    type Private<'a> = ProcPrivateData;
 
-    let mut old = [0; MAX_PATH];
-    let mut new = [0; MAX_PATH];
-    let old = fetch_path(private, user_old, &mut old)?;
-    let new = fetch_path(private, user_new, &mut new)?;
+    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+        let Ok((user_old, user_new)) = Self::decode_arg(private.trapframe());
 
-    let tx = fs::begin_tx();
-    fs::ops::link(&tx, private, old, new)?;
-    Ok(())
+        let mut old = [0; MAX_PATH];
+        let mut new = [0; MAX_PATH];
+        let old = fetch_path(private, user_old, &mut old)?;
+        let new = fetch_path(private, user_new, &mut new)?;
+
+        let tx = fs::begin_tx();
+        fs::ops::link(&tx, private, old, new)?;
+        Ok(())
+    }
 }
 
-pub fn sys_unlink(
-    _p: &'static Proc,
-    private: &mut Option<ProcPrivateDataGuard>,
-) -> ReturnType<sys::Unlink> {
-    let private = private.as_mut().unwrap();
-    let Ok((user_path,)) = super::decode_arg::<sys::Unlink>(private.trapframe());
-    let mut path = [0; MAX_PATH];
-    let path = fetch_path(private, user_path, &mut path)?;
+impl SyscallExt for sys::Unlink {
+    type Private<'a> = ProcPrivateData;
 
-    let tx = fs::begin_tx();
-    fs::ops::unlink(&tx, private, path)?;
-    Ok(())
+    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+        let Ok((user_path,)) = Self::decode_arg(private.trapframe());
+        let mut path = [0; MAX_PATH];
+        let path = fetch_path(private, user_path, &mut path)?;
+
+        let tx = fs::begin_tx();
+        fs::ops::unlink(&tx, private, path)?;
+        Ok(())
+    }
 }
 
-pub fn sys_open(
-    _p: &'static Proc,
-    private: &mut Option<ProcPrivateDataGuard>,
-) -> ReturnType<sys::Open> {
-    let private = private.as_mut().unwrap();
-    let (user_path, mode) =
-        super::decode_arg::<sys::Open>(private.trapframe()).map_err(KernelError::from)?;
-    let mut path = [0; MAX_PATH];
-    let path = fetch_path(private, user_path, &mut path)?;
+impl SyscallExt for sys::Open {
+    type Private<'a> = ProcPrivateData;
 
-    let tx = fs::begin_tx();
-    let mut ip = if mode.contains(OpenFlags::CREATE) {
-        fs::ops::create(&tx, private, path, T_FILE, DeviceNo::ROOT, 0)?
-    } else {
-        let mut ip = fs::path::resolve(&tx, private, path)?;
-        let lip = ip.lock();
-        if lip.is_dir() && mode != OpenFlags::READ_ONLY {
-            return Err(KernelError::OpenDirAsWritable.into());
+    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+        let (user_path, mode) = Self::decode_arg(private.trapframe()).map_err(KernelError::from)?;
+        let mut path = [0; MAX_PATH];
+        let path = fetch_path(private, user_path, &mut path)?;
+
+        let tx = fs::begin_tx();
+        let mut ip = if mode.contains(OpenFlags::CREATE) {
+            fs::ops::create(&tx, private, path, T_FILE, DeviceNo::ROOT, 0)?
+        } else {
+            let mut ip = fs::path::resolve(&tx, private, path)?;
+            let lip = ip.lock();
+            if lip.is_dir() && mode != OpenFlags::READ_ONLY {
+                return Err(KernelError::OpenDirAsWritable.into());
+            }
+            lip.unlock();
+            ip
+        };
+
+        let mut lip = ip.lock();
+
+        let readable = !mode.contains(OpenFlags::WRITE_ONLY);
+        let writable = mode.contains(OpenFlags::WRITE_ONLY) || mode.contains(OpenFlags::READ_WRITE);
+        let f = if lip.ty() == T_DEVICE {
+            File::new_device(lip.major(), Inode::from_locked(&lip), readable, writable)?
+        } else {
+            File::new_inode(Inode::from_locked(&lip), readable, writable)?
+        };
+
+        if mode.contains(OpenFlags::TRUNC) && lip.ty() == T_FILE {
+            lip.truncate();
         }
-        lip.unlock();
-        ip
-    };
 
-    let mut lip = ip.lock();
+        let fd = fd_alloc(private, f)?;
 
-    let readable = !mode.contains(OpenFlags::WRITE_ONLY);
-    let writable = mode.contains(OpenFlags::WRITE_ONLY) || mode.contains(OpenFlags::READ_WRITE);
-    let f = if lip.ty() == T_DEVICE {
-        File::new_device(lip.major(), Inode::from_locked(&lip), readable, writable)?
-    } else {
-        File::new_inode(Inode::from_locked(&lip), readable, writable)?
-    };
-
-    if mode.contains(OpenFlags::TRUNC) && lip.ty() == T_FILE {
-        lip.truncate();
+        Ok(fd)
     }
-
-    let fd = fd_alloc(private, f)?;
-
-    Ok(fd)
 }
 
-pub fn sys_mkdir(
-    _p: &'static Proc,
-    private: &mut Option<ProcPrivateDataGuard>,
-) -> ReturnType<sys::Mkdir> {
-    let private = private.as_mut().unwrap();
-    let Ok((user_path,)) = super::decode_arg::<sys::Mkdir>(private.trapframe());
-    let mut path = [0; MAX_PATH];
-    let path = fetch_path(private, user_path, &mut path)?;
+impl SyscallExt for sys::Mkdir {
+    type Private<'a> = ProcPrivateData;
 
-    let tx = fs::begin_tx();
-    let _ip = fs::ops::create(&tx, private, path, T_DIR, DeviceNo::ROOT, 0)?;
+    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+        let Ok((user_path,)) = Self::decode_arg(private.trapframe());
+        let mut path = [0; MAX_PATH];
+        let path = fetch_path(private, user_path, &mut path)?;
 
-    Ok(())
-}
+        let tx = fs::begin_tx();
+        let _ip = fs::ops::create(&tx, private, path, T_DIR, DeviceNo::ROOT, 0)?;
 
-pub fn sys_mknod(
-    _p: &'static Proc,
-    private: &mut Option<ProcPrivateDataGuard>,
-) -> ReturnType<sys::Mknod> {
-    let private = private.as_mut().unwrap();
-    let (user_path, major, minor) =
-        super::decode_arg::<sys::Mknod>(private.trapframe()).map_err(KernelError::from)?;
-    let mut path = [0; MAX_PATH];
-    let path = fetch_path(private, user_path, &mut path)?;
-
-    let tx = fs::begin_tx();
-    let _ip = fs::ops::create(&tx, private, path, T_DEVICE, DeviceNo::new(major), minor)?;
-
-    Ok(())
-}
-
-pub fn sys_chdir(
-    _p: &'static Proc,
-    private: &mut Option<ProcPrivateDataGuard>,
-) -> ReturnType<sys::Chdir> {
-    let private = private.as_mut().unwrap();
-    let Ok((user_path,)) = super::decode_arg::<sys::Chdir>(private.trapframe());
-    let mut path = [0; MAX_PATH];
-    let path = fetch_path(private, user_path, &mut path)?;
-
-    let tx = fs::begin_tx();
-    let mut ip = fs::path::resolve(&tx, private, path)?;
-    if !ip.lock().is_dir() {
-        return Err(KernelError::ChdirNotDir.into());
+        Ok(())
     }
-    let old = private.update_cwd(Inode::from_tx(&ip));
-    old.into_tx(&tx).put();
+}
 
-    Ok(())
+impl SyscallExt for sys::Mknod {
+    type Private<'a> = ProcPrivateData;
+
+    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+        let (user_path, major, minor) =
+            Self::decode_arg(private.trapframe()).map_err(KernelError::from)?;
+        let mut path = [0; MAX_PATH];
+        let path = fetch_path(private, user_path, &mut path)?;
+
+        let tx = fs::begin_tx();
+        let _ip = fs::ops::create(&tx, private, path, T_DEVICE, DeviceNo::new(major), minor)?;
+
+        Ok(())
+    }
+}
+
+impl SyscallExt for sys::Chdir {
+    type Private<'a> = ProcPrivateData;
+
+    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+        let Ok((user_path,)) = Self::decode_arg(private.trapframe());
+        let mut path = [0; MAX_PATH];
+        let path = fetch_path(private, user_path, &mut path)?;
+
+        let tx = fs::begin_tx();
+        let mut ip = fs::path::resolve(&tx, private, path)?;
+        if !ip.lock().is_dir() {
+            return Err(KernelError::ChdirNotDir.into());
+        }
+        let old = private.update_cwd(Inode::from_tx(&ip));
+        old.into_tx(&tx).put();
+
+        Ok(())
+    }
 }
 
 pub fn sys_exec(
     p: &'static Proc,
-    private: &mut Option<ProcPrivateDataGuard>,
+    private: &mut ProcPrivateData,
 ) -> Result<(usize, usize), KernelError> {
-    let private = private.as_mut().unwrap();
     let Ok((user_path, uargv)) = super::decode_arg::<sys::Exec>(private.trapframe());
     let mut path = [0; MAX_PATH];
     let path = fetch_path(private, user_path, &mut path)?;
@@ -248,30 +246,30 @@ pub fn sys_exec(
     exec::exec(p, private, path, &argv)
 }
 
-pub fn sys_pipe(
-    _p: &'static Proc,
-    private: &mut Option<ProcPrivateDataGuard>,
-) -> ReturnType<sys::Pipe> {
-    let private = private.as_mut().unwrap();
-    let Ok((fd_array,)) = super::decode_arg::<sys::Pipe>(private.trapframe());
+impl SyscallExt for sys::Pipe {
+    type Private<'a> = ProcPrivateData;
 
-    let (rf, wf) = File::new_pipe()?;
+    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+        let Ok((fd_array,)) = Self::decode_arg(private.trapframe());
 
-    let rfd = fd_alloc(private, rf)?;
-    let wfd = match fd_alloc(private, wf) {
-        Ok(wfd) => wfd,
-        Err(e) => {
+        let (rf, wf) = File::new_pipe()?;
+
+        let rfd = fd_alloc(private, rf)?;
+        let wfd = match fd_alloc(private, wf) {
+            Ok(wfd) => wfd,
+            Err(e) => {
+                private.unset_ofile(rfd);
+                return Err(e.into());
+            }
+        };
+
+        let fds = [rfd, wfd];
+        if let Err(e) = private.pagetable_mut().copy_out(fd_array, &fds) {
             private.unset_ofile(rfd);
+            private.unset_ofile(wfd);
             return Err(e.into());
         }
-    };
 
-    let fds = [rfd, wfd];
-    if let Err(e) = private.pagetable_mut().copy_out(fd_array, &fds) {
-        private.unset_ofile(rfd);
-        private.unset_ofile(wfd);
-        return Err(e.into());
+        Ok(())
     }
-
-    Ok(())
 }
