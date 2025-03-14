@@ -19,22 +19,27 @@ pub enum TryLockError {
 }
 
 #[derive(Default)]
-struct RawSpinLock {
+pub struct SpinLock<T> {
     locked: AtomicBool,
     cpuid: UnsafeCell<usize>,
+    value: UnsafeCell<T>,
 }
 
-unsafe impl Sync for RawSpinLock {}
+unsafe impl<T> Sync for SpinLock<T> where T: Send {}
 
-impl RawSpinLock {
-    const fn new() -> Self {
+impl<T> SpinLock<T> {
+    pub const fn new(value: T) -> Self {
         Self {
             locked: AtomicBool::new(false),
             cpuid: UnsafeCell::new(INVALID_CPUID),
+            value: UnsafeCell::new(value),
         }
     }
 
-    fn try_acquire(&self) -> Result<(), TryLockError> {
+    /// Acquires the lock.
+    ///
+    /// Loops (spins) until the lock is acquired.
+    pub fn try_lock(&self) -> Result<SpinLockGuard<T>, TryLockError> {
         // disable interrupts to avoid deadlock.
         let int_guard = interrupt::push_disabled();
 
@@ -55,13 +60,13 @@ impl RawSpinLock {
 
         int_guard.forget(); // drop re-enables interrupts, so we must forget it here.
 
-        Ok(())
+        Ok(SpinLockGuard { lock: self })
     }
 
     /// Acquires the lock.
     ///
     /// Loops (spins) until the lock is acquired.
-    fn acquire(&self) {
+    pub fn lock(&self) -> SpinLockGuard<T> {
         // disable interrupts to avoid deadlock.
         let int_guard = interrupt::push_disabled();
 
@@ -79,27 +84,13 @@ impl RawSpinLock {
         }
 
         int_guard.forget(); // drop re-enables interrupts, so we must forget it here.
+
+        SpinLockGuard { lock: self }
     }
 
-    /// Releases the lock.
-    fn release(&self) {
+    pub unsafe fn remember_locked(&self) -> SpinLockGuard<T> {
         assert!(self.holding());
-
-        unsafe {
-            *self.cpuid.get() = INVALID_CPUID;
-        }
-
-        // `Ordering::Release` tells the compiler and the CPU to not move loads or
-        // stores past this point, to ensure that all the stores in the critical
-        // section are visible to other CPUs before the lock is released,
-        // and that loads in the critical section occur strictly before
-        // the locks is released.
-        // On RISC-V, this emits a fence instruction.
-        self.locked.store(false, Ordering::Release);
-
-        unsafe {
-            interrupt::pop_disabled();
-        }
+        SpinLockGuard { lock: self }
     }
 
     /// Checks whether this cpu is holding the lock.
@@ -108,44 +99,6 @@ impl RawSpinLock {
     fn holding(&self) -> bool {
         assert!(!interrupt::is_enabled());
         self.locked.load(Ordering::Relaxed) && unsafe { *self.cpuid.get() } == cpu::id()
-    }
-}
-
-#[derive(Default)]
-pub struct SpinLock<T> {
-    lock: RawSpinLock,
-    value: UnsafeCell<T>,
-}
-
-unsafe impl<T> Sync for SpinLock<T> where T: Send {}
-
-impl<T> SpinLock<T> {
-    pub const fn new(value: T) -> Self {
-        Self {
-            lock: RawSpinLock::new(),
-            value: UnsafeCell::new(value),
-        }
-    }
-
-    /// Acquires the lock.
-    ///
-    /// Loops (spins) until the lock is acquired.
-    pub fn try_lock(&self) -> Result<SpinLockGuard<T>, TryLockError> {
-        self.lock.try_acquire()?;
-        Ok(SpinLockGuard { lock: self })
-    }
-
-    /// Acquires the lock.
-    ///
-    /// Loops (spins) until the lock is acquired.
-    pub fn lock(&self) -> SpinLockGuard<T> {
-        self.lock.acquire();
-        SpinLockGuard { lock: self }
-    }
-
-    pub unsafe fn remember_locked(&self) -> SpinLockGuard<T> {
-        assert!(self.lock.holding());
-        SpinLockGuard { lock: self }
     }
 }
 
@@ -174,7 +127,23 @@ unsafe impl<T> Sync for SpinLockGuard<'_, T> where T: Sync {}
 
 impl<T> Drop for SpinLockGuard<'_, T> {
     fn drop(&mut self) {
-        self.lock.lock.release();
+        assert!(self.lock.holding());
+
+        unsafe {
+            *self.lock.cpuid.get() = INVALID_CPUID;
+        }
+
+        // `Ordering::Release` tells the compiler and the CPU to not move loads or
+        // stores past this point, to ensure that all the stores in the critical
+        // section are visible to other CPUs before the lock is released,
+        // and that loads in the critical section occur strictly before
+        // the locks is released.
+        // On RISC-V, this emits a fence instruction.
+        self.lock.locked.store(false, Ordering::Release);
+
+        unsafe {
+            interrupt::pop_disabled();
+        }
     }
 }
 
