@@ -65,7 +65,7 @@ impl SyscallExt for sys::Sbrk {
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
         let Ok((increment,)) = Self::decode_arg(private.trapframe());
         let addr = private.size();
-        proc::grow_proc(private, increment)?;
+        proc::resize_by(private, increment)?;
         Ok(addr)
     }
 }

@@ -258,6 +258,7 @@ impl ProcPrivateData {
 }
 
 pub struct ProcPrivateDataGuard<'p> {
+    proc: &'p Proc,
     private_taken: &'p AtomicBool,
     private: &'p mut ProcPrivateData,
 }
@@ -282,16 +283,35 @@ impl DerefMut for ProcPrivateDataGuard<'_> {
     }
 }
 
+impl ProcPrivateDataGuard<'_> {
+    fn remove_private(self) {
+        let proc = self.proc;
+
+        // to avoid multiple mutable reference to `ProcPrivateData` exists concurrently
+        mem::forget(self);
+
+        let private = unsafe { proc.private.get().as_mut().unwrap() }
+            .take()
+            .unwrap();
+        assert!(private.ofile.iter().all(Option::is_none));
+        assert!(private.cwd.is_none());
+
+        proc.private_borrowed.store(false, Ordering::Release);
+    }
+}
+
 /// Per-process state.
 pub struct Proc {
     /// Process sharead data
     shared: ProcShared,
     /// Parent process
     parent: Parent,
+    /// Condition variable that is notified when a child process ends.
     child_ended: SpinLockCondVar,
-    /// `true` if `private` is referenced
+    /// `true` if `private` is borrowed.
     private_borrowed: AtomicBool,
-    taken_location: AtomicPtr<Location<'static>>,
+    /// Location where `private` is borrowed.
+    borrowed_location: AtomicPtr<Location<'static>>,
     /// Process private data.
     private: UnsafeCell<Option<ProcPrivateData>>,
 }
@@ -305,7 +325,7 @@ impl Proc {
             parent: Parent::new(),
             child_ended: SpinLockCondVar::new(),
             private_borrowed: AtomicBool::new(false),
-            taken_location: AtomicPtr::new(ptr::from_ref(Location::caller()).cast_mut()),
+            borrowed_location: AtomicPtr::new(ptr::from_ref(Location::caller()).cast_mut()),
             private: UnsafeCell::new(None),
         }
     }
@@ -329,10 +349,10 @@ impl Proc {
     #[expect(clippy::mut_from_ref)]
     fn borrow_private_raw(&self) -> &mut Option<ProcPrivateData> {
         if self.private_borrowed.swap(true, Ordering::Acquire) {
-            let taker = unsafe { self.taken_location.load(Ordering::Relaxed).as_ref() }.unwrap();
+            let taker = unsafe { self.borrowed_location.load(Ordering::Relaxed).as_ref() }.unwrap();
             panic!("ProcPrivateData is already taken at {taker}");
         }
-        self.taken_location.store(
+        self.borrowed_location.store(
             ptr::from_ref(Location::caller()).cast_mut(),
             Ordering::Relaxed,
         );
@@ -347,32 +367,10 @@ impl Proc {
         *private = Some(data);
 
         ProcPrivateDataGuard {
+            proc: self,
             private_taken: &self.private_borrowed,
             private: private.as_mut().unwrap(),
         }
-    }
-
-    fn drop_private(&self, guard: ProcPrivateDataGuard) {
-        // to avoid two multiple mutable reference to `ProcPrivateData` exists
-        // concurrently
-        let addr = ptr::from_mut(guard.private).addr();
-        mem::forget(guard);
-
-        let private_opt = unsafe { self.private.get().as_mut().unwrap() };
-        assert_eq!(
-            private_opt
-                .as_mut()
-                .map_or(ptr::null_mut(), ptr::from_mut)
-                .addr(),
-            addr
-        );
-        let private = unsafe { self.private.get().as_mut().unwrap() }
-            .take()
-            .unwrap();
-        assert!(private.ofile.iter().all(Option::is_none));
-        assert!(private.cwd.is_none());
-
-        self.private_borrowed.store(false, Ordering::Release);
     }
 
     #[track_caller]
@@ -384,6 +382,7 @@ impl Proc {
         };
 
         Some(ProcPrivateDataGuard {
+            proc: self,
             private_taken: &self.private_borrowed,
             private,
         })
@@ -501,7 +500,7 @@ static INIT_CODE: &[u8] = &[];
 const _: () = const { assert!(INIT_CODE.len() < 128) };
 
 /// Set up first user process.
-pub fn user_init() {
+pub fn spawn_init() {
     let (p, mut shared, mut private) = Proc::allocate().unwrap();
     assert_eq!(shared.pid.unwrap().get().get(), 1);
     INIT_PROC.init(p);
@@ -527,7 +526,7 @@ pub fn user_init() {
 }
 
 /// Grows user memory by `n` Bytes.
-pub fn grow_proc(private: &mut ProcPrivateData, increment: isize) -> Result<(), KernelError> {
+pub fn resize_by(private: &mut ProcPrivateData, increment: isize) -> Result<(), KernelError> {
     let pagetable = private.pagetable_mut();
     let old_sz = pagetable.size();
     let new_sz = old_sz.saturating_add_signed(increment);
@@ -640,7 +639,7 @@ pub fn exit(p: &Proc, mut p_private: ProcPrivateDataGuard, status: i32) -> ! {
             exit_status: status,
         };
 
-        p.drop_private(p_private);
+        p_private.remove_private();
 
         drop(wait_lock);
         shared
@@ -700,6 +699,7 @@ pub fn wait(
 /// Gives up the CPU for one shceduling round.
 pub fn yield_(p: &Proc) {
     let mut shared = p.shared.lock();
+    assert!(matches!(shared.state, ProcState::Running));
     shared.state = ProcState::Runnable;
     scheduler::sched(&mut shared);
     drop(shared);

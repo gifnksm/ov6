@@ -51,11 +51,7 @@ extern "C" fn trap_user() {
     }
 
     let p = Proc::current();
-    let Some(mut private) = p.borrow_private() else {
-        // process is already exited (in zombie state)
-        proc::yield_(p);
-        unreachable!();
-    };
+    let mut private = p.borrow_private().unwrap();
 
     // save user program counter.
     private.trapframe_mut().epc = sepc::read();
