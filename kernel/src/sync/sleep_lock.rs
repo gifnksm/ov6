@@ -1,70 +1,18 @@
 use core::{
     cell::UnsafeCell,
     ops::{Deref, DerefMut},
-    ptr,
 };
 
 use mutex_api::Mutex;
 use ov6_types::process::ProcId;
 
-use super::{SpinLock, TryLockError};
-use crate::{cpu::Cpu, proc};
-
-struct RawSleepLock {
-    locked: SpinLock<(bool, Option<ProcId>)>,
-}
-
-impl Default for RawSleepLock {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl RawSleepLock {
-    const fn new() -> Self {
-        Self {
-            locked: SpinLock::new((false, None)),
-        }
-    }
-
-    fn try_acquire(&self) -> Result<(), TryLockError> {
-        let mut locked = self.locked.try_lock()?;
-        if locked.0 {
-            return Err(TryLockError::Locked);
-        }
-
-        locked.0 = true;
-        locked.1 = Cpu::current().pid();
-        Ok(())
-    }
-
-    fn acquire(&self) {
-        let mut locked = self.locked.lock();
-        while locked.0 {
-            locked = proc::sleep(ptr::from_ref(self).cast(), locked);
-        }
-        locked.0 = true;
-        locked.1 = Cpu::current().pid();
-    }
-
-    fn release(&self) {
-        let mut locked = self.locked.lock();
-        locked.0 = false;
-        locked.1 = None;
-        proc::wakeup(ptr::from_ref(self).cast());
-        drop(locked);
-    }
-
-    // fn holding(&self) -> bool {
-    //     let mut locked = self.locked.lock();
-    //     let holding = locked.0 && locked.1 == unsafe { Cpu::current().pid() };
-    //     holding
-    // }
-}
+use super::{SpinLock, SpinLockCondVar, TryLockError};
+use crate::cpu::Cpu;
 
 #[derive(Default)]
 pub struct SleepLock<T> {
-    lock: RawSleepLock,
+    locked: SpinLock<(bool, Option<ProcId>)>,
+    unlocked: SpinLockCondVar,
     value: UnsafeCell<T>,
 }
 
@@ -73,13 +21,21 @@ unsafe impl<T> Sync for SleepLock<T> where T: Send {}
 impl<T> SleepLock<T> {
     pub const fn new(value: T) -> Self {
         Self {
-            lock: RawSleepLock::new(),
+            locked: SpinLock::new((false, None)),
+            unlocked: SpinLockCondVar::new(),
             value: UnsafeCell::new(value),
         }
     }
 
     pub fn try_lock(&self) -> Result<SleepLockGuard<T>, TryLockError> {
-        self.lock.try_acquire()?;
+        let mut locked = self.locked.try_lock()?;
+        if locked.0 {
+            return Err(TryLockError::Locked);
+        }
+
+        locked.0 = true;
+        locked.1 = Cpu::current().pid();
+
         Ok(SleepLockGuard { lock: self })
     }
 
@@ -87,7 +43,13 @@ impl<T> SleepLock<T> {
     ///
     /// Sleeps (spins) until the lock is acquired.
     pub fn lock(&self) -> SleepLockGuard<T> {
-        self.lock.acquire();
+        let mut locked = self.locked.lock();
+        while locked.0 {
+            locked = self.unlocked.wait(locked);
+        }
+        locked.0 = true;
+        locked.1 = Cpu::current().pid();
+
         SleepLockGuard { lock: self }
     }
 }
@@ -117,7 +79,11 @@ unsafe impl<T> Sync for SleepLockGuard<'_, T> where T: Sync {}
 
 impl<T> Drop for SleepLockGuard<'_, T> {
     fn drop(&mut self) {
-        self.lock.lock.release();
+        let mut locked = self.lock.locked.lock();
+        locked.0 = false;
+        locked.1 = None;
+        self.lock.unlocked.notify();
+        drop(locked);
     }
 }
 

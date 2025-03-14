@@ -167,6 +167,7 @@ impl<'a, T> SpinLockGuard<'a, T> {
     }
 }
 
+#[derive(Default)]
 pub struct SpinLockCondVar {
     counter: AtomicU64,
 }
