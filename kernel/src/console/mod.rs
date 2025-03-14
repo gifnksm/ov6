@@ -110,6 +110,10 @@ fn read(
 
         // end-of-file
         if c == CTRL_D {
+            if i == 0 {
+                break;
+            }
+
             // Save ^D for next time, to make sure
             // caller gets a 0-byte result.
             if i < dst.len() {
