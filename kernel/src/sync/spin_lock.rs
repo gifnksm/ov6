@@ -1,7 +1,6 @@
 use core::{
     cell::UnsafeCell,
     ops::{Deref, DerefMut},
-    ptr,
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
@@ -182,7 +181,7 @@ impl SpinLockCondVar {
     pub fn wait<'a, T>(&self, mut guard: SpinLockGuard<'a, T>) -> SpinLockGuard<'a, T> {
         let counter = self.counter.load(Ordering::Relaxed);
         loop {
-            guard = proc::sleep(ptr::from_ref(&self.counter).cast(), guard);
+            guard = proc::sleep(self, guard);
             if counter != self.counter.load(Ordering::Relaxed) {
                 break;
             }
@@ -192,6 +191,6 @@ impl SpinLockCondVar {
 
     pub fn notify(&self) {
         self.counter.fetch_add(1, Ordering::Relaxed);
-        proc::wakeup(ptr::from_ref(&self.counter).cast());
+        proc::wakeup(self);
     }
 }

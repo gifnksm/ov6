@@ -2,9 +2,7 @@ use alloc::boxed::Box;
 use core::{
     alloc::AllocError,
     cell::UnsafeCell,
-    cmp,
-    ffi::c_void,
-    mem,
+    cmp, mem,
     num::NonZero,
     ops::{Deref, DerefMut},
     panic::Location,
@@ -100,7 +98,7 @@ pub struct TrapFrame {
 enum ProcState {
     Unused,
     Used,
-    Sleeping { chan: *const c_void },
+    Sleeping { chan: usize },
     Runnable,
     Running,
     Zombie { exit_status: i32 },
@@ -734,7 +732,7 @@ extern "C" fn forkret() {
 /// Automatically releases `lock` and sleeps on `chan`.
 ///
 /// Reacquires lock when awakened.
-pub fn sleep<T>(chan: *const c_void, guard: SpinLockGuard<'_, T>) -> SpinLockGuard<'_, T> {
+pub fn sleep<'a, T>(cond: &SpinLockCondVar, guard: SpinLockGuard<'a, T>) -> SpinLockGuard<'a, T> {
     let p = ProcShared::current();
     // Must acquire `p.lock` in order to change
     // `p.state` and then call `sched()`.
@@ -746,7 +744,8 @@ pub fn sleep<T>(chan: *const c_void, guard: SpinLockGuard<'_, T>) -> SpinLockGua
     let lock = guard.into_lock();
 
     // Go to sleep.
-    shared.state = ProcState::Sleeping { chan };
+    let cond = ptr::from_ref(cond).addr();
+    shared.state = ProcState::Sleeping { chan: cond };
 
     scheduler::sched(&mut shared);
 
@@ -758,11 +757,12 @@ pub fn sleep<T>(chan: *const c_void, guard: SpinLockGuard<'_, T>) -> SpinLockGua
 /// Wakes up all processes sleeping on `chan`.
 ///
 /// Must be called without any processes locked.
-pub fn wakeup(chan: *const c_void) {
+pub fn wakeup(cond: &SpinLockCondVar) {
+    let cond = ptr::from_ref(cond).addr();
     for p in &PROC {
         let mut shared = p.shared.lock();
         if let ProcState::Sleeping { chan: ch } = shared.state {
-            if ch == chan {
+            if ch == cond {
                 shared.state = ProcState::Runnable;
             }
         }
