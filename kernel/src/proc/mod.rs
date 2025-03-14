@@ -489,16 +489,17 @@ impl Proc {
     }
 }
 
-/// A user program that calls `exec("/init")`.
-#[cfg(feature = "initcode_env")]
-static INIT_CODE: &[u8] = const { include_bytes!(env!("INIT_CODE_PATH")) };
-#[cfg(not(feature = "initcode_env"))]
-static INIT_CODE: &[u8] = &[];
-
-const _: () = const { assert!(INIT_CODE.len() < 128) };
-
 /// Set up first user process.
 pub fn spawn_init() {
+    /// A user program that calls `exec("/init")`.
+    #[cfg(feature = "initcode_env")]
+    static INIT_CODE: &[u8] = const { include_bytes!(env!("INIT_CODE_PATH")) };
+    /// A user program that calls `exec("/init")`.
+    #[cfg(not(feature = "initcode_env"))]
+    static INIT_CODE: &[u8] = &[];
+
+    const _: () = const { assert!(INIT_CODE.len() < 128) };
+
     let (p, mut shared, mut private) = Proc::allocate().unwrap();
     assert_eq!(shared.pid.unwrap().get().get(), 1);
     INIT_PROC.init(p);
