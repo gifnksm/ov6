@@ -93,7 +93,7 @@ impl File {
     pub fn read(
         &self,
         pt: &mut UserPageTable,
-        dst: UserMutSlice<u8>,
+        dst: &mut UserMutSlice<u8>,
     ) -> Result<usize, KernelError> {
         if !self.data.readable {
             return Err(KernelError::FileDescriptorNotReadable);
@@ -110,7 +110,7 @@ impl File {
     /// Writes to file `f`.
     ///
     /// `addr` is a user virtual address.
-    pub fn write(&self, pt: &UserPageTable, src: UserSlice<u8>) -> Result<usize, KernelError> {
+    pub fn write(&self, pt: &UserPageTable, src: &UserSlice<u8>) -> Result<usize, KernelError> {
         if !self.data.writable {
             return Err(KernelError::FileDescriptorNotWritable);
         }

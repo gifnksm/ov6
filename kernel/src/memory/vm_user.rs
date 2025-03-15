@@ -204,17 +204,18 @@ impl UserPageTable {
     }
 
     /// Copies from user to kernel.
-    pub fn copy_out<T>(&mut self, mut dst: UserMutRef<T>, src: &T) -> Result<(), KernelError>
+    pub fn copy_out<T>(&mut self, dst: &mut UserMutRef<T>, src: &T) -> Result<(), KernelError>
     where
         T: Pod,
     {
-        self.copy_out_bytes(dst.as_bytes_mut(), src.as_bytes())
+        self.copy_out_bytes(&mut dst.as_bytes_mut(), src.as_bytes())
     }
 
     /// Copies from kernel to user.
+    #[expect(clippy::needless_pass_by_ref_mut)]
     pub fn copy_out_bytes(
         &mut self,
-        dst: UserMutSlice<u8>,
+        dst: &mut UserMutSlice<u8>,
         mut src: &[u8],
     ) -> Result<(), KernelError> {
         assert_eq!(dst.len(), src.len());
@@ -243,7 +244,10 @@ impl UserPageTable {
     }
 
     /// Copies to either a user address, or kernel address.
-    pub fn either_copy_out_bytes(dst: GenericMutSlice<u8>, src: &[u8]) -> Result<(), KernelError> {
+    pub fn either_copy_out_bytes(
+        dst: &mut GenericMutSlice<u8>,
+        src: &[u8],
+    ) -> Result<(), KernelError> {
         assert_eq!(dst.len(), src.len());
         match dst {
             GenericMutSlice::User(pt, dst) => pt.copy_out_bytes(dst, src)?,
@@ -253,17 +257,21 @@ impl UserPageTable {
     }
 
     /// Copies from user to kernel.
-    pub fn copy_in<T>(&self, src: UserRef<T>) -> Result<T, KernelError>
+    pub fn copy_in<T>(&self, src: &UserRef<T>) -> Result<T, KernelError>
     where
         T: Pod,
     {
         let mut dst = T::zeroed();
-        self.copy_in_bytes(dst.as_bytes_mut(), src.as_bytes())?;
+        self.copy_in_bytes(dst.as_bytes_mut(), &src.as_bytes())?;
         Ok(dst)
     }
 
     /// Copies from user to kernel.
-    pub fn copy_in_bytes(&self, mut dst: &mut [u8], src: UserSlice<u8>) -> Result<(), KernelError> {
+    pub fn copy_in_bytes(
+        &self,
+        mut dst: &mut [u8],
+        src: &UserSlice<u8>,
+    ) -> Result<(), KernelError> {
         assert_eq!(src.len(), dst.len());
         let mut src_va = VirtAddr::new(src.addr());
         while !dst.is_empty() {
@@ -284,7 +292,7 @@ impl UserPageTable {
     }
 
     /// Copies from either a user address, or kernel address.
-    pub fn either_copy_in_bytes(dst: &mut [u8], src: GenericSlice<u8>) -> Result<(), KernelError> {
+    pub fn either_copy_in_bytes(dst: &mut [u8], src: &GenericSlice<u8>) -> Result<(), KernelError> {
         assert_eq!(dst.len(), src.len());
         match src {
             GenericSlice::User(pt, src) => pt.copy_in_bytes(dst, src)?,

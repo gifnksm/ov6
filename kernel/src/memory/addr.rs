@@ -227,6 +227,12 @@ impl<T> GenericSlice<'_, T> {
     }
 }
 
+impl<'a, T> From<(&'a UserPageTable, &'a UserSlice<T>)> for GenericSlice<'a, T> {
+    fn from((pt, s): (&'a UserPageTable, &'a UserSlice<T>)) -> Self {
+        Self::User(pt, UserSlice::from_raw_parts(s.addr(), s.len()))
+    }
+}
+
 #[derive(derive_more::From)]
 pub enum GenericMutSlice<'a, T> {
     User(&'a mut UserPageTable, UserMutSlice<T>),
@@ -255,5 +261,11 @@ impl<T> GenericMutSlice<'_, T> {
             Self::User(pt, s) => GenericMutSlice::User(pt, s.take_mut(amt)),
             Self::Kernel(s) => GenericMutSlice::Kernel(&mut s[..amt]),
         }
+    }
+}
+
+impl<'a, T> From<(&'a mut UserPageTable, &'a mut UserMutSlice<T>)> for GenericMutSlice<'a, T> {
+    fn from((pt, s): (&'a mut UserPageTable, &'a mut UserMutSlice<T>)) -> Self {
+        Self::User(pt, UserMutSlice::from_raw_parts(s.addr(), s.len()))
     }
 }

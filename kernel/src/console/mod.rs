@@ -70,10 +70,10 @@ static CONSOLE_BUFFER_WRITTEN: SpinLockCondVar = SpinLockCondVar::new();
 /// Writes the bytes to the console.
 ///
 /// User write()s to the console go here.
-fn write(src: GenericSlice<u8>) -> Result<usize, KernelError> {
+fn write(src: &GenericSlice<u8>) -> Result<usize, KernelError> {
     for i in 0..src.len() {
         let mut c: [u8; 1] = [0];
-        if let Err(e) = UserPageTable::either_copy_in_bytes(&mut c, src.skip(i).take(1)) {
+        if let Err(e) = UserPageTable::either_copy_in_bytes(&mut c, &src.skip(i).take(1)) {
             if i > 0 {
                 return Ok(i);
             }
@@ -90,7 +90,7 @@ fn write(src: GenericSlice<u8>) -> Result<usize, KernelError> {
 /// Copy (up to) a whole input line to `dst`.
 /// `user_dst` indicates whether `dst` is a user
 /// or kernel address.
-fn read(mut dst: GenericMutSlice<u8>) -> Result<usize, KernelError> {
+fn read(dst: &mut GenericMutSlice<u8>) -> Result<usize, KernelError> {
     let mut i = 0;
     let mut cons = CONSOLE_BUFFER.lock();
     while i < dst.len() {
@@ -124,7 +124,8 @@ fn read(mut dst: GenericMutSlice<u8>) -> Result<usize, KernelError> {
 
         // copy the input byte to the user-space buffer.
         let cbuf = &[c];
-        if let Err(e) = UserPageTable::either_copy_out_bytes(dst.skip_mut(i).take_mut(1), cbuf) {
+        if let Err(e) = UserPageTable::either_copy_out_bytes(&mut dst.skip_mut(i).take_mut(1), cbuf)
+        {
             if i > 0 {
                 break;
             }
@@ -190,11 +191,11 @@ pub fn handle_interrupt(c: u8) {
     }
 }
 
-fn console_write(src: GenericSlice<u8>) -> Result<usize, KernelError> {
+fn console_write(src: &GenericSlice<u8>) -> Result<usize, KernelError> {
     write(src)
 }
 
-fn console_read(dst: GenericMutSlice<u8>) -> Result<usize, KernelError> {
+fn console_read(dst: &mut GenericMutSlice<u8>) -> Result<usize, KernelError> {
     read(dst)
 }
 

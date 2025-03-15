@@ -32,7 +32,7 @@ fn fetch_path<'a>(
     }
 
     let path_out = &mut path_out[..user_path.len()];
-    private.pagetable().copy_in_bytes(path_out, user_path)?;
+    private.pagetable().copy_in_bytes(path_out, &user_path)?;
     Ok(Path::new(OsStr::from_bytes(path_out)))
 }
 
@@ -52,9 +52,9 @@ impl SyscallExt for sys::Read {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((fd, data)) = Self::decode_arg(private.trapframe());
+        let Ok((fd, mut data)) = Self::decode_arg(private.trapframe());
         let file = private.ofile(fd)?;
-        let n = file.clone().read(private.pagetable_mut(), data)?;
+        let n = file.clone().read(private.pagetable_mut(), &mut data)?;
         Ok(n)
     }
 }
@@ -65,7 +65,7 @@ impl SyscallExt for sys::Write {
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
         let Ok((fd, data)) = Self::decode_arg(private.trapframe());
         let file = private.ofile(fd)?;
-        let n = file.clone().write(private.pagetable(), data)?;
+        let n = file.clone().write(private.pagetable(), &data)?;
         Ok(n)
     }
 }
@@ -85,10 +85,10 @@ impl SyscallExt for sys::Fstat {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((fd, user_stat)) = Self::decode_arg(private.trapframe());
+        let Ok((fd, mut user_stat)) = Self::decode_arg(private.trapframe());
         let file = private.ofile(fd)?;
         let stat = file.clone().stat()?;
-        private.pagetable_mut().copy_out(user_stat, &stat)?;
+        private.pagetable_mut().copy_out(&mut user_stat, &stat)?;
         Ok(())
     }
 }
@@ -234,7 +234,7 @@ pub fn sys_exec(
         ArrayVec::new();
 
     for i in 0..uargv.len() {
-        let uarg = private.pagetable().copy_in(uargv.nth(i))?;
+        let uarg = private.pagetable().copy_in(&uargv.nth(i))?;
         if uarg.len() > PAGE_SIZE {
             return Err(KernelError::ArgumentListTooLarge);
         }
@@ -243,7 +243,7 @@ pub fn sys_exec(
             .map_err(|AllocError| KernelError::NoFreePage)?;
         private
             .pagetable()
-            .copy_in_bytes(&mut buf[..uarg.len()], uarg)?;
+            .copy_in_bytes(&mut buf[..uarg.len()], &uarg)?;
 
         if argv.try_push((uarg.len(), buf)).is_err() {
             return Err(KernelError::ArgumentListTooLong);
@@ -257,7 +257,7 @@ impl SyscallExt for sys::Pipe {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((fd_array,)) = Self::decode_arg(private.trapframe());
+        let Ok((mut fd_array,)) = Self::decode_arg(private.trapframe());
 
         let (rf, wf) = File::new_pipe()?;
 
@@ -271,7 +271,7 @@ impl SyscallExt for sys::Pipe {
         };
 
         let fds = [rfd, wfd];
-        if let Err(e) = private.pagetable_mut().copy_out(fd_array, &fds) {
+        if let Err(e) = private.pagetable_mut().copy_out(&mut fd_array, &fds) {
             private.unset_ofile(rfd);
             private.unset_ofile(wfd);
             return Err(e.into());

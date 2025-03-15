@@ -180,10 +180,10 @@ fn push_arguments(
         if sp < stack_base {
             return Err(KernelError::ArgumentListTooLarge);
         }
-        let dst = UserMutSlice::from_raw_parts(sp, src.len());
-        pt.copy_out_bytes(dst, src)?;
-        let dst = UserMutSlice::from_raw_parts(sp + src.len(), 1);
-        pt.copy_out_bytes(dst, &[0])?;
+        let mut dst = UserMutSlice::from_raw_parts(sp, src.len());
+        pt.copy_out_bytes(&mut dst, src)?;
+        let mut dst = UserMutSlice::from_raw_parts(sp + src.len(), 1);
+        pt.copy_out_bytes(&mut dst, &[0])?;
         *uarg = sp;
     }
     ustack[argv.len()] = 0;
@@ -200,7 +200,7 @@ fn push_arguments(
             (argv.len() + 1) * size_of::<usize>(),
         )
     };
-    let dst = UserMutSlice::from_raw_parts(sp, src.len());
-    pt.copy_out_bytes(dst, src)?;
+    let mut dst = UserMutSlice::from_raw_parts(sp, src.len());
+    pt.copy_out_bytes(&mut dst, src)?;
     Ok((sp, argv.len()))
 }

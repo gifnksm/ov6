@@ -13,8 +13,8 @@ use crate::{
 };
 
 pub struct Device {
-    pub read: fn(dst: GenericMutSlice<u8>) -> Result<usize, KernelError>,
-    pub write: fn(src: GenericSlice<u8>) -> Result<usize, KernelError>,
+    pub read: fn(dst: &mut GenericMutSlice<u8>) -> Result<usize, KernelError>,
+    pub write: fn(src: &GenericSlice<u8>) -> Result<usize, KernelError>,
 }
 
 struct DeviceTable {
@@ -74,26 +74,26 @@ impl DeviceFile {
     pub(super) fn read(
         &self,
         pt: &mut UserPageTable,
-        dst: UserMutSlice<u8>,
+        dst: &mut UserMutSlice<u8>,
     ) -> Result<usize, KernelError> {
         let read = DEVICE_TABLE
             .lock()
             .get_device(self.major)
             .ok_or(KernelError::DeviceNotFound(self.major))?
             .read;
-        read((pt, dst).into())
+        read(&mut (pt, dst).into())
     }
 
     pub(super) fn write(
         &self,
         pt: &UserPageTable,
-        src: UserSlice<u8>,
+        src: &UserSlice<u8>,
     ) -> Result<usize, KernelError> {
         let write = DEVICE_TABLE
             .lock()
             .get_device(self.major)
             .ok_or(KernelError::DeviceNotFound(self.major))?
             .write;
-        write((pt, src).into())
+        write(&(pt, src).into())
     }
 }

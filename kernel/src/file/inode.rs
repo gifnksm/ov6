@@ -39,7 +39,7 @@ impl InodeFile {
     pub(super) fn read(
         &self,
         pt: &mut UserPageTable,
-        dst: UserMutSlice<u8>,
+        dst: &mut UserMutSlice<u8>,
     ) -> Result<usize, KernelError> {
         let tx = fs::begin_readonly_tx();
         let mut ip = self.inode.clone().into_tx(&tx);
@@ -54,7 +54,7 @@ impl InodeFile {
     pub(super) fn write(
         &self,
         pt: &UserPageTable,
-        src: UserSlice<u8>,
+        src: &UserSlice<u8>,
     ) -> Result<usize, KernelError> {
         // write a few blocks at a time to avoid exceeding
         // the maximum log transaction size, including

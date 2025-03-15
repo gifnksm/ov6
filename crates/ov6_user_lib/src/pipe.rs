@@ -80,12 +80,12 @@ impl IntoRawFd for PipeWriter {
 
 impl Read for PipeReader {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Ov6Error> {
-        syscall::read(self.0.as_fd(), buf)
+        syscall::read(self.0.as_raw_fd(), buf)
     }
 }
 
 impl Write for PipeWriter {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
-        syscall::write(self.0.as_fd(), buf)
+        syscall::write(self.0.as_raw_fd(), buf)
     }
 }

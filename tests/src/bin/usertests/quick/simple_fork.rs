@@ -12,7 +12,7 @@ use ov6_user_lib::{
     error::Ov6Error,
     fs::{self, File},
     io::{Read as _, Write as _},
-    os::{fd::AsFd as _, ov6::syscall},
+    os::{fd::AsRawFd as _, ov6::syscall},
     pipe,
     process::{self, ProcId},
     thread,
@@ -70,11 +70,11 @@ pub fn broken_pipe() {
 pub fn pipe_bad_fd() {
     let (rx, tx) = pipe::pipe().unwrap();
     expect!(
-        syscall::write(rx.as_fd(), &[0]),
+        syscall::write(rx.as_raw_fd(), &[0]),
         Err(Ov6Error::BadFileDescriptor)
     );
     expect!(
-        syscall::read(tx.as_fd(), &mut [0]),
+        syscall::read(tx.as_raw_fd(), &mut [0]),
         Err(Ov6Error::BadFileDescriptor)
     );
 }

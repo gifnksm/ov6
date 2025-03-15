@@ -1,7 +1,10 @@
 use core::convert::Infallible;
 
 use ov6_user_lib::{
-    os::{fd::AsRawFd, ov6::syscall},
+    os::{
+        fd::{AsRawFd as _, RawFd},
+        ov6::syscall,
+    },
     process::{self, ExitStatus, ForkFnHandle, ForkResult, ProcId},
 };
 use user::{ensure_or_exit, message, try_or_exit};
@@ -38,9 +41,9 @@ pub(super) fn wait_or_exit(expected_pids: &[ProcId]) -> (ProcId, ExitStatus) {
     (pid, status)
 }
 
-pub(super) unsafe fn close_or_exit(fd: impl AsRawFd, fd_name: &str) {
+pub(super) unsafe fn close_or_exit(fd: RawFd, fd_name: &str) {
     try_or_exit!(
-        unsafe { syscall::close(fd) },
+        unsafe { syscall::close(fd.as_raw_fd()) },
         e => "close {fd_name} failed: {e}",
     );
 }

@@ -35,11 +35,13 @@ impl SyscallExt for sys::Wait {
     type Private<'a> = ProcPrivateData;
 
     fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((user_status,)) = Self::decode_arg(private.trapframe());
+        let Ok((mut user_status,)) = Self::decode_arg(private.trapframe());
         let (pid, status) = proc::ops::wait(p)?;
         // TODO: more reliable check
         if user_status.addr() != 0 {
-            private.pagetable_mut().copy_out(user_status, &status)?;
+            private
+                .pagetable_mut()
+                .copy_out(&mut user_status, &status)?;
         }
         Ok(pid)
     }

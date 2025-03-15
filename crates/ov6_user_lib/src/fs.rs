@@ -149,12 +149,12 @@ impl File {
     }
 
     pub fn try_clone(&self) -> Result<Self, Ov6Error> {
-        let fd = syscall::dup(self.fd.as_fd())?;
+        let fd = syscall::dup(self.fd.as_raw_fd())?;
         Ok(Self { fd })
     }
 
     pub fn metadata(&self) -> Result<Metadata, Ov6Error> {
-        let stat = syscall::fstat(self.fd.as_fd())?;
+        let stat = syscall::fstat(self.fd.as_raw_fd())?;
         Ok(Metadata {
             dev: stat.dev.cast_unsigned(),
             ino: stat.ino,
@@ -193,25 +193,25 @@ impl IntoRawFd for File {
 
 impl Write for File {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
-        syscall::write(self.fd.as_fd(), buf)
+        syscall::write(self.fd.as_raw_fd(), buf)
     }
 }
 
 impl Write for &'_ File {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
-        syscall::write(self.fd.as_fd(), buf)
+        syscall::write(self.fd.as_raw_fd(), buf)
     }
 }
 
 impl Read for File {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Ov6Error> {
-        syscall::read(self.fd.as_fd(), buf)
+        syscall::read(self.fd.as_raw_fd(), buf)
     }
 }
 
 impl Read for &'_ File {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Ov6Error> {
-        syscall::read(self.fd.as_fd(), buf)
+        syscall::read(self.fd.as_raw_fd(), buf)
     }
 }
 
@@ -235,7 +235,7 @@ where
     P: AsRef<Path>,
 {
     let fd = syscall::open(path.as_ref(), OpenFlags::READ_ONLY)?;
-    let stat = syscall::fstat(fd.as_fd())?;
+    let stat = syscall::fstat(fd.as_raw_fd())?;
     Ok(Metadata {
         dev: stat.dev.cast_unsigned(),
         ino: stat.ino,
@@ -264,7 +264,7 @@ where
     P: AsRef<Path>,
 {
     let fd = syscall::open(path.as_ref(), OpenFlags::READ_ONLY)?;
-    let st = syscall::fstat(fd.as_fd())?;
+    let st = syscall::fstat(fd.as_raw_fd())?;
     if st.ty != StatType::Dir as i16 {
         return Err(Ov6Error::NotADirectory);
     }
@@ -281,7 +281,7 @@ impl Iterator for ReadDir {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let mut ent = ov6_fs_types::DirEntry::zeroed();
-            let Ok(size) = syscall::read(self.fd.as_fd(), ent.as_bytes_mut()) else {
+            let Ok(size) = syscall::read(self.fd.as_raw_fd(), ent.as_bytes_mut()) else {
                 return Some(Err(Ov6Error::Unknown));
             };
             if size == 0 {

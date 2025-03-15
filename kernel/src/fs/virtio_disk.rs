@@ -284,7 +284,7 @@ impl<const N: usize> Disk<N> {
         Some(idx)
     }
 
-    fn send_request(&mut self, offset: usize, req: Request, desc_idx: [usize; 3]) {
+    fn send_request(&mut self, offset: usize, req: &Request, desc_idx: [usize; 3]) {
         assert!(offset % BLK_SECTOR_SIZE == 0);
         let sector = (offset / BLK_SECTOR_SIZE) as u64;
         assert_eq!(req.len(), FS_BLOCK_SIZE);
@@ -343,7 +343,7 @@ pub(super) fn init() {
     DISK.init(SpinLock::new(disk));
 }
 
-fn read_or_write(offset: usize, req: Request) {
+fn read_or_write(offset: usize, req: &Request) {
     let mut disk = DISK.get().lock();
 
     // the spec's Section 5.2 says that legacy block operations use
@@ -369,11 +369,11 @@ fn read_or_write(offset: usize, req: Request) {
 }
 
 pub(super) fn read(offset: usize, data: &mut [u8]) {
-    read_or_write(offset, Request::DeviceToBuf(data));
+    read_or_write(offset, &Request::DeviceToBuf(data));
 }
 
 pub(super) fn write(offset: usize, data: &[u8]) {
-    read_or_write(offset, Request::BufToDevice(data));
+    read_or_write(offset, &Request::BufToDevice(data));
 }
 
 pub fn handle_interrupt() {

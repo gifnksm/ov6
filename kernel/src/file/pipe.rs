@@ -81,7 +81,7 @@ impl PipeFile {
     pub(super) fn write(
         &self,
         pt: &UserPageTable,
-        src: UserSlice<u8>,
+        src: &UserSlice<u8>,
     ) -> Result<usize, KernelError> {
         let mut nwritten = 0;
 
@@ -100,7 +100,7 @@ impl PipeFile {
             }
 
             let mut byte = [0];
-            if let Err(e) = pt.copy_in_bytes(&mut byte, src.skip(nwritten).take(1)) {
+            if let Err(e) = pt.copy_in_bytes(&mut byte, &src.skip(nwritten).take(1)) {
                 if nwritten > 0 {
                     break;
                 }
@@ -116,10 +116,11 @@ impl PipeFile {
         Ok(nwritten)
     }
 
+    #[expect(clippy::needless_pass_by_ref_mut)]
     pub(super) fn read(
         &self,
         pt: &mut UserPageTable,
-        dst: UserMutSlice<u8>,
+        dst: &mut UserMutSlice<u8>,
     ) -> Result<usize, KernelError> {
         let mut pipe = self.0.data.lock();
         while pipe.nread == pipe.nwrite && pipe.write_open {
@@ -133,7 +134,7 @@ impl PipeFile {
             let ch = pipe.data[pipe.nread % PIPE_SIZE];
             pipe.nread += 1;
 
-            if let Err(e) = pt.copy_out_bytes(dst.skip_mut(nread).take_mut(1), &[ch]) {
+            if let Err(e) = pt.copy_out_bytes(&mut dst.skip_mut(nread).take_mut(1), &[ch]) {
                 if nread > 0 {
                     break;
                 }

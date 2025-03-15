@@ -8,7 +8,7 @@ use ov6_types::{fs::RawFd, path::Path, process::ProcId};
 use self::ffi::SyscallExt as _;
 use crate::{
     error::Ov6Error,
-    os::fd::{AsRawFd, FromRawFd as _, OwnedFd},
+    os::fd::{FromRawFd as _, OwnedFd},
     process::{ExitStatus, ForkResult},
 };
 
@@ -38,13 +38,13 @@ pub fn pipe() -> Result<(OwnedFd, OwnedFd), Ov6Error> {
     }))
 }
 
-pub fn write(fd: impl AsRawFd, buf: &[u8]) -> Result<usize, Ov6Error> {
-    let nwritten = syscall::Write::call((fd.as_raw_fd(), UserSlice::new(buf)))?;
+pub fn write(fd: RawFd, buf: &[u8]) -> Result<usize, Ov6Error> {
+    let nwritten = syscall::Write::call((fd, UserSlice::new(buf)))?;
     Ok(nwritten)
 }
 
-pub fn read(fd: impl AsRawFd, buf: &mut [u8]) -> Result<usize, Ov6Error> {
-    let nread = syscall::Read::call((fd.as_raw_fd(), UserMutSlice::new(buf)))?;
+pub fn read(fd: RawFd, buf: &mut [u8]) -> Result<usize, Ov6Error> {
+    let nread = syscall::Read::call((fd, UserMutSlice::new(buf)))?;
     Ok(nread)
 }
 
@@ -52,8 +52,8 @@ pub fn read(fd: impl AsRawFd, buf: &mut [u8]) -> Result<usize, Ov6Error> {
 ///
 /// This invalidates `OwnedFd` and `BorrowedFd` instances that refer to the
 /// closed file descriptor.
-pub unsafe fn close(fd: impl AsRawFd) -> Result<(), Ov6Error> {
-    syscall::Close::call((fd.as_raw_fd(),))?;
+pub unsafe fn close(fd: RawFd) -> Result<(), Ov6Error> {
+    syscall::Close::call((fd,))?;
     Ok(())
 }
 
@@ -85,9 +85,9 @@ pub fn unlink(path: &Path) -> Result<(), Ov6Error> {
     Ok(())
 }
 
-pub fn fstat(fd: impl AsRawFd) -> Result<Stat, Ov6Error> {
+pub fn fstat(fd: RawFd) -> Result<Stat, Ov6Error> {
     let mut stat = Stat::zeroed();
-    syscall::Fstat::call((fd.as_raw_fd(), UserMutRef::new(&mut stat)))?;
+    syscall::Fstat::call((fd, UserMutRef::new(&mut stat)))?;
     Ok(stat)
 }
 
@@ -109,8 +109,8 @@ pub fn chdir(path: &Path) -> Result<(), Ov6Error> {
     Ok(())
 }
 
-pub fn dup(fd: impl AsRawFd) -> Result<OwnedFd, Ov6Error> {
-    let fd = syscall::Dup::call((fd.as_raw_fd(),))?;
+pub fn dup(fd: RawFd) -> Result<OwnedFd, Ov6Error> {
+    let fd = syscall::Dup::call((fd,))?;
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 

@@ -317,10 +317,17 @@ pub type ReturnTypeRepr<T> = <<T as Syscall>::Return as RegisterValue>::Repr;
 
 #[must_use]
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Register<T, const N: usize> {
     pub a: [usize; N],
     _phantom: PhantomData<T>,
+}
+
+impl<T, const N: usize> Copy for Register<T, N> {}
+impl<T, const N: usize> Clone for Register<T, N> {
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
