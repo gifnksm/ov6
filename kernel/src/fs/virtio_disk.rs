@@ -2,6 +2,7 @@ use alloc::boxed::Box;
 use core::{array, mem, pin::Pin, ptr, sync::atomic::Ordering};
 
 use once_init::OnceInit;
+use vcell::VolatileCell;
 
 use crate::{
     fs::{
@@ -66,8 +67,7 @@ struct Disk<const NUM: usize> {
 unsafe impl<const N: usize> Send for Disk<N> {}
 
 struct TrackInfo {
-    data: *const u8,
-    status: u8,
+    status: VolatileCell<u8>,
     in_progress: bool,
     completed: &'static SpinLockCondVar,
 }
@@ -82,6 +82,42 @@ fn addr_low<T>(p: &T) -> u32 {
 fn addr_high<T>(p: &T) -> u32 {
     let addr = ptr::from_ref(p).addr();
     ((addr >> 32) & 0xffff_ffff).try_into().unwrap()
+}
+
+enum Request<'a> {
+    DeviceToBuf(&'a mut [u8]),
+    BufToDevice(&'a [u8]),
+}
+
+impl Request<'_> {
+    fn len(&self) -> usize {
+        match self {
+            Request::DeviceToBuf(data) => data.len(),
+            Request::BufToDevice(data) => data.len(),
+        }
+    }
+
+    fn ty(&self) -> VirtioBlkReqType {
+        match self {
+            Request::DeviceToBuf(_) => VirtioBlkReqType::In,
+            Request::BufToDevice(_) => VirtioBlkReqType::Out,
+        }
+    }
+
+    fn flag(&self) -> VirtqDescFlags {
+        match self {
+            // VirtqDescFlags::WRITE is set when the device writes to the buffer.
+            Request::DeviceToBuf(_) => VirtqDescFlags::WRITE,
+            Request::BufToDevice(_) => VirtqDescFlags::empty(),
+        }
+    }
+
+    fn as_ptr(&self) -> *const u8 {
+        match self {
+            Request::DeviceToBuf(data) => data.as_ptr(),
+            Request::BufToDevice(data) => data.as_ptr(),
+        }
+    }
 }
 
 impl<const N: usize> Disk<N> {
@@ -99,8 +135,7 @@ impl<const N: usize> Disk<N> {
             free: [true; N],
             used_idx: 0,
             info: array::from_fn(|i| TrackInfo {
-                data: ptr::null_mut(),
-                status: 0,
+                status: VolatileCell::new(0),
                 in_progress: false,
                 completed: &completed[i],
             }),
@@ -249,18 +284,14 @@ impl<const N: usize> Disk<N> {
         Some(idx)
     }
 
-    fn send_request(&mut self, offset: usize, data: &[u8], write: bool, desc_idx: [usize; 3]) {
+    fn send_request(&mut self, offset: usize, req: Request, desc_idx: [usize; 3]) {
         assert!(offset % BLK_SECTOR_SIZE == 0);
         let sector = (offset / BLK_SECTOR_SIZE) as u64;
-        assert_eq!(data.len(), FS_BLOCK_SIZE);
+        assert_eq!(req.len(), FS_BLOCK_SIZE);
 
         let buf0 = &mut self.ops[desc_idx[0]];
         *buf0 = VirtioBlkReq {
-            ty: if write {
-                VirtioBlkReqType::Out // write the disk
-            } else {
-                VirtioBlkReqType::In // read the disk
-            },
+            ty: req.ty(),
             reserved: 0,
             sector,
         };
@@ -274,27 +305,23 @@ impl<const N: usize> Disk<N> {
         };
 
         self.desc[desc_idx[1]] = VirtqDesc {
-            addr: data.as_ptr().addr() as u64,
+            addr: req.as_ptr().addr() as u64,
             len: FS_BLOCK_SIZE.try_into().unwrap(),
-            flags: if write {
-                VirtqDescFlags::empty() // device reads b.date
-            } else {
-                VirtqDescFlags::WRITE // device writes b.data
-            } | VirtqDescFlags::NEXT,
+            flags: req.flag() | VirtqDescFlags::NEXT,
             next: desc_idx[2].try_into().unwrap(),
         };
 
-        self.info[desc_idx[0]].status = 0xff; // device writes 0 on success
+        let info = &mut self.info[desc_idx[0]];
+        info.status.set(0xff); // device writes 0 on success
         self.desc[desc_idx[2]] = VirtqDesc {
-            addr: (&raw mut self.info[desc_idx[0]].status).addr() as u64,
+            addr: info.status.as_ptr().addr() as u64,
             len: 1,
             flags: VirtqDescFlags::WRITE,
             next: 0,
         };
 
         // record struct buf for `handle_interrupt()`.
-        self.info[desc_idx[0]].data = data.as_ptr();
-        self.info[desc_idx[0]].in_progress = true;
+        info.in_progress = true;
 
         // tell the device the first index in our chain of descriptors.
         let avail_idx = self.avail.idx.load(Ordering::Relaxed) as usize;
@@ -316,7 +343,7 @@ pub(super) fn init() {
     DISK.init(SpinLock::new(disk))
 }
 
-fn read_or_write(offset: usize, data: &[u8], write: bool) {
+fn read_or_write(offset: usize, req: Request) {
     let mut disk = DISK.get().lock();
 
     // the spec's Section 5.2 says that legacy block operations use
@@ -332,25 +359,21 @@ fn read_or_write(offset: usize, data: &[u8], write: bool) {
     };
 
     // send request and wait for `handle_interrupts()` to say request has finished.
-    disk.send_request(offset, data, write, desc_idx);
+    disk.send_request(offset, req, desc_idx);
     while disk.info[desc_idx[0]].in_progress {
         disk = disk.info[desc_idx[0]].completed.force_wait(disk);
     }
 
     // deallocate descriptors.
-    disk.info[desc_idx[0]].data = ptr::null_mut();
     disk.free_chain(desc_idx[0]);
 }
 
-#[expect(clippy::needless_pass_by_ref_mut)]
 pub(super) fn read(offset: usize, data: &mut [u8]) {
-    // FIXME: is it ok to pass data as &[u8], then hardware changes the contents of
-    // data?
-    read_or_write(offset, data, false);
+    read_or_write(offset, Request::DeviceToBuf(data));
 }
 
 pub(super) fn write(offset: usize, data: &[u8]) {
-    read_or_write(offset, data, true)
+    read_or_write(offset, Request::BufToDevice(data))
 }
 
 pub fn handle_interrupt() {
@@ -375,7 +398,7 @@ pub fn handle_interrupt() {
 
         let info = &mut disk.info[id];
 
-        assert_eq!(info.status, 0);
+        assert_eq!(info.status.get(), 0);
         info.in_progress = false; // disk is done with buf
         info.completed.notify();
 

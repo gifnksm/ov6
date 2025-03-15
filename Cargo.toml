@@ -37,6 +37,7 @@ memchr = { version = "2.7.4", default-features = false, features = ["alloc"] }
 riscv = "0.13.0"
 strum = { version = "0.27.1", default-features = false, features = ["derive"] }
 thiserror = { version = "2.0.12", default-features = false }
+vcell = "0.1.3"
 
 block_io = { path = "crates/block_io" }
 lru = { path = "crates/lru" }

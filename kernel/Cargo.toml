@@ -39,6 +39,7 @@ riscv.workspace = true
 slab_allocator.workspace = true
 strum.workspace = true
 thiserror.workspace = true
+vcell.workspace = true
 
 [features]
 initcode_env = []
