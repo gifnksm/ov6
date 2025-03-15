@@ -78,7 +78,6 @@ missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 needless_continue = "allow"
 similar_names = "allow"
-unnecessary_wraps = "allow"
 
 # restriction group
 alloc_instead_of_core = "warn"

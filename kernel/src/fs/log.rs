@@ -393,6 +393,7 @@ impl<const VALID: bool, const READ_ONLY: bool> Drop for TxBlockGuard<'_, VALID, 
 // Implementt consuming methods (receiver is `self`) for TxBlockGuard
 // This is because `Deref` and `DerefMut` cannot consume `self`.
 impl<'a, const VALID: bool, const READ_ONLY: bool> TxBlockGuard<'a, VALID, READ_ONLY> {
+    #[expect(clippy::unnecessary_wraps)]
     pub fn read(mut self) -> Result<TxBlockGuard<'a, true, READ_ONLY>, Infallible> {
         let Ok(guard) = self.guard.take().unwrap().read();
         Ok(TxBlockGuard {
