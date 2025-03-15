@@ -4,13 +4,13 @@ use super::{Tx, inode::TxInode};
 use crate::error::KernelError;
 
 /// Looks up and returns the inode for a given path.
-pub fn resolve<'tx, const READ_ONLY: bool>(
-    tx: &'tx Tx<READ_ONLY>,
-    cwd: TxInode<'tx, READ_ONLY>,
+pub fn resolve<'tx>(
+    tx: &'tx Tx<false>,
+    cwd: TxInode<'tx, false>,
     path: &Path,
-) -> Result<TxInode<'tx, READ_ONLY>, KernelError> {
+) -> Result<TxInode<'tx, false>, KernelError> {
     let mut components = path.components().peekable();
-    let mut ip: TxInode<'_, READ_ONLY> = if components.next_if_eq(&Component::RootDir).is_some() {
+    let mut ip = if components.next_if_eq(&Component::RootDir).is_some() {
         TxInode::root(tx)
     } else {
         cwd
@@ -19,7 +19,7 @@ pub fn resolve<'tx, const READ_ONLY: bool>(
     for comp in components {
         let name = comp.as_os_str();
 
-        let mut lip = ip.lock();
+        let mut lip = ip.force_wait_lock();
         let mut dip_opt = lip.as_dir();
         let Some(dip) = &mut dip_opt else {
             return Err(KernelError::NonDirectoryPathComponent);

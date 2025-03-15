@@ -17,8 +17,8 @@ use crate::{
         addr::{GenericMutSlice, GenericSlice},
         vm_user::UserPageTable,
     },
-    proc::{self, Proc},
-    sync::{SpinLock, SpinLockCondVar},
+    proc,
+    sync::{SpinLock, SpinLockCondVar, WaitError},
 };
 
 pub mod print;
@@ -90,18 +90,19 @@ fn write(src: GenericSlice<u8>) -> Result<usize, KernelError> {
 /// Copy (up to) a whole input line to `dst`.
 /// `user_dst` indicates whether `dst` is a user
 /// or kernel address.
-fn read(p: &Proc, mut dst: GenericMutSlice<u8>) -> Result<usize, KernelError> {
+fn read(mut dst: GenericMutSlice<u8>) -> Result<usize, KernelError> {
     let mut i = 0;
     let mut cons = CONSOLE_BUFFER.lock();
     while i < dst.len() {
         // wait until interrupt handler has put some
         // input into cons.buffer.
         while cons.r == cons.w {
-            if p.shared().lock().killed() {
-                drop(cons);
-                return Err(KernelError::CallerProcessAlreadyKilled);
+            match CONSOLE_BUFFER_WRITTEN.wait(cons) {
+                Ok(guard) => cons = guard,
+                Err((_guard, WaitError::WaitingProcessAlreadyKilled)) => {
+                    return Err(KernelError::CallerProcessAlreadyKilled);
+                }
             }
-            cons = CONSOLE_BUFFER_WRITTEN.wait(cons);
         }
 
         let c = cons.buf[cons.r % cons.buf.len()];
@@ -189,12 +190,12 @@ pub fn handle_interrupt(c: u8) {
     }
 }
 
-fn console_write(_p: &Proc, src: GenericSlice<u8>) -> Result<usize, KernelError> {
+fn console_write(src: GenericSlice<u8>) -> Result<usize, KernelError> {
     write(src)
 }
 
-fn console_read(p: &Proc, dst: GenericMutSlice<u8>) -> Result<usize, KernelError> {
-    read(p, dst)
+fn console_read(dst: GenericMutSlice<u8>) -> Result<usize, KernelError> {
+    read(dst)
 }
 
 pub fn init() {

@@ -6,7 +6,7 @@ use core::{
 use mutex_api::Mutex;
 use ov6_types::process::ProcId;
 
-use super::{SpinLock, SpinLockCondVar, TryLockError};
+use super::{SpinLock, SpinLockCondVar, TryLockError, WaitError};
 use crate::cpu::Cpu;
 
 #[derive(Default)]
@@ -17,6 +17,12 @@ pub struct SleepLock<T> {
 }
 
 unsafe impl<T> Sync for SleepLock<T> where T: Send {}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SleepLockError {
+    #[error("requester process is already killed")]
+    LockingProcessAlreadyKilled,
+}
 
 impl<T> SleepLock<T> {
     pub const fn new(value: T) -> Self {
@@ -42,15 +48,34 @@ impl<T> SleepLock<T> {
     /// Acquires the lock.
     ///
     /// Sleeps (spins) until the lock is acquired.
-    pub fn lock(&self) -> SleepLockGuard<T> {
+    pub fn force_wait_lock(&self) -> SleepLockGuard<T> {
         let mut locked = self.locked.lock();
         while locked.0 {
-            locked = self.unlocked.wait(locked);
+            locked = self.unlocked.force_wait(locked);
         }
         locked.0 = true;
         locked.1 = Cpu::current().pid();
 
         SleepLockGuard { lock: self }
+    }
+
+    /// Acquires the lock.
+    ///
+    /// Sleeps (spins) until the lock is acquired.
+    pub fn wait_lock(&self) -> Result<SleepLockGuard<T>, SleepLockError> {
+        let mut locked = self.locked.lock();
+        while locked.0 {
+            match self.unlocked.wait(locked) {
+                Ok(guard) => locked = guard,
+                Err((_guard, WaitError::WaitingProcessAlreadyKilled)) => {
+                    return Err(SleepLockError::LockingProcessAlreadyKilled);
+                }
+            }
+        }
+        locked.0 = true;
+        locked.1 = Cpu::current().pid();
+
+        Ok(SleepLockGuard { lock: self })
     }
 }
 
@@ -66,7 +91,7 @@ impl<T> Mutex for SleepLock<T> {
     }
 
     fn lock(&self) -> Self::Guard<'_> {
-        self.lock()
+        self.force_wait_lock()
     }
 }
 

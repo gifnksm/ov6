@@ -31,8 +31,8 @@
 //!   (destructor) or [`TxInode::put()`] decrements ref.
 //!
 //! * Valid: the information (type, size, &c) in an inode table entry is only
-//!   correct when `data` is `Some`. [`TxInode::lock()`] reads the inode from
-//!   the disk and sets [`TxInode::data`], while [`TxInode::put()`] clears
+//!   correct when `data` is `Some`. [`TxInode::wait_lock()`] reads the inode
+//!   from the disk and sets [`TxInode::data`], while [`TxInode::put()`] clears
 //!   [`TxInode::data`] if reference count has fallen to zero.
 //!
 //! * Locked: file system code may only examine and modify the information in an
@@ -50,8 +50,8 @@
 //!   ip.put()
 //!    ```
 //!
-//! [`TxInode::lock()`] is separate from [`TxInode::get()`] so that system calls
-//! can get a long-term reference to an inode (as for an open file)
+//! [`TxInode::wait_lock()`] is separate from [`TxInode::get()`] so that system
+//! calls can get a long-term reference to an inode (as for an open file)
 //! and only lock it for short periods (e.g., in `read()`).
 //! The separation also helps avoid deadlock and races during
 //! pathname lookup. [`TxInode::get()`] increments reference count so that the
@@ -68,7 +68,7 @@ use super::{
 };
 use crate::{
     error::KernelError,
-    sync::{SleepLockGuard, TryLockError},
+    sync::{SleepLockError, SleepLockGuard, TryLockError},
 };
 
 mod alloc;
@@ -234,13 +234,32 @@ impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
             locked,
         ))
     }
+}
 
+impl<'tx> TxInode<'tx, true> {
     /// Locks the inode.
     ///
     /// This also reads the inode from disk if it is not already in memory.
     #[expect(clippy::needless_pass_by_ref_mut)]
-    pub fn lock<'a>(&'a mut self) -> LockedTxInode<'tx, 'a, READ_ONLY> {
-        let locked = self.data.lock();
+    pub fn wait_lock<'a>(&'a mut self) -> Result<LockedTxInode<'tx, 'a, true>, SleepLockError> {
+        let locked = self.data.wait_lock()?;
+        Ok(LockedTxInode::new(
+            self.tx,
+            self.dev,
+            self.ino,
+            InodeDataArc::clone(&self.data),
+            locked,
+        ))
+    }
+}
+
+impl<'tx> TxInode<'tx, false> {
+    /// Locks the inode.
+    ///
+    /// This also reads the inode from disk if it is not already in memory.
+    #[expect(clippy::needless_pass_by_ref_mut)]
+    pub fn force_wait_lock<'a>(&'a mut self) -> LockedTxInode<'tx, 'a, false> {
+        let locked = self.data.force_wait_lock();
         LockedTxInode::new(
             self.tx,
             self.dev,
@@ -249,9 +268,7 @@ impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
             locked,
         )
     }
-}
 
-impl<'tx> TxInode<'tx, false> {
     /// Allocates an inode on device `dev`
     ///
     /// Returns a n unlocked but allocated and referenced inode,
@@ -263,6 +280,7 @@ impl<'tx> TxInode<'tx, false> {
 }
 
 impl<const READ_ONLY: bool> Drop for TxInode<'_, READ_ONLY> {
+    #[track_caller]
     fn drop(&mut self) {
         let table = table::lock();
         if InodeDataArc::strong_count(&self.data) > 1 {
@@ -281,17 +299,19 @@ impl<const READ_ONLY: bool> Drop for TxInode<'_, READ_ONLY> {
         drop(table);
 
         // remove inode on disk
-        if let Some(tx) = lip.tx.to_writable() {
-            let mut lip = LockedTxInode {
-                tx: &*tx,
-                dev: lip.dev,
-                ino: lip.ino,
-                data: lip.data,
-                locked: lip.locked,
-            };
-            lip.truncate();
-            lip.free();
-        }
+        let Some(tx) = lip.tx.to_writable() else {
+            panic!("BUG: `TxInode<READ_ONLY=true>` with `nlink == 0` is dropped");
+        };
+
+        let mut lip = LockedTxInode {
+            tx: &*tx,
+            dev: lip.dev,
+            ino: lip.ino,
+            data: lip.data,
+            locked: lip.locked,
+        };
+        lip.truncate();
+        lip.free();
     }
 }
 

@@ -29,7 +29,7 @@ pub fn new_file(inode: Inode, readable: bool, writable: bool) -> Result<File, Ke
 
 impl InodeFile {
     pub(super) fn close(self) {
-        super::common::close_inode(self.inode);
+        super::common::close_inode(self.inode)
     }
 
     pub(super) fn stat(&self) -> Result<Stat, KernelError> {
@@ -43,7 +43,7 @@ impl InodeFile {
     ) -> Result<usize, KernelError> {
         let tx = fs::begin_readonly_tx();
         let mut ip = self.inode.clone().into_tx(&tx);
-        let mut lip = ip.lock();
+        let mut lip = ip.wait_lock()?;
         let res = lip.read((pt, dst).into(), self.off.load(Ordering::Relaxed));
         if let Ok(sz) = res {
             self.off.fetch_add(sz, Ordering::Relaxed);
@@ -69,9 +69,9 @@ impl InodeFile {
             let len = usize::min(src.len(), max);
             let src = src.take(len);
 
-            let tx = fs::begin_tx();
+            let tx = fs::begin_tx()?;
             let mut ip = self.inode.clone().into_tx(&tx);
-            let mut lip = ip.lock();
+            let mut lip = ip.force_wait_lock();
             let res = lip.write((pt, src).into(), self.off.load(Ordering::Relaxed));
             if let Ok(sz) = res {
                 self.off.fetch_add(sz, Ordering::Relaxed);

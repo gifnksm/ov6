@@ -6,7 +6,6 @@ use crate::{
     error::KernelError,
     fs::{DeviceNo, Inode},
     memory::vm_user::UserPageTable,
-    proc::Proc,
 };
 
 mod alloc;
@@ -93,7 +92,6 @@ impl File {
     /// `addr` is a user virtual address.
     pub fn read(
         &self,
-        p: &Proc,
         pt: &mut UserPageTable,
         dst: UserMutSlice<u8>,
     ) -> Result<usize, KernelError> {
@@ -102,9 +100,9 @@ impl File {
         }
 
         match &self.data.data {
-            Some(SpecificData::Pipe(pipe)) => pipe.read(p, pt, dst),
+            Some(SpecificData::Pipe(pipe)) => pipe.read(pt, dst),
             Some(SpecificData::Inode(inode)) => inode.read(pt, dst),
-            Some(SpecificData::Device(device)) => device.read(p, pt, dst),
+            Some(SpecificData::Device(device)) => device.read(pt, dst),
             None => unreachable!(),
         }
     }
@@ -112,20 +110,15 @@ impl File {
     /// Writes to file `f`.
     ///
     /// `addr` is a user virtual address.
-    pub fn write(
-        &self,
-        p: &Proc,
-        pt: &UserPageTable,
-        src: UserSlice<u8>,
-    ) -> Result<usize, KernelError> {
+    pub fn write(&self, pt: &UserPageTable, src: UserSlice<u8>) -> Result<usize, KernelError> {
         if !self.data.writable {
             return Err(KernelError::FileDescriptorNotWritable);
         }
 
         match &self.data.data {
-            Some(SpecificData::Pipe(pipe)) => pipe.write(p, pt, src),
+            Some(SpecificData::Pipe(pipe)) => pipe.write(pt, src),
             Some(SpecificData::Inode(inode)) => inode.write(pt, src),
-            Some(SpecificData::Device(device)) => device.write(p, pt, src),
+            Some(SpecificData::Device(device)) => device.write(pt, src),
             _ => unreachable!(),
         }
     }

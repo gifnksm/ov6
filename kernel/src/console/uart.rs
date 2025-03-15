@@ -137,7 +137,7 @@ pub fn putc(c: u8) {
     while buffer.is_full() {
         // buffer is full
         // wait for start() to open up space in the buffer.
-        buffer = TX_BUFFER_SPACE_AVAILABLE.wait(buffer);
+        buffer = TX_BUFFER_SPACE_AVAILABLE.force_wait(buffer);
     }
     buffer.put(c);
     start(&mut buffer);

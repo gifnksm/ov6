@@ -5,6 +5,7 @@ use crate::{
     error::KernelError,
     interrupt::timer::{TICKS, TICKS_UPDATED},
     proc::{self, Proc, ProcPrivateData, ProcPrivateDataGuard},
+    sync::WaitError,
 };
 
 impl SyscallExt for sys::Fork {
@@ -77,16 +78,15 @@ impl SyscallExt for sys::Sbrk {
 impl SyscallExt for sys::Sleep {
     type Private<'a> = ProcPrivateData;
 
-    fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
         let Ok((dur,)) = Self::decode_arg(private.trapframe());
         let mut ticks = TICKS.lock();
         let ticks0 = *ticks;
         while *ticks - ticks0 < dur {
-            if p.shared().lock().killed() {
-                // process is killed, so return value will never read.
-                return;
+            ticks = match TICKS_UPDATED.wait(ticks) {
+                Ok(ticks) => ticks,
+                Err((_ticsk, WaitError::WaitingProcessAlreadyKilled)) => return,
             }
-            ticks = TICKS_UPDATED.wait(ticks);
         }
     }
 }

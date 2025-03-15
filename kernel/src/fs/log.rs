@@ -44,7 +44,7 @@ use crate::{
         block_io::{self},
     },
     param::MAX_OP_BLOCKS,
-    sync::{SpinLock, SpinLockCondVar},
+    sync::{SpinLock, SpinLockCondVar, WaitError},
 };
 
 struct LogHeader {
@@ -169,17 +169,54 @@ impl Log {
     /// Starts FS transaction.
     ///
     /// Called at the start of each FS system call.
-    fn begin_op(&self) {
+    fn begin_op(&self) -> Result<(), WaitError> {
         let mut data = self.data.lock();
         loop {
             let Some(header) = &data.header else {
                 // header is under committing
-                data = self.cond.wait(data);
+                match self.cond.wait(data) {
+                    Ok(guard) => {
+                        data = guard;
+                        continue;
+                    }
+                    Err((_guard, WaitError::WaitingProcessAlreadyKilled)) => {
+                        return Err(WaitError::WaitingProcessAlreadyKilled);
+                    }
+                }
+            };
+            if header.len() + (data.outstanding + 1) * MAX_OP_BLOCKS > header.max_len() {
+                // this op might exhaust log space; wait for commit.
+                match self.cond.wait(data) {
+                    Ok(guard) => {
+                        data = guard;
+                        continue;
+                    }
+                    Err((_guard, WaitError::WaitingProcessAlreadyKilled)) => {
+                        return Err(WaitError::WaitingProcessAlreadyKilled);
+                    }
+                }
+            }
+            data.outstanding += 1;
+            break;
+        }
+
+        Ok(())
+    }
+
+    /// Starts FS transaction.
+    ///
+    /// Called at the start of each FS system call.
+    fn force_begin_op(&self) {
+        let mut data = self.data.lock();
+        loop {
+            let Some(header) = &data.header else {
+                // header is under committing
+                data = self.cond.force_wait(data);
                 continue;
             };
             if header.len() + (data.outstanding + 1) * MAX_OP_BLOCKS > header.max_len() {
                 // this op might exhaust log space; wait for commit.
-                data = self.cond.wait(data);
+                data = self.cond.force_wait(data);
                 continue;
             }
             data.outstanding += 1;
@@ -235,12 +272,19 @@ pub(super) fn init(dev: DeviceNo, sb: &'static SuperBlock) {
 /// Starts FS transaction.
 ///
 /// Called at the start of each FS system call.
-pub fn begin_tx() -> Tx<'static, false> {
+pub fn begin_tx() -> Result<Tx<'static, false>, WaitError> {
     Tx::<false>::begin()
 }
 
+/// Starts FS transaction.
+///
+/// Called at the start of each FS system call.
+pub fn force_begin_tx() -> Tx<'static, false> {
+    Tx::<false>::force_begin()
+}
+
 pub fn begin_readonly_tx() -> Tx<'static, true> {
-    Tx::<true>::begin()
+    Tx::<true>::begin_read_only()
 }
 
 pub struct Tx<'log, const READ_ONLY: bool> {
@@ -256,15 +300,21 @@ impl<const READ_ONLY: bool> Drop for Tx<'_, READ_ONLY> {
 }
 
 impl Tx<'_, false> {
-    fn begin() -> Self {
+    fn begin() -> Result<Self, WaitError> {
         let log = LOG.get();
-        log.begin_op();
+        log.begin_op()?;
+        Ok(Self { log: Some(log) })
+    }
+
+    fn force_begin() -> Self {
+        let log = LOG.get();
+        log.force_begin_op();
         Self { log: Some(log) }
     }
 }
 
 impl Tx<'_, true> {
-    fn begin() -> Self {
+    fn begin_read_only() -> Self {
         Self { log: None }
     }
 }

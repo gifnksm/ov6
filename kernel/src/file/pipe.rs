@@ -6,7 +6,6 @@ use super::{File, FileData, FileDataArc, SpecificData};
 use crate::{
     error::KernelError,
     memory::{page::PageFrameAllocator, vm_user::UserPageTable},
-    proc::Proc,
     sync::{SpinLock, SpinLockCondVar},
 };
 
@@ -81,7 +80,6 @@ impl PipeFile {
 
     pub(super) fn write(
         &self,
-        p: &Proc,
         pt: &UserPageTable,
         src: UserSlice<u8>,
     ) -> Result<usize, KernelError> {
@@ -95,12 +93,9 @@ impl PipeFile {
                 }
                 return Err(KernelError::BrokenPipe);
             }
-            if p.shared().lock().killed() {
-                return Err(KernelError::CallerProcessAlreadyKilled);
-            }
             if pipe.nwrite == pipe.nread + PIPE_SIZE {
                 self.0.reader_cond.notify();
-                pipe = self.0.writer_cond.wait(pipe);
+                pipe = self.0.writer_cond.wait(pipe).map_err(|(_guard, e)| e)?;
                 continue;
             }
 
@@ -123,16 +118,12 @@ impl PipeFile {
 
     pub(super) fn read(
         &self,
-        p: &Proc,
         pt: &mut UserPageTable,
         dst: UserMutSlice<u8>,
     ) -> Result<usize, KernelError> {
         let mut pipe = self.0.data.lock();
         while pipe.nread == pipe.nwrite && pipe.write_open {
-            if p.shared().lock().killed() {
-                return Err(KernelError::CallerProcessAlreadyKilled);
-            }
-            pipe = self.0.reader_cond.wait(pipe);
+            pipe = self.0.reader_cond.wait(pipe).map_err(|(_guard, e)| e)?;
         }
         let mut nread = 0;
         while nread < dst.len() {

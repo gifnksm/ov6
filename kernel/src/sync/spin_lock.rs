@@ -8,7 +8,8 @@ use mutex_api::Mutex;
 
 use crate::{
     cpu::{self, INVALID_CPUID},
-    interrupt, proc,
+    interrupt,
+    proc::{self, ops::SleepError},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -166,6 +167,20 @@ impl<'a, T> SpinLockGuard<'a, T> {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum WaitError {
+    #[error("caller process already killed")]
+    WaitingProcessAlreadyKilled,
+}
+
+impl From<SleepError> for WaitError {
+    fn from(e: SleepError) -> Self {
+        match e {
+            SleepError::SleepingProcessAlreadyKilled => Self::WaitingProcessAlreadyKilled,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct SpinLockCondVar {
     counter: AtomicU64,
@@ -178,10 +193,24 @@ impl SpinLockCondVar {
         }
     }
 
-    pub fn wait<'a, T>(&self, mut guard: SpinLockGuard<'a, T>) -> SpinLockGuard<'a, T> {
+    pub fn wait<'a, T>(
+        &self,
+        mut guard: SpinLockGuard<'a, T>,
+    ) -> Result<SpinLockGuard<'a, T>, (SpinLockGuard<'a, T>, WaitError)> {
         let counter = self.counter.load(Ordering::Relaxed);
         loop {
-            guard = proc::ops::sleep(self, guard);
+            guard = proc::ops::sleep(self, guard).map_err(|(guard, e)| (guard, e.into()))?;
+            if counter != self.counter.load(Ordering::Relaxed) {
+                break;
+            }
+        }
+        Ok(guard)
+    }
+
+    pub fn force_wait<'a, T>(&self, mut guard: SpinLockGuard<'a, T>) -> SpinLockGuard<'a, T> {
+        let counter = self.counter.load(Ordering::Relaxed);
+        loop {
+            guard = proc::ops::force_sleep(self, guard);
             if counter != self.counter.load(Ordering::Relaxed) {
                 break;
             }

@@ -7,14 +7,14 @@ use crate::{
 };
 
 pub(super) fn close_inode(inode: Inode) {
-    let tx = fs::begin_tx();
+    let tx = fs::force_begin_tx();
     inode.into_tx(&tx).put();
 }
 
 pub(super) fn stat_inode(inode: &Inode) -> Result<Stat, KernelError> {
     let tx = fs::begin_readonly_tx();
     let mut ip = inode.clone().into_tx(&tx);
-    let lip = ip.lock();
+    let lip = ip.wait_lock()?;
     let ty = match lip.ty() {
         T_DIR => StatType::Dir,
         T_FILE => StatType::File,

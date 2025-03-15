@@ -10,7 +10,7 @@ use crate::{
     memory::{PAGE_SIZE, page_table::PtEntryFlags},
     println,
     proc::{INIT_PROC, Proc, ProcState, scheduler, wait_lock},
-    sync::{SpinLockCondVar, SpinLockGuard},
+    sync::{SpinLockCondVar, SpinLockGuard, WaitError},
     syscall::ReturnValue,
 };
 
@@ -142,7 +142,7 @@ pub fn exit(p: &Proc, mut p_private: ProcPrivateDataGuard, status: i32) -> ! {
             }
         }
 
-        let tx = fs::begin_tx();
+        let tx = fs::force_begin_tx();
         p_private.cwd.take().unwrap().into_tx(&tx).put();
         tx.end();
 
@@ -198,21 +198,57 @@ pub fn wait(p: &Proc) -> Result<(ProcId, i32), KernelError> {
             }
         }
 
-        // No point waiting if we don't have any children.
-        if !have_kids || p.shared.lock().killed() {
-            drop(wait_lock);
+        if !have_kids {
             return Err(KernelError::NoChildProcess);
         }
 
         // Wait for a child to exit.
-        wait_lock = p.child_ended.wait(wait_lock);
+        wait_lock = match p.child_ended.wait(wait_lock) {
+            Ok(wait_lock) => wait_lock,
+            Err((_wait_lock, WaitError::WaitingProcessAlreadyKilled)) => {
+                return Err(KernelError::CallerProcessAlreadyKilled);
+            }
+        }
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SleepError {
+    #[error("caller process already killed")]
+    SleepingProcessAlreadyKilled,
 }
 
 /// Automatically releases `lock` and sleeps on `chan`.
 ///
 /// Reacquires lock when awakened.
-pub fn sleep<'a, T>(cond: &SpinLockCondVar, guard: SpinLockGuard<'a, T>) -> SpinLockGuard<'a, T> {
+///
+/// Returns `Err` if the process is killed.
+pub fn sleep<'a, T>(
+    cond: &SpinLockCondVar,
+    guard: SpinLockGuard<'a, T>,
+) -> Result<SpinLockGuard<'a, T>, (SpinLockGuard<'a, T>, SleepError)> {
+    sleep_common(cond, guard, false)
+}
+
+/// Automatically releases `lock` and sleeps on `chan`.
+///
+/// Reacquires lock when awakened.
+/// Continues even if the process is killed.
+pub fn force_sleep<'a, T>(
+    cond: &SpinLockCondVar,
+    guard: SpinLockGuard<'a, T>,
+) -> SpinLockGuard<'a, T> {
+    sleep_common(cond, guard, true).unwrap_or_else(|_| unreachable!())
+}
+
+/// Automatically releases `lock` and sleeps on `chan`.
+///
+/// Reacquires lock when awakened.
+fn sleep_common<'a, T>(
+    cond: &SpinLockCondVar,
+    guard: SpinLockGuard<'a, T>,
+    continue_if_killed: bool,
+) -> Result<SpinLockGuard<'a, T>, (SpinLockGuard<'a, T>, SleepError)> {
     let p = ProcShared::current();
     // Must acquire `p.lock` in order to change
     // `p.state` and then call `sched()`.
@@ -221,6 +257,11 @@ pub fn sleep<'a, T>(cond: &SpinLockCondVar, guard: SpinLockGuard<'a, T>) -> Spin
     // (wakeup locks `p.lock`),
     // so it's okay to release `lock' here.`
     let mut shared = p.lock();
+
+    if !continue_if_killed && shared.killed() {
+        return Err((guard, SleepError::SleepingProcessAlreadyKilled));
+    }
+
     let lock = guard.into_lock();
 
     // Go to sleep.
@@ -229,9 +270,17 @@ pub fn sleep<'a, T>(cond: &SpinLockCondVar, guard: SpinLockGuard<'a, T>) -> Spin
 
     scheduler::sched(&mut shared);
 
+    let killed = shared.killed();
+
     // Reacquire original lock.
     drop(shared);
-    lock.lock()
+    let guard = lock.lock();
+
+    if !continue_if_killed && killed {
+        return Err((guard, SleepError::SleepingProcessAlreadyKilled));
+    }
+
+    Ok(guard)
 }
 
 /// Wakes up all processes sleeping on `chan`.

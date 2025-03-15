@@ -328,13 +328,13 @@ fn read_or_write(offset: usize, data: &[u8], write: bool) {
         if let Some(idx) = disk.alloc3_desc() {
             break idx;
         }
-        disk = disk.desc_freed.wait(disk);
+        disk = disk.desc_freed.force_wait(disk);
     };
 
     // send request and wait for `handle_interrupts()` to say request has finished.
     disk.send_request(offset, data, write, desc_idx);
     while disk.info[desc_idx[0]].in_progress {
-        disk = disk.info[desc_idx[0]].completed.wait(disk);
+        disk = disk.info[desc_idx[0]].completed.force_wait(disk);
     }
 
     // deallocate descriptors.

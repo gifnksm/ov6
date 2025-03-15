@@ -51,10 +51,10 @@ impl SyscallExt for sys::Dup {
 impl SyscallExt for sys::Read {
     type Private<'a> = ProcPrivateData;
 
-    fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
         let Ok((fd, data)) = Self::decode_arg(private.trapframe());
         let file = private.ofile(fd)?;
-        let n = file.clone().read(p, private.pagetable_mut(), data)?;
+        let n = file.clone().read(private.pagetable_mut(), data)?;
         Ok(n)
     }
 }
@@ -62,10 +62,10 @@ impl SyscallExt for sys::Read {
 impl SyscallExt for sys::Write {
     type Private<'a> = ProcPrivateData;
 
-    fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
         let Ok((fd, data)) = Self::decode_arg(private.trapframe());
         let file = private.ofile(fd)?;
-        let n = file.clone().write(p, private.pagetable(), data)?;
+        let n = file.clone().write(private.pagetable(), data)?;
         Ok(n)
     }
 }
@@ -104,7 +104,7 @@ impl SyscallExt for sys::Link {
         let old = fetch_path(private, user_old, &mut old)?;
         let new = fetch_path(private, user_new, &mut new)?;
 
-        let tx = fs::begin_tx();
+        let tx = fs::begin_tx().map_err(KernelError::from)?;
         let cwd = private.cwd().unwrap().clone().into_tx(&tx);
         fs::ops::link(&tx, cwd, old, new)?;
         Ok(())
@@ -119,7 +119,7 @@ impl SyscallExt for sys::Unlink {
         let mut path = [0; MAX_PATH];
         let path = fetch_path(private, user_path, &mut path)?;
 
-        let tx = fs::begin_tx();
+        let tx = fs::begin_tx().map_err(KernelError::from)?;
         let cwd = private.cwd().unwrap().clone().into_tx(&tx);
         fs::ops::unlink(&tx, cwd, path)?;
         Ok(())
@@ -134,13 +134,13 @@ impl SyscallExt for sys::Open {
         let mut path = [0; MAX_PATH];
         let path = fetch_path(private, user_path, &mut path)?;
 
-        let tx = fs::begin_tx();
+        let tx = fs::begin_tx().map_err(KernelError::from)?;
         let cwd = private.cwd().unwrap().clone().into_tx(&tx);
         let mut ip = if mode.contains(OpenFlags::CREATE) {
             fs::ops::create(&tx, cwd, path, T_FILE, DeviceNo::ROOT, 0)?
         } else {
             let mut ip = fs::path::resolve(&tx, cwd, path)?;
-            let lip = ip.lock();
+            let lip = ip.force_wait_lock();
             if lip.is_dir() && mode != OpenFlags::READ_ONLY {
                 return Err(KernelError::OpenDirAsWritable.into());
             }
@@ -148,7 +148,7 @@ impl SyscallExt for sys::Open {
             ip
         };
 
-        let mut lip = ip.lock();
+        let mut lip = ip.force_wait_lock();
 
         let readable = !mode.contains(OpenFlags::WRITE_ONLY);
         let writable = mode.contains(OpenFlags::WRITE_ONLY) || mode.contains(OpenFlags::READ_WRITE);
@@ -176,7 +176,7 @@ impl SyscallExt for sys::Mkdir {
         let mut path = [0; MAX_PATH];
         let path = fetch_path(private, user_path, &mut path)?;
 
-        let tx = fs::begin_tx();
+        let tx = fs::begin_tx().map_err(KernelError::from)?;
         let cwd = private.cwd().unwrap().clone().into_tx(&tx);
         let _ip = fs::ops::create(&tx, cwd, path, T_DIR, DeviceNo::ROOT, 0)?;
 
@@ -193,7 +193,7 @@ impl SyscallExt for sys::Mknod {
         let mut path = [0; MAX_PATH];
         let path = fetch_path(private, user_path, &mut path)?;
 
-        let tx = fs::begin_tx();
+        let tx = fs::begin_tx().map_err(KernelError::from)?;
         let cwd = private.cwd().unwrap().clone().into_tx(&tx);
         let _ip = fs::ops::create(&tx, cwd, path, T_DEVICE, DeviceNo::new(major), minor)?;
 
@@ -209,10 +209,10 @@ impl SyscallExt for sys::Chdir {
         let mut path = [0; MAX_PATH];
         let path = fetch_path(private, user_path, &mut path)?;
 
-        let tx = fs::begin_tx();
+        let tx = fs::begin_tx().map_err(KernelError::from)?;
         let cwd = private.cwd().unwrap().clone().into_tx(&tx);
         let mut ip = fs::path::resolve(&tx, cwd, path)?;
-        if !ip.lock().is_dir() {
+        if !ip.force_wait_lock().is_dir() {
             return Err(KernelError::ChdirNotDir.into());
         }
         let old = private.update_cwd(Inode::from_tx(&ip));

@@ -31,7 +31,7 @@ pub fn unlink(tx: &Tx<false>, cwd: TxInode<false>, path: &Path) -> Result<(), Ke
         return Err(KernelError::UnlinkDots);
     }
 
-    let mut dir_lip = dir_ip.lock();
+    let mut dir_lip = dir_ip.force_wait_lock();
     let mut dir_dp = dir_lip
         .as_dir()
         .ok_or(KernelError::NonDirectoryPathComponent)?;
@@ -39,7 +39,7 @@ pub fn unlink(tx: &Tx<false>, cwd: TxInode<false>, path: &Path) -> Result<(), Ke
     let (mut file_ip, off) = dir_dp
         .lookup(file_name)
         .ok_or(KernelError::FsEntryNotFound)?;
-    let mut file_lip = file_ip.lock();
+    let mut file_lip = file_ip.force_wait_lock();
 
     assert!(file_lip.data().nlink > 0);
     if let Some(mut file_dp) = file_lip.as_dir() {
@@ -76,13 +76,13 @@ pub fn create<'tx>(
     let (dir_path, file_name) = split_path(path).ok_or(KernelError::CreateRootDir)?;
     let mut dir_ip = path::resolve(tx, cwd, dir_path)?;
 
-    let mut dir_lip = dir_ip.lock();
+    let mut dir_lip = dir_ip.force_wait_lock();
     let mut dir_dp = dir_lip
         .as_dir()
         .ok_or(KernelError::NonDirectoryPathComponent)?;
 
     if let Some((mut file_ip, _off)) = dir_dp.lookup(file_name) {
-        let file_lip = file_ip.lock();
+        let file_lip = file_ip.force_wait_lock();
         if ty == T_FILE && (file_lip.data().ty == T_FILE || file_lip.data().ty == T_DEVICE) {
             drop(file_lip);
             return Ok(file_ip);
@@ -91,7 +91,7 @@ pub fn create<'tx>(
     }
 
     let mut file_ip = TxInode::alloc(tx, dir_dp.dev(), ty)?;
-    let mut file_lip = file_ip.lock();
+    let mut file_lip = file_ip.force_wait_lock();
     file_lip.data_mut().major = major;
     file_lip.data_mut().minor = minor;
     file_lip.data_mut().nlink = 0; // update after
@@ -127,14 +127,14 @@ pub fn link(
     let (new_dir_path, new_file_name) = split_path(new_path).ok_or(KernelError::LinkRootDir)?;
 
     let mut old_ip = path::resolve(tx, cwd.clone(), old_path)?;
-    let old_lip = old_ip.lock();
+    let old_lip = old_ip.force_wait_lock();
     if old_lip.is_dir() {
         return Err(KernelError::NonDirectoryPathComponent);
     }
     old_lip.unlock();
 
     let mut new_dir_ip = path::resolve(tx, cwd, new_dir_path)?;
-    let mut new_dir_lip = new_dir_ip.lock();
+    let mut new_dir_lip = new_dir_ip.force_wait_lock();
     if new_dir_lip.dev() != old_ip.dev() {
         return Err(KernelError::LinkCrossDevices);
     }
@@ -143,7 +143,7 @@ pub fn link(
     };
     new_dir_dp.link(new_file_name, old_ip.ino())?;
 
-    let mut old_lip = old_ip.lock();
+    let mut old_lip = old_ip.force_wait_lock();
     old_lip.data_mut().nlink += 1;
     old_lip.update();
 

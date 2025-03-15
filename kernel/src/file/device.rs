@@ -9,13 +9,12 @@ use crate::{
         vm_user::UserPageTable,
     },
     param::NDEV,
-    proc::Proc,
     sync::SpinLock,
 };
 
 pub struct Device {
-    pub read: fn(p: &Proc, dst: GenericMutSlice<u8>) -> Result<usize, KernelError>,
-    pub write: fn(p: &Proc, src: GenericSlice<u8>) -> Result<usize, KernelError>,
+    pub read: fn(dst: GenericMutSlice<u8>) -> Result<usize, KernelError>,
+    pub write: fn(src: GenericSlice<u8>) -> Result<usize, KernelError>,
 }
 
 struct DeviceTable {
@@ -65,7 +64,7 @@ pub(super) fn new_file(
 
 impl DeviceFile {
     pub(super) fn close(self) {
-        super::common::close_inode(self.inode);
+        super::common::close_inode(self.inode)
     }
 
     pub(super) fn stat(&self) -> Result<Stat, KernelError> {
@@ -74,7 +73,6 @@ impl DeviceFile {
 
     pub(super) fn read(
         &self,
-        p: &Proc,
         pt: &mut UserPageTable,
         dst: UserMutSlice<u8>,
     ) -> Result<usize, KernelError> {
@@ -83,12 +81,11 @@ impl DeviceFile {
             .get_device(self.major)
             .ok_or(KernelError::DeviceNotFound(self.major))?
             .read;
-        read(p, (pt, dst).into())
+        read((pt, dst).into())
     }
 
     pub(super) fn write(
         &self,
-        p: &Proc,
         pt: &UserPageTable,
         src: UserSlice<u8>,
     ) -> Result<usize, KernelError> {
@@ -97,6 +94,6 @@ impl DeviceFile {
             .get_device(self.major)
             .ok_or(KernelError::DeviceNotFound(self.major))?
             .write;
-        write(p, (pt, src).into())
+        write((pt, src).into())
     }
 }

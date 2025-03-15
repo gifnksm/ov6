@@ -37,10 +37,10 @@ pub fn exec(
     path: &Path,
     argv: &[(usize, Box<[u8; PAGE_SIZE], PageFrameAllocator>)],
 ) -> Result<(usize, usize), KernelError> {
-    let tx = fs::begin_tx();
+    let tx = fs::begin_tx()?;
     let cwd = private.cwd().unwrap().clone().into_tx(&tx);
     let mut ip = fs::path::resolve(&tx, cwd, path)?;
-    let mut lip = ip.lock();
+    let mut lip = ip.force_wait_lock();
 
     // Check ELF header
     let mut elf = ElfHeader::zero();

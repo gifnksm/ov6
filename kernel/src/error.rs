@@ -2,7 +2,11 @@ use ov6_fs_types::InodeNo;
 use ov6_syscall::{RegisterDecodeError, error::SyscallError};
 use ov6_types::{fs::RawFd, process::ProcId};
 
-use crate::{fs::DeviceNo, memory::VirtAddr};
+use crate::{
+    fs::DeviceNo,
+    memory::VirtAddr,
+    sync::{SleepLockError, WaitError},
+};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum KernelError {
@@ -135,6 +139,22 @@ impl From<KernelError> for SyscallError {
             KernelError::SyscallDecode(_) | KernelError::CallerProcessAlreadyKilled => {
                 Self::Unknown
             }
+        }
+    }
+}
+
+impl From<SleepLockError> for KernelError {
+    fn from(error: SleepLockError) -> Self {
+        match error {
+            SleepLockError::LockingProcessAlreadyKilled => Self::CallerProcessAlreadyKilled,
+        }
+    }
+}
+
+impl From<WaitError> for KernelError {
+    fn from(error: WaitError) -> Self {
+        match error {
+            WaitError::WaitingProcessAlreadyKilled => Self::CallerProcessAlreadyKilled,
         }
     }
 }
