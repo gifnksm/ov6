@@ -49,7 +49,7 @@ pub unsafe fn force_set_before_push(enabled: bool) {
     let cpuid = cpu::id();
     CPU_STATE[cpuid]
         .int_enabled
-        .store(enabled, Ordering::Relaxed)
+        .store(enabled, Ordering::Relaxed);
 }
 
 /// Save current interrupt enable state and disable interrupts.
@@ -65,7 +65,7 @@ pub fn push_disabled() -> Guard {
 
 /// Restore interrupt enable state saved by [`push_disabled()`].
 pub unsafe fn pop_disabled() {
-    drop(Guard { cpuid: cpu::id() })
+    drop(Guard { cpuid: cpu::id() });
 }
 
 /// Guard that restores interrupt enable state when dropped.

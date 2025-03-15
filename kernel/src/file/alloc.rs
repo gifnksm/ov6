@@ -25,7 +25,7 @@ pub(super) fn init() {
         let start = (&raw mut FILE_DATA_MEMORY[0]).cast::<FileDataLayout>();
         let end = start.add(NFILE);
         let alloc = SlabAllocator::new(start..end);
-        ALLOCATOR.init(SpinLock::new(alloc))
+        ALLOCATOR.init(SpinLock::new(alloc));
     }
 }
 

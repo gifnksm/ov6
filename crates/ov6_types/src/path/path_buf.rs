@@ -72,7 +72,7 @@ impl PathBuf {
         if self.file_name().is_some() {
             self.pop();
         }
-        self.push(file_name.as_ref())
+        self.push(file_name.as_ref());
     }
 
     pub fn set_extension<S>(&mut self, extension: S) -> bool
@@ -139,7 +139,7 @@ impl PathBuf {
     }
 
     pub fn reserve(&mut self, additional: usize) {
-        self.inner.reserve(additional)
+        self.inner.reserve(additional);
     }
 
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
@@ -147,7 +147,7 @@ impl PathBuf {
     }
 
     pub fn reserve_exact(&mut self, additional: usize) {
-        self.inner.reserve_exact(additional)
+        self.inner.reserve_exact(additional);
     }
 
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {

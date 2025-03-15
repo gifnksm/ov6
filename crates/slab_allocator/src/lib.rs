@@ -69,7 +69,7 @@ impl<T> SlabAllocator<T> {
             run.write(Run {
                 next: self.free_list,
             });
-            self.free_list = Some(run)
+            self.free_list = Some(run);
         }
     }
 }

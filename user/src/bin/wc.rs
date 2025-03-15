@@ -38,7 +38,7 @@ where
                 l += 1;
             }
             if b.is_ascii_whitespace() {
-                in_word = false
+                in_word = false;
             } else if !in_word {
                 w += 1;
                 in_word = true;

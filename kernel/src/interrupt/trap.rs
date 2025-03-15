@@ -238,7 +238,7 @@ pub extern "C" fn trap_kernel() {
         IntrKind::Timer => {
             // give up the CPU if this is a timer interrupt.
             if let Some(p) = Proc::try_current() {
-                scheduler::yield_(p)
+                scheduler::yield_(p);
             }
         }
         IntrKind::Other => {}

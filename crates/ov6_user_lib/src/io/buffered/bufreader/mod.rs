@@ -31,7 +31,7 @@ where
     }
 
     fn discard_buffer(&mut self) {
-        self.buf.discard_buffer()
+        self.buf.discard_buffer();
     }
 }
 
@@ -60,6 +60,6 @@ where
     }
 
     fn consume(&mut self, amt: usize) {
-        self.buf.consume(amt)
+        self.buf.consume(amt);
     }
 }

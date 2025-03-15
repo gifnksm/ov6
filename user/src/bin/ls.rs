@@ -21,7 +21,7 @@ fn print_entry(name: &OsStr, meta: &Metadata) {
         ty,
         meta.ino(),
         meta.size(),
-    )
+    );
 }
 
 fn ls<P>(path: P)

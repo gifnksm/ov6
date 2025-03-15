@@ -29,7 +29,7 @@ pub fn new_file(inode: Inode, readable: bool, writable: bool) -> Result<File, Ke
 
 impl InodeFile {
     pub(super) fn close(self) {
-        super::common::close_inode(self.inode)
+        super::common::close_inode(self.inode);
     }
 
     pub(super) fn stat(&self) -> Result<Stat, KernelError> {

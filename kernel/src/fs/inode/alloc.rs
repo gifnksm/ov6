@@ -28,7 +28,7 @@ pub(super) fn init() {
         let start = (&raw mut INODE_DATA_MEMORY[0]).cast::<InodeDataLayout>();
         let end = start.add(NINODE);
         let alloc = SlabAllocator::new(start..end);
-        ALLOCATOR.init(SpinLock::new(alloc))
+        ALLOCATOR.init(SpinLock::new(alloc));
     }
 }
 

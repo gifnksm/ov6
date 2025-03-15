@@ -152,7 +152,7 @@ pub fn create_delete() {
                 !((1..N / 2).contains(&i) && file.is_ok()),
                 "oops create_delete {} did exist",
                 path.display(),
-            )
+            );
         }
     }
 

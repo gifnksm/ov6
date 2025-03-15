@@ -40,7 +40,7 @@ impl DeviceTable {
 static DEVICE_TABLE: SpinLock<DeviceTable> = SpinLock::new(DeviceTable::new());
 
 pub fn register_device(no: DeviceNo, dev: Device) {
-    DEVICE_TABLE.lock().register(no, dev)
+    DEVICE_TABLE.lock().register(no, dev);
 }
 
 pub(super) struct DeviceFile {
@@ -64,7 +64,7 @@ pub(super) fn new_file(
 
 impl DeviceFile {
     pub(super) fn close(self) {
-        super::common::close_inode(self.inode)
+        super::common::close_inode(self.inode);
     }
 
     pub(super) fn stat(&self) -> Result<Stat, KernelError> {

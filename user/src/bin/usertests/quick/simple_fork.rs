@@ -108,13 +108,13 @@ pub fn preempt() {
 
     let child1 = process::fork_fn(|| {
         loop {
-            hint::spin_loop()
+            hint::spin_loop();
         }
     })
     .unwrap();
     let child2 = process::fork_fn(|| {
         loop {
-            hint::spin_loop()
+            hint::spin_loop();
         }
     })
     .unwrap();

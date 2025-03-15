@@ -4,5 +4,5 @@ use crate::{
 };
 
 pub fn sleep(dur: Duration) {
-    syscall::sleep(dur.as_ticks())
+    syscall::sleep(dur.as_ticks());
 }

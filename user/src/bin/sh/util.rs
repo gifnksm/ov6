@@ -42,5 +42,5 @@ pub(super) unsafe fn close_or_exit(fd: impl AsRawFd, fd_name: &str) {
     try_or_exit!(
         unsafe { syscall::close(fd) },
         e => "close {fd_name} failed: {e}",
-    )
+    );
 }

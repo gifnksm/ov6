@@ -129,7 +129,7 @@ pub unsafe fn sbrk(increment: isize) -> Result<*mut u8, Ov6Error> {
 }
 
 pub fn sleep(n: u64) {
-    syscall::Sleep::call((n,))
+    syscall::Sleep::call((n,));
 }
 
 #[must_use]

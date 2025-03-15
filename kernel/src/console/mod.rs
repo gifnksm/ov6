@@ -157,7 +157,7 @@ pub fn handle_interrupt(c: u8) {
         CTRL_U => {
             while cons.e != cons.w && cons.buf[(cons.e - 1) % cons.buf.len()] != b'\n' {
                 cons.e -= 1;
-                put_backspace()
+                put_backspace();
             }
         }
         // Backspace or Delete key

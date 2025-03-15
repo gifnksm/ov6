@@ -64,7 +64,7 @@ impl OsString {
     }
 
     pub fn reserve(&mut self, additional: usize) {
-        self.inner.reserve(additional)
+        self.inner.reserve(additional);
     }
 
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
@@ -72,7 +72,7 @@ impl OsString {
     }
 
     pub fn reserve_exact(&mut self, additional: usize) {
-        self.inner.reserve_exact(additional)
+        self.inner.reserve_exact(additional);
     }
 
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
@@ -88,7 +88,7 @@ impl OsString {
     }
 
     pub fn truncate(&mut self, len: usize) {
-        self.inner.truncate(len)
+        self.inner.truncate(len);
     }
 }
 

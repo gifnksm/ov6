@@ -158,7 +158,7 @@ impl<const N: usize> Disk<N> {
     fn write_reg(&self, reg: MmioRegister, value: u32) {
         unsafe {
             ptr::with_exposed_provenance_mut::<u32>(self.base_address + reg as usize)
-                .write_volatile(value)
+                .write_volatile(value);
         }
     }
 
@@ -273,7 +273,7 @@ impl<const N: usize> Disk<N> {
         let mut idx = [0; 3];
         for i in 0..3 {
             if let Some(x) = self.alloc_desc() {
-                idx[i] = x
+                idx[i] = x;
             } else {
                 for j in &idx[0..i] {
                     self.free_desc(*j);
@@ -340,7 +340,7 @@ pub(super) fn init() {
 
     let disk = Disk::<NUM>::new(VIRTIO0, &DESC_FREED, &REQ_COMPLETED);
     disk.init();
-    DISK.init(SpinLock::new(disk))
+    DISK.init(SpinLock::new(disk));
 }
 
 fn read_or_write(offset: usize, req: Request) {
@@ -373,7 +373,7 @@ pub(super) fn read(offset: usize, data: &mut [u8]) {
 }
 
 pub(super) fn write(offset: usize, data: &[u8]) {
-    read_or_write(offset, Request::BufToDevice(data))
+    read_or_write(offset, Request::BufToDevice(data));
 }
 
 pub fn handle_interrupt() {
