@@ -38,13 +38,14 @@ pub fn exec(
     argv: &[(usize, Box<[u8; PAGE_SIZE], PageFrameAllocator>)],
 ) -> Result<(usize, usize), KernelError> {
     let tx = fs::begin_tx();
-    let mut ip = fs::path::resolve(&tx, private, path)?;
+    let cwd = private.cwd().unwrap().clone().into_tx(&tx);
+    let mut ip = fs::path::resolve(&tx, cwd, path)?;
     let mut lip = ip.lock();
 
     // Check ELF header
     let mut elf = ElfHeader::zero();
 
-    let nread = lip.read(private.pagetable_mut(), elf.as_bytes_mut().into(), 0)?;
+    let nread = lip.read(elf.as_bytes_mut().into(), 0)?;
     if nread != size_of::<ElfHeader>() {
         return Err(KernelError::InvalidExecutable);
     }
@@ -55,7 +56,7 @@ pub fn exec(
     let mut pt = UserPageTable::new(private.trapframe())?;
 
     // Load program into memory.
-    load_segments(private, &mut lip, &mut pt, &elf)?;
+    load_segments(&mut lip, &mut pt, &elf)?;
 
     lip.unlock();
     ip.put();
@@ -84,7 +85,6 @@ pub fn exec(
 }
 
 fn load_segments<const READ_ONLY: bool>(
-    private: &mut ProcPrivateData,
     lip: &mut LockedTxInode<READ_ONLY>,
     new_pt: &mut UserPageTable,
     elf: &ElfHeader,
@@ -92,7 +92,7 @@ fn load_segments<const READ_ONLY: bool>(
     for i in 0..elf.phnum {
         let off = usize::try_from(elf.phoff).unwrap() + usize::from(i) * size_of::<ProgramHeader>();
         let mut ph = ProgramHeader::zero();
-        lip.read(private.pagetable_mut(), ph.as_bytes_mut().into(), off)?;
+        lip.read(ph.as_bytes_mut().into(), off)?;
         if ph.ty != ELF_PROG_LOAD {
             continue;
         }
@@ -110,7 +110,6 @@ fn load_segments<const READ_ONLY: bool>(
             flags2perm(ph.flags),
         )?;
         load_segment(
-            private,
             new_pt,
             VirtAddr::new(ph.vaddr.try_into().unwrap()),
             lip,
@@ -126,7 +125,6 @@ fn load_segments<const READ_ONLY: bool>(
 ///
 /// `va` must be page-aligned.
 fn load_segment<const READ_ONLY: bool>(
-    private: &mut ProcPrivateData,
     new_pt: &UserPageTable,
     va: VirtAddr,
     lip: &mut LockedTxInode<READ_ONLY>,
@@ -147,7 +145,7 @@ fn load_segment<const READ_ONLY: bool>(
         };
 
         let dst = unsafe { slice::from_raw_parts_mut(pa.as_mut_ptr().as_ptr(), n) };
-        let nread = lip.read(private.pagetable_mut(), dst.into(), offset + i)?;
+        let nread = lip.read(dst.into(), offset + i)?;
         if nread != n {
             return Err(KernelError::InvalidExecutable);
         }

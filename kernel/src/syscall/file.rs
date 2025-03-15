@@ -54,7 +54,7 @@ impl SyscallExt for sys::Read {
     fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
         let Ok((fd, data)) = Self::decode_arg(private.trapframe());
         let file = private.ofile(fd)?;
-        let n = file.clone().read(p, private, data)?;
+        let n = file.clone().read(p, private.pagetable_mut(), data)?;
         Ok(n)
     }
 }
@@ -65,7 +65,7 @@ impl SyscallExt for sys::Write {
     fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
         let Ok((fd, data)) = Self::decode_arg(private.trapframe());
         let file = private.ofile(fd)?;
-        let n = file.clone().write(p, private, data)?;
+        let n = file.clone().write(p, private.pagetable(), data)?;
         Ok(n)
     }
 }
@@ -85,9 +85,10 @@ impl SyscallExt for sys::Fstat {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((fd, stat)) = Self::decode_arg(private.trapframe());
+        let Ok((fd, user_stat)) = Self::decode_arg(private.trapframe());
         let file = private.ofile(fd)?;
-        file.clone().stat(private, stat)?;
+        let stat = file.clone().stat()?;
+        private.pagetable_mut().copy_out(user_stat, &stat)?;
         Ok(())
     }
 }
@@ -104,7 +105,8 @@ impl SyscallExt for sys::Link {
         let new = fetch_path(private, user_new, &mut new)?;
 
         let tx = fs::begin_tx();
-        fs::ops::link(&tx, private, old, new)?;
+        let cwd = private.cwd().unwrap().clone().into_tx(&tx);
+        fs::ops::link(&tx, cwd, old, new)?;
         Ok(())
     }
 }
@@ -118,7 +120,8 @@ impl SyscallExt for sys::Unlink {
         let path = fetch_path(private, user_path, &mut path)?;
 
         let tx = fs::begin_tx();
-        fs::ops::unlink(&tx, private, path)?;
+        let cwd = private.cwd().unwrap().clone().into_tx(&tx);
+        fs::ops::unlink(&tx, cwd, path)?;
         Ok(())
     }
 }
@@ -132,10 +135,11 @@ impl SyscallExt for sys::Open {
         let path = fetch_path(private, user_path, &mut path)?;
 
         let tx = fs::begin_tx();
+        let cwd = private.cwd().unwrap().clone().into_tx(&tx);
         let mut ip = if mode.contains(OpenFlags::CREATE) {
-            fs::ops::create(&tx, private, path, T_FILE, DeviceNo::ROOT, 0)?
+            fs::ops::create(&tx, cwd, path, T_FILE, DeviceNo::ROOT, 0)?
         } else {
-            let mut ip = fs::path::resolve(&tx, private, path)?;
+            let mut ip = fs::path::resolve(&tx, cwd, path)?;
             let lip = ip.lock();
             if lip.is_dir() && mode != OpenFlags::READ_ONLY {
                 return Err(KernelError::OpenDirAsWritable.into());
@@ -173,7 +177,8 @@ impl SyscallExt for sys::Mkdir {
         let path = fetch_path(private, user_path, &mut path)?;
 
         let tx = fs::begin_tx();
-        let _ip = fs::ops::create(&tx, private, path, T_DIR, DeviceNo::ROOT, 0)?;
+        let cwd = private.cwd().unwrap().clone().into_tx(&tx);
+        let _ip = fs::ops::create(&tx, cwd, path, T_DIR, DeviceNo::ROOT, 0)?;
 
         Ok(())
     }
@@ -189,7 +194,8 @@ impl SyscallExt for sys::Mknod {
         let path = fetch_path(private, user_path, &mut path)?;
 
         let tx = fs::begin_tx();
-        let _ip = fs::ops::create(&tx, private, path, T_DEVICE, DeviceNo::new(major), minor)?;
+        let cwd = private.cwd().unwrap().clone().into_tx(&tx);
+        let _ip = fs::ops::create(&tx, cwd, path, T_DEVICE, DeviceNo::new(major), minor)?;
 
         Ok(())
     }
@@ -204,7 +210,8 @@ impl SyscallExt for sys::Chdir {
         let path = fetch_path(private, user_path, &mut path)?;
 
         let tx = fs::begin_tx();
-        let mut ip = fs::path::resolve(&tx, private, path)?;
+        let cwd = private.cwd().unwrap().clone().into_tx(&tx);
+        let mut ip = fs::path::resolve(&tx, cwd, path)?;
         if !ip.lock().is_dir() {
             return Err(KernelError::ChdirNotDir.into());
         }

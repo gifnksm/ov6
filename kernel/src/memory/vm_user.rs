@@ -243,14 +243,10 @@ impl UserPageTable {
     }
 
     /// Copies to either a user address, or kernel address.
-    pub fn either_copy_out_bytes(
-        &mut self,
-        dst: GenericMutSlice<u8>,
-        src: &[u8],
-    ) -> Result<(), KernelError> {
+    pub fn either_copy_out_bytes(dst: GenericMutSlice<u8>, src: &[u8]) -> Result<(), KernelError> {
         assert_eq!(dst.len(), src.len());
         match dst {
-            GenericMutSlice::User(dst) => self.copy_out_bytes(dst, src)?,
+            GenericMutSlice::User(pt, dst) => pt.copy_out_bytes(dst, src)?,
             GenericMutSlice::Kernel(dst) => dst.copy_from_slice(src),
         }
         Ok(())
@@ -288,14 +284,10 @@ impl UserPageTable {
     }
 
     /// Copies from either a user address, or kernel address.
-    pub fn either_copy_in_bytes(
-        &self,
-        dst: &mut [u8],
-        src: GenericSlice<u8>,
-    ) -> Result<(), KernelError> {
+    pub fn either_copy_in_bytes(dst: &mut [u8], src: GenericSlice<u8>) -> Result<(), KernelError> {
         assert_eq!(dst.len(), src.len());
         match src {
-            GenericSlice::User(src) => self.copy_in_bytes(dst, src)?,
+            GenericSlice::User(pt, src) => pt.copy_in_bytes(dst, src)?,
             GenericSlice::Kernel(src) => dst.copy_from_slice(src),
         }
         Ok(())

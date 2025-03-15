@@ -1,26 +1,21 @@
-use ov6_syscall::{Stat, UserMutRef, UserMutSlice, UserSlice};
+use ov6_syscall::{Stat, UserMutSlice, UserSlice};
 
 use super::{File, FileData, FileDataArc, SpecificData};
 use crate::{
     error::KernelError,
     fs::{DeviceNo, Inode},
-    memory::addr::{GenericMutSlice, GenericSlice},
+    memory::{
+        addr::{GenericMutSlice, GenericSlice},
+        vm_user::UserPageTable,
+    },
     param::NDEV,
-    proc::{Proc, ProcPrivateData},
+    proc::Proc,
     sync::SpinLock,
 };
 
 pub struct Device {
-    pub read: fn(
-        p: &Proc,
-        private: &mut ProcPrivateData,
-        dst: GenericMutSlice<u8>,
-    ) -> Result<usize, KernelError>,
-    pub write: fn(
-        p: &Proc,
-        private: &mut ProcPrivateData,
-        src: GenericSlice<u8>,
-    ) -> Result<usize, KernelError>,
+    pub read: fn(p: &Proc, dst: GenericMutSlice<u8>) -> Result<usize, KernelError>,
+    pub write: fn(p: &Proc, src: GenericSlice<u8>) -> Result<usize, KernelError>,
 }
 
 struct DeviceTable {
@@ -73,18 +68,14 @@ impl DeviceFile {
         super::common::close_inode(self.inode);
     }
 
-    pub(super) fn stat(
-        &self,
-        private: &mut ProcPrivateData,
-        dst: UserMutRef<Stat>,
-    ) -> Result<(), KernelError> {
-        super::common::stat_inode(&self.inode, private, dst)
+    pub(super) fn stat(&self) -> Result<Stat, KernelError> {
+        super::common::stat_inode(&self.inode)
     }
 
     pub(super) fn read(
         &self,
         p: &Proc,
-        private: &mut ProcPrivateData,
+        pt: &mut UserPageTable,
         dst: UserMutSlice<u8>,
     ) -> Result<usize, KernelError> {
         let read = DEVICE_TABLE
@@ -92,13 +83,13 @@ impl DeviceFile {
             .get_device(self.major)
             .ok_or(KernelError::DeviceNotFound(self.major))?
             .read;
-        read(p, private, dst.into())
+        read(p, (pt, dst).into())
     }
 
     pub(super) fn write(
         &self,
         p: &Proc,
-        private: &mut ProcPrivateData,
+        pt: &UserPageTable,
         src: UserSlice<u8>,
     ) -> Result<usize, KernelError> {
         let write = DEVICE_TABLE
@@ -106,6 +97,6 @@ impl DeviceFile {
             .get_device(self.major)
             .ok_or(KernelError::DeviceNotFound(self.major))?
             .write;
-        write(p, private, src.into())
+        write(p, (pt, src).into())
     }
 }

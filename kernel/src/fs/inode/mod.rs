@@ -192,6 +192,10 @@ impl<'tx, const READ_ONLY: bool> TxInode<'tx, READ_ONLY> {
         TxInode { tx, dev, ino, data }
     }
 
+    pub fn root(tx: &'tx Tx<READ_ONLY>) -> Self {
+        Self::get(tx, DeviceNo::ROOT, InodeNo::ROOT)
+    }
+
     /// Finds the inode with number `ino` on device `dev`.
     ///
     /// Returns the in-memory inode copy.

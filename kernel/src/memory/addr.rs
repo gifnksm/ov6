@@ -6,7 +6,7 @@ use core::{
 
 use ov6_syscall::{UserMutSlice, UserSlice};
 
-use super::{PAGE_SHIFT, PAGE_SIZE};
+use super::{PAGE_SHIFT, PAGE_SIZE, vm_user::UserPageTable};
 
 pub const fn page_roundup(addr: usize) -> usize {
     (addr + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
@@ -196,16 +196,16 @@ impl PhysAddr {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, derive_more::From)]
+#[derive(Clone, Copy, derive_more::From)]
 pub enum GenericSlice<'a, T> {
-    User(UserSlice<T>),
+    User(&'a UserPageTable, UserSlice<T>),
     Kernel(&'a [T]),
 }
 
 impl<T> GenericSlice<'_, T> {
     pub fn len(&self) -> usize {
         match self {
-            Self::User(s) => s.len(),
+            Self::User(_pt, s) => s.len(),
             Self::Kernel(s) => s.len(),
         }
     }
@@ -213,7 +213,7 @@ impl<T> GenericSlice<'_, T> {
     pub fn skip(&self, amt: usize) -> GenericSlice<'_, T> {
         assert!(amt <= self.len());
         match self {
-            Self::User(s) => GenericSlice::User(s.skip(amt)),
+            Self::User(pt, s) => GenericSlice::User(pt, s.skip(amt)),
             Self::Kernel(s) => GenericSlice::Kernel(&s[amt..]),
         }
     }
@@ -221,22 +221,22 @@ impl<T> GenericSlice<'_, T> {
     pub fn take(&self, amt: usize) -> GenericSlice<'_, T> {
         assert!(amt <= self.len());
         match self {
-            Self::User(s) => GenericSlice::User(s.take(amt)),
+            Self::User(pt, s) => GenericSlice::User(pt, s.take(amt)),
             Self::Kernel(s) => GenericSlice::Kernel(&s[..amt]),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, derive_more::From)]
+#[derive(derive_more::From)]
 pub enum GenericMutSlice<'a, T> {
-    User(UserMutSlice<T>),
+    User(&'a mut UserPageTable, UserMutSlice<T>),
     Kernel(&'a mut [T]),
 }
 
 impl<T> GenericMutSlice<'_, T> {
     pub fn len(&self) -> usize {
         match self {
-            Self::User(s) => s.len(),
+            Self::User(_, s) => s.len(),
             Self::Kernel(s) => s.len(),
         }
     }
@@ -244,7 +244,7 @@ impl<T> GenericMutSlice<'_, T> {
     pub fn skip_mut(&mut self, amt: usize) -> GenericMutSlice<'_, T> {
         assert!(amt <= self.len());
         match self {
-            Self::User(s) => GenericMutSlice::User(s.skip_mut(amt)),
+            Self::User(pt, s) => GenericMutSlice::User(pt, s.skip_mut(amt)),
             Self::Kernel(s) => GenericMutSlice::Kernel(&mut s[amt..]),
         }
     }
@@ -252,7 +252,7 @@ impl<T> GenericMutSlice<'_, T> {
     pub fn take_mut(&mut self, amt: usize) -> GenericMutSlice<'_, T> {
         assert!(amt <= self.len());
         match self {
-            Self::User(s) => GenericMutSlice::User(s.take_mut(amt)),
+            Self::User(pt, s) => GenericMutSlice::User(pt, s.take_mut(amt)),
             Self::Kernel(s) => GenericMutSlice::Kernel(&mut s[..amt]),
         }
     }

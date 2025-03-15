@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use ov6_syscall::{Stat, UserMutRef, UserMutSlice, UserSlice};
+use ov6_syscall::{Stat, UserMutSlice, UserSlice};
 
 use super::{File, FileData, FileDataArc, SpecificData};
 use crate::{
@@ -8,7 +8,6 @@ use crate::{
     fs::{self, FS_BLOCK_SIZE, Inode},
     memory::vm_user::UserPageTable,
     param::MAX_OP_BLOCKS,
-    proc::ProcPrivateData,
 };
 
 pub(super) struct InodeFile {
@@ -33,12 +32,8 @@ impl InodeFile {
         super::common::close_inode(self.inode);
     }
 
-    pub(super) fn stat(
-        &self,
-        private: &mut ProcPrivateData,
-        dst: UserMutRef<Stat>,
-    ) -> Result<(), KernelError> {
-        super::common::stat_inode(&self.inode, private, dst)
+    pub(super) fn stat(&self) -> Result<Stat, KernelError> {
+        super::common::stat_inode(&self.inode)
     }
 
     pub(super) fn read(
@@ -49,7 +44,7 @@ impl InodeFile {
         let tx = fs::begin_readonly_tx();
         let mut ip = self.inode.clone().into_tx(&tx);
         let mut lip = ip.lock();
-        let res = lip.read(pt, dst.into(), self.off.load(Ordering::Relaxed));
+        let res = lip.read((pt, dst).into(), self.off.load(Ordering::Relaxed));
         if let Ok(sz) = res {
             self.off.fetch_add(sz, Ordering::Relaxed);
         }
@@ -77,7 +72,7 @@ impl InodeFile {
             let tx = fs::begin_tx();
             let mut ip = self.inode.clone().into_tx(&tx);
             let mut lip = ip.lock();
-            let res = lip.write(pt, src.into(), self.off.load(Ordering::Relaxed));
+            let res = lip.write((pt, src).into(), self.off.load(Ordering::Relaxed));
             if let Ok(sz) = res {
                 self.off.fetch_add(sz, Ordering::Relaxed);
             }

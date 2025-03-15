@@ -13,8 +13,11 @@ use crate::{
     error::KernelError,
     file::{self, Device},
     fs::DeviceNo,
-    memory::addr::{GenericMutSlice, GenericSlice},
-    proc::{self, Proc, ProcPrivateData},
+    memory::{
+        addr::{GenericMutSlice, GenericSlice},
+        vm_user::UserPageTable,
+    },
+    proc::{self, Proc},
     sync::{SpinLock, SpinLockCondVar},
 };
 
@@ -67,13 +70,10 @@ static CONSOLE_BUFFER_WRITTEN: SpinLockCondVar = SpinLockCondVar::new();
 /// Writes the bytes to the console.
 ///
 /// User write()s to the console go here.
-fn write(private: &ProcPrivateData, src: GenericSlice<u8>) -> Result<usize, KernelError> {
+fn write(src: GenericSlice<u8>) -> Result<usize, KernelError> {
     for i in 0..src.len() {
         let mut c: [u8; 1] = [0];
-        if let Err(e) = private
-            .pagetable()
-            .either_copy_in_bytes(&mut c, src.skip(i).take(1))
-        {
+        if let Err(e) = UserPageTable::either_copy_in_bytes(&mut c, src.skip(i).take(1)) {
             if i > 0 {
                 return Ok(i);
             }
@@ -90,11 +90,7 @@ fn write(private: &ProcPrivateData, src: GenericSlice<u8>) -> Result<usize, Kern
 /// Copy (up to) a whole input line to `dst`.
 /// `user_dst` indicates whether `dst` is a user
 /// or kernel address.
-fn read(
-    p: &Proc,
-    private: &mut ProcPrivateData,
-    mut dst: GenericMutSlice<u8>,
-) -> Result<usize, KernelError> {
+fn read(p: &Proc, mut dst: GenericMutSlice<u8>) -> Result<usize, KernelError> {
     let mut i = 0;
     let mut cons = CONSOLE_BUFFER.lock();
     while i < dst.len() {
@@ -127,10 +123,7 @@ fn read(
 
         // copy the input byte to the user-space buffer.
         let cbuf = &[c];
-        if let Err(e) = private
-            .pagetable_mut()
-            .either_copy_out_bytes(dst.skip_mut(i).take_mut(1), cbuf)
-        {
+        if let Err(e) = UserPageTable::either_copy_out_bytes(dst.skip_mut(i).take_mut(1), cbuf) {
             if i > 0 {
                 break;
             }
@@ -196,20 +189,12 @@ pub fn handle_interrupt(c: u8) {
     }
 }
 
-fn console_write(
-    _p: &Proc,
-    private: &mut ProcPrivateData,
-    src: GenericSlice<u8>,
-) -> Result<usize, KernelError> {
-    write(private, src)
+fn console_write(_p: &Proc, src: GenericSlice<u8>) -> Result<usize, KernelError> {
+    write(src)
 }
 
-fn console_read(
-    p: &Proc,
-    private: &mut ProcPrivateData,
-    dst: GenericMutSlice<u8>,
-) -> Result<usize, KernelError> {
-    read(p, private, dst)
+fn console_read(p: &Proc, dst: GenericMutSlice<u8>) -> Result<usize, KernelError> {
+    read(p, dst)
 }
 
 pub fn init() {

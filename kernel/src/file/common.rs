@@ -1,10 +1,9 @@
 use ov6_fs_types::{T_DEVICE, T_DIR, T_FILE};
-use ov6_syscall::{Stat, StatType, UserMutRef};
+use ov6_syscall::{Stat, StatType};
 
 use crate::{
     error::KernelError,
     fs::{self, Inode},
-    proc::ProcPrivateData,
 };
 
 pub(super) fn close_inode(inode: Inode) {
@@ -12,11 +11,7 @@ pub(super) fn close_inode(inode: Inode) {
     inode.into_tx(&tx).put();
 }
 
-pub(super) fn stat_inode(
-    inode: &Inode,
-    private: &mut ProcPrivateData,
-    dst: UserMutRef<Stat>,
-) -> Result<(), KernelError> {
+pub(super) fn stat_inode(inode: &Inode) -> Result<Stat, KernelError> {
     let tx = fs::begin_readonly_tx();
     let mut ip = inode.clone().into_tx(&tx);
     let lip = ip.lock();
@@ -36,6 +31,5 @@ pub(super) fn stat_inode(
     };
     drop(lip);
     drop(ip);
-    private.pagetable_mut().copy_out(dst, &st)?;
-    Ok(())
+    Ok(st)
 }

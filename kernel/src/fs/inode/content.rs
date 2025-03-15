@@ -147,12 +147,7 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
     /// Returns the number of bytes successfully read.
     /// If the return value is less than the requested `n`,
     /// there was an error of some kind.
-    pub fn read(
-        &mut self,
-        pt: &mut UserPageTable,
-        mut dst: GenericMutSlice<u8>,
-        off: usize,
-    ) -> Result<usize, KernelError> {
+    pub fn read(&mut self, mut dst: GenericMutSlice<u8>, off: usize) -> Result<usize, KernelError> {
         let data = self.data();
         let size = data.size as usize;
         if off > size || off.checked_add(dst.len()).is_none() {
@@ -179,7 +174,9 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
             let Ok(bg) = br.lock().read();
             let m = usize::min(dst.len(), FS_BLOCK_SIZE - off % FS_BLOCK_SIZE);
             let dst = dst.take_mut(m);
-            if let Err(e) = pt.either_copy_out_bytes(dst, &bg.bytes()[off % FS_BLOCK_SIZE..][..m]) {
+            if let Err(e) =
+                UserPageTable::either_copy_out_bytes(dst, &bg.bytes()[off % FS_BLOCK_SIZE..][..m])
+            {
                 if tot > 0 {
                     break;
                 }
@@ -191,12 +188,12 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
     }
 
     /// Reads the inode's data as `T`.
-    pub fn read_as<T>(&mut self, pt: &mut UserPageTable, off: usize) -> Result<T, KernelError>
+    pub fn read_as<T>(&mut self, off: usize) -> Result<T, KernelError>
     where
         T: Pod,
     {
         let mut dst = T::zeroed();
-        let read = self.read(pt, dst.as_bytes_mut().into(), off)?;
+        let read = self.read(dst.as_bytes_mut().into(), off)?;
         assert_eq!(read, size_of::<T>());
         Ok(dst)
     }
@@ -210,12 +207,7 @@ impl LockedTxInode<'_, '_, false> {
     /// Returns the number of bytes successfully written.
     /// If the return value is less than the requested `n`,
     /// there was an error of some kind.
-    pub fn write(
-        &mut self,
-        pt: &UserPageTable,
-        src: GenericSlice<u8>,
-        off: usize,
-    ) -> Result<usize, KernelError> {
+    pub fn write(&mut self, src: GenericSlice<u8>, off: usize) -> Result<usize, KernelError> {
         if off
             .checked_add(src.len())
             .is_none_or(|end| end > MAX_FILE * FS_BLOCK_SIZE)
@@ -248,9 +240,10 @@ impl LockedTxInode<'_, '_, false> {
             let Ok(mut bg) = br.lock().read();
             let m = usize::min(src.len(), FS_BLOCK_SIZE - off % FS_BLOCK_SIZE);
             let src = src.take(m);
-            if let Err(e) =
-                pt.either_copy_in_bytes(&mut bg.bytes_mut()[off % FS_BLOCK_SIZE..][..m], src)
-            {
+            if let Err(e) = UserPageTable::either_copy_in_bytes(
+                &mut bg.bytes_mut()[off % FS_BLOCK_SIZE..][..m],
+                src,
+            ) {
                 if tot > 0 {
                     break;
                 }
@@ -273,16 +266,11 @@ impl LockedTxInode<'_, '_, false> {
     }
 
     /// Writes `data` to inode.
-    pub fn write_data<T>(
-        &mut self,
-        pt: &UserPageTable,
-        off: usize,
-        data: &T,
-    ) -> Result<(), KernelError>
+    pub fn write_data<T>(&mut self, off: usize, data: &T) -> Result<(), KernelError>
     where
         T: Pod,
     {
-        let written = self.write(pt, data.as_bytes().into(), off)?;
+        let written = self.write(data.as_bytes().into(), off)?;
         assert_eq!(written, size_of::<T>());
         Ok(())
     }

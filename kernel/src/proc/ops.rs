@@ -1,12 +1,12 @@
 use core::{cmp, ptr};
 
 use ov6_syscall::{RegisterValue as _, ReturnType, syscall as sys};
-use ov6_types::{os_str::OsStr, path::Path, process::ProcId};
+use ov6_types::{os_str::OsStr, process::ProcId};
 
 use super::{PROC, ProcPrivateData, ProcPrivateDataGuard, ProcShared, WaitLock};
 use crate::{
     error::KernelError,
-    fs::{self, Inode},
+    fs::{self, Inode, TxInode},
     memory::{PAGE_SIZE, page_table::PtEntryFlags},
     println,
     proc::{INIT_PROC, Proc, ProcState, scheduler, wait_lock},
@@ -39,9 +39,7 @@ pub fn spawn_init() {
     trapframe.sp = PAGE_SIZE; // user stack pointer
 
     let tx = fs::begin_readonly_tx();
-    private.cwd = Some(Inode::from_tx(
-        &fs::path::resolve(&tx, &mut private, Path::new("/")).unwrap(),
-    ));
+    private.cwd = Some(Inode::from_tx(&TxInode::root(&tx)));
     tx.end();
     shared.set_name(OsStr::new("initcode"));
     shared.state = ProcState::Runnable;

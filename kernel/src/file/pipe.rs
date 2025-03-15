@@ -5,8 +5,8 @@ use ov6_syscall::{UserMutSlice, UserSlice};
 use super::{File, FileData, FileDataArc, SpecificData};
 use crate::{
     error::KernelError,
-    memory::page::PageFrameAllocator,
-    proc::{Proc, ProcPrivateData},
+    memory::{page::PageFrameAllocator, vm_user::UserPageTable},
+    proc::Proc,
     sync::{SpinLock, SpinLockCondVar},
 };
 
@@ -82,7 +82,7 @@ impl PipeFile {
     pub(super) fn write(
         &self,
         p: &Proc,
-        private: &ProcPrivateData,
+        pt: &UserPageTable,
         src: UserSlice<u8>,
     ) -> Result<usize, KernelError> {
         let mut nwritten = 0;
@@ -105,10 +105,7 @@ impl PipeFile {
             }
 
             let mut byte = [0];
-            if let Err(e) = private
-                .pagetable()
-                .copy_in_bytes(&mut byte, src.skip(nwritten).take(1))
-            {
+            if let Err(e) = pt.copy_in_bytes(&mut byte, src.skip(nwritten).take(1)) {
                 if nwritten > 0 {
                     break;
                 }
@@ -127,7 +124,7 @@ impl PipeFile {
     pub(super) fn read(
         &self,
         p: &Proc,
-        private: &mut ProcPrivateData,
+        pt: &mut UserPageTable,
         dst: UserMutSlice<u8>,
     ) -> Result<usize, KernelError> {
         let mut pipe = self.0.data.lock();
@@ -145,10 +142,7 @@ impl PipeFile {
             let ch = pipe.data[pipe.nread % PIPE_SIZE];
             pipe.nread += 1;
 
-            if let Err(e) = private
-                .pagetable_mut()
-                .copy_out_bytes(dst.skip_mut(nread).take_mut(1), &[ch])
-            {
+            if let Err(e) = pt.copy_out_bytes(dst.skip_mut(nread).take_mut(1), &[ch]) {
                 if nread > 0 {
                     break;
                 }

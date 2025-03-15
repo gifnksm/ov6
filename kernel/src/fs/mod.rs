@@ -19,7 +19,7 @@ use ov6_fs_types::{self as repr, SuperBlock};
 pub use repr::{BlockNo, FS_BLOCK_SIZE, InodeNo, T_DEVICE, T_DIR, T_FILE};
 
 pub use self::{
-    inode::{Inode, LockedTxInode},
+    inode::{Inode, LockedTxInode, TxInode},
     log::{Tx, begin_readonly_tx, begin_tx},
 };
 

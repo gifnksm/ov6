@@ -1,11 +1,12 @@
-use ov6_syscall::{Stat, UserMutRef, UserMutSlice, UserSlice};
+use ov6_syscall::{Stat, UserMutSlice, UserSlice};
 
 pub use self::device::{Device, register_device};
 use self::{alloc::FileDataArc, device::DeviceFile, inode::InodeFile, pipe::PipeFile};
 use crate::{
     error::KernelError,
     fs::{DeviceNo, Inode},
-    proc::{Proc, ProcPrivateData},
+    memory::vm_user::UserPageTable,
+    proc::Proc,
 };
 
 mod alloc;
@@ -78,14 +79,10 @@ impl File {
     /// Gets metadata about file `f`.
     ///
     /// `addr` is a user virtual address, pointing to a struct stat.
-    pub fn stat(
-        &self,
-        private: &mut ProcPrivateData,
-        dst: UserMutRef<Stat>,
-    ) -> Result<(), KernelError> {
+    pub fn stat(&self) -> Result<Stat, KernelError> {
         match &self.data.data {
-            Some(SpecificData::Inode(inode)) => inode.stat(private, dst),
-            Some(SpecificData::Device(device)) => device.stat(private, dst),
+            Some(SpecificData::Inode(inode)) => inode.stat(),
+            Some(SpecificData::Device(device)) => device.stat(),
             Some(SpecificData::Pipe(_)) => Err(KernelError::StatOnNonFsEntry),
             None => unreachable!(),
         }
@@ -97,7 +94,7 @@ impl File {
     pub fn read(
         &self,
         p: &Proc,
-        private: &mut ProcPrivateData,
+        pt: &mut UserPageTable,
         dst: UserMutSlice<u8>,
     ) -> Result<usize, KernelError> {
         if !self.data.readable {
@@ -105,9 +102,9 @@ impl File {
         }
 
         match &self.data.data {
-            Some(SpecificData::Pipe(pipe)) => pipe.read(p, private, dst),
-            Some(SpecificData::Inode(inode)) => inode.read(private.pagetable_mut(), dst),
-            Some(SpecificData::Device(device)) => device.read(p, private, dst),
+            Some(SpecificData::Pipe(pipe)) => pipe.read(p, pt, dst),
+            Some(SpecificData::Inode(inode)) => inode.read(pt, dst),
+            Some(SpecificData::Device(device)) => device.read(p, pt, dst),
             None => unreachable!(),
         }
     }
@@ -118,7 +115,7 @@ impl File {
     pub fn write(
         &self,
         p: &Proc,
-        private: &mut ProcPrivateData,
+        pt: &UserPageTable,
         src: UserSlice<u8>,
     ) -> Result<usize, KernelError> {
         if !self.data.writable {
@@ -126,9 +123,9 @@ impl File {
         }
 
         match &self.data.data {
-            Some(SpecificData::Pipe(pipe)) => pipe.write(p, private, src),
-            Some(SpecificData::Inode(inode)) => inode.write(private.pagetable(), src),
-            Some(SpecificData::Device(device)) => device.write(p, private, src),
+            Some(SpecificData::Pipe(pipe)) => pipe.write(p, pt, src),
+            Some(SpecificData::Inode(inode)) => inode.write(pt, src),
+            Some(SpecificData::Device(device)) => device.write(p, pt, src),
             _ => unreachable!(),
         }
     }
