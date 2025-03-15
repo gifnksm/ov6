@@ -1,4 +1,4 @@
-use ov6_syscall::syscall as sys;
+use ov6_syscall::syscall;
 
 use super::SyscallExt;
 use crate::{
@@ -8,7 +8,7 @@ use crate::{
     sync::WaitError,
 };
 
-impl SyscallExt for sys::Fork {
+impl SyscallExt for syscall::Fork {
     type Private<'a> = ProcPrivateData;
 
     fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -18,7 +18,7 @@ impl SyscallExt for sys::Fork {
     }
 }
 
-impl SyscallExt for sys::Exit {
+impl SyscallExt for syscall::Exit {
     type Private<'a> = Option<ProcPrivateDataGuard<'a>>;
 
     fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -31,7 +31,7 @@ impl SyscallExt for sys::Exit {
     }
 }
 
-impl SyscallExt for sys::Wait {
+impl SyscallExt for syscall::Wait {
     type Private<'a> = ProcPrivateData;
 
     fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -47,7 +47,7 @@ impl SyscallExt for sys::Wait {
     }
 }
 
-impl SyscallExt for sys::Kill {
+impl SyscallExt for syscall::Kill {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -57,7 +57,7 @@ impl SyscallExt for sys::Kill {
     }
 }
 
-impl SyscallExt for sys::Getpid {
+impl SyscallExt for syscall::Getpid {
     type Private<'a> = ProcPrivateData;
 
     fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -66,7 +66,7 @@ impl SyscallExt for sys::Getpid {
     }
 }
 
-impl SyscallExt for sys::Sbrk {
+impl SyscallExt for syscall::Sbrk {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -77,7 +77,7 @@ impl SyscallExt for sys::Sbrk {
     }
 }
 
-impl SyscallExt for sys::Sleep {
+impl SyscallExt for syscall::Sleep {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -90,14 +90,5 @@ impl SyscallExt for sys::Sleep {
                 Err((_ticsk, WaitError::WaitingProcessAlreadyKilled)) => return,
             }
         }
-    }
-}
-
-impl SyscallExt for sys::Uptime {
-    type Private<'a> = ProcPrivateData;
-
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok(()) = Self::decode_arg(private.trapframe());
-        *TICKS.lock()
     }
 }

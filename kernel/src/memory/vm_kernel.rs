@@ -14,7 +14,7 @@ use crate::{
     interrupt::trampoline,
     memory::{
         PAGE_SIZE, PhysAddr, VirtAddr,
-        layout::{KERN_BASE, PHYS_TOP, PLIC, TEXT_END, TRAMPOLINE, UART0, VIRTIO0},
+        layout::{KERNEL_BASE, PHYS_TOP, PLIC, TEXT_END, TRAMPOLINE, UART0, VIRT_TEST, VIRTIO0},
         page_table::PtEntryFlags,
     },
 };
@@ -66,6 +66,9 @@ impl KernelPageTable {
         let mut kpgtbl = PageTable::try_allocate().unwrap();
 
         unsafe {
+            // SiFive test MMIO device
+            ident_map(&mut kpgtbl, VIRT_TEST, PAGE_SIZE, rw).unwrap();
+
             // uart registers
             ident_map(&mut kpgtbl, UART0, PAGE_SIZE, rw).unwrap();
 
@@ -76,7 +79,7 @@ impl KernelPageTable {
             ident_map(&mut kpgtbl, PLIC, 0x400_0000, rw).unwrap();
 
             // map kernel text executable and red-only.
-            ident_map(&mut kpgtbl, KERN_BASE, TEXT_END - KERN_BASE, rx).unwrap();
+            ident_map(&mut kpgtbl, KERNEL_BASE, TEXT_END - KERNEL_BASE, rx).unwrap();
 
             // map kernel data and the physical RAM we'll make use of.
             ident_map(&mut kpgtbl, TEXT_END, PHYS_TOP - TEXT_END, rw).unwrap();

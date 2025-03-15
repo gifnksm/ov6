@@ -569,6 +569,14 @@ where
 }
 
 impl_value!(
+    [](u16,),
+    RegisterDecodeError,
+    1,
+    tuple1_encode,
+    tuple1_decode
+);
+
+impl_value!(
     [](i32,),
     RegisterDecodeError,
     1,

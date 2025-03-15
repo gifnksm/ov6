@@ -50,3 +50,6 @@ syscall!(Unlink => fn(UserSlice<u8>) -> Result<(), SyscallError>);
 syscall!(Link => fn(UserSlice<u8>, UserSlice<u8>) -> Result<(), SyscallError>);
 syscall!(Mkdir => fn(UserSlice<u8>) -> Result<(), SyscallError>);
 syscall!(Close => fn(RawFd) -> Result<(), SyscallError>);
+syscall!(Reboot => fn() -> Result<Infallible, SyscallError>);
+syscall!(Halt => fn(u16) -> Result<Infallible, SyscallError>);
+syscall!(Abort => fn(u16) -> Result<Infallible, SyscallError>);

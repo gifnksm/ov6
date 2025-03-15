@@ -1,32 +1,39 @@
 //! Physical memory layout
 //!
 //! qemu -machine virt is set up like this,
-//! based on qemu's hw/riscv/virt.c:
+//! based on qemu's [hw/riscv/virt.c]:
 //!
 //! ```text
-//! 00001000 -- boot ROM, provided by qemu
-//! 02000000 -- CLINT
-//! 0C000000 -- PLIC
-//! 10000000 -- uart0
-//! 10001000 -- virtio disk
-//! 80000000 -- boot ROM jumps here in machine mode
-//!             -kernel loads the kernel here
-//! unused RAM after 80000000.
+//! 0x0000_1000 -- boot ROM, provided by qemu
+//! 0x0010_0000 -- VIRT_TEST
+//! 0x0200_0000 -- CLINT
+//! 0x0c00_0000 -- PLIC
+//! 0x1000_0000 -- UART0
+//! 0x1000_1000 -- virtio disk
+//! 0x8000_0000 -- boot ROM jumps here in machine mode
+//!               -kernel loads the kernel here
+//! unused RAM after 0x8000_0000.
 //! ```
 //!
 //! the kernel uses physical memory thus:
 //!
 //! ```text
-//! 80000000 -- entry.S, then kernel text and data
-//! end -- start of kernel page allocation area
-//! PHYSTOP -- end RAM used by the kernel
+//! 0x8000_0000 -- KERNEL_BASE. start of kernel text
+//! TEXT_END    -- start of kernel data
+//! KERNEL_END  -- start of kernel page allocation area
+//! PHYS_TOP    -- end RAM used by the kernel
 //! ```
+//!
+//! [hw/riscv/virt.c]: https://github.com/qemu/qemu/blob/9.2.0/hw/riscv/virt.c
 
 use core::arch::global_asm;
 
 use ov6_kernel_params::NPROC;
 
 use crate::memory::{PAGE_SIZE, VirtAddr};
+
+/// Test MMIO Device
+pub const VIRT_TEST: usize = 0x10_0000;
 
 // qemu puts UART registers here in physical memory.
 pub const UART0: usize = 0x1000_0000;
@@ -69,7 +76,7 @@ unsafe extern "C" {
     // for use by the kernel and user pages
     // from physical address 0x80000000 to PHYSTOP.
     #[link_name = "_ov6_kernel_base_addr"]
-    pub(super) static KERN_BASE: usize;
+    pub(super) static KERNEL_BASE: usize;
 
     /// Address of the end of kernel code.
     #[link_name = "_ov6_text_end_addr"]

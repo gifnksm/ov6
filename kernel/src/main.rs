@@ -17,6 +17,7 @@ extern crate alloc;
 
 mod console;
 mod cpu;
+mod device;
 mod error;
 mod file;
 mod fs;
@@ -61,11 +62,14 @@ extern "C" fn entry() {
 extern "C" fn main() -> ! {
     static STARTED: AtomicBool = AtomicBool::new(false);
 
+    interrupt::disable();
+
     if cpu::id() == 0 {
         console::init();
         println!();
         println!("ov6 kernel is booting");
         println!();
+        device::test::init(); // test device
         memory::page::init(); // physical page allocator
         memory::vm_kernel::init(); // create kernel page table
         memory::vm_kernel::init_hart(); // turn on paging

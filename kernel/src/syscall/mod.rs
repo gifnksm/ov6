@@ -1,7 +1,7 @@
 use core::convert::Infallible;
 
 use ov6_syscall::{
-    ArgTypeRepr, Register, RegisterValue, ReturnType, Syscall, SyscallCode, syscall as sys,
+    ArgTypeRepr, Register, RegisterValue, ReturnType, Syscall, SyscallCode, syscall,
 };
 
 use crate::{
@@ -12,6 +12,7 @@ use crate::{
 
 mod file;
 mod proc;
+mod system;
 
 fn decode_arg<S>(
     tf: &TrapFrame,
@@ -158,37 +159,40 @@ pub fn syscall(p: &'static Proc, private_opt: &mut Option<ProcPrivateDataGuard>)
     };
 
     let ret = match ty {
-        SyscallCode::Fork => sys::Fork::handle(p, private).encode().into(),
+        SyscallCode::Fork => syscall::Fork::handle(p, private).encode().into(),
         SyscallCode::Exit => {
-            let _: Infallible = sys::Exit::handle(p, private_opt);
+            let _: Infallible = syscall::Exit::handle(p, private_opt);
             unreachable!()
         }
-        SyscallCode::Wait => sys::Wait::handle(p, private).encode().into(),
-        SyscallCode::Pipe => sys::Pipe::handle(p, private).encode().into(),
-        SyscallCode::Read => sys::Read::handle(p, private).encode().into(),
-        SyscallCode::Kill => sys::Kill::handle(p, private).encode().into(),
+        SyscallCode::Wait => syscall::Wait::handle(p, private).encode().into(),
+        SyscallCode::Pipe => syscall::Pipe::handle(p, private).encode().into(),
+        SyscallCode::Read => syscall::Read::handle(p, private).encode().into(),
+        SyscallCode::Kill => syscall::Kill::handle(p, private).encode().into(),
         SyscallCode::Exec => match self::file::sys_exec(p, private) {
             Ok((argc, argv)) => ReturnValue::Ret2(argc, argv),
-            Err(e) => ReturnType::<sys::Exec>::Err(e.into()).encode().into(),
+            Err(e) => ReturnType::<syscall::Exec>::Err(e.into()).encode().into(),
         },
-        SyscallCode::Fstat => sys::Fstat::handle(p, private).encode().into(),
-        SyscallCode::Chdir => sys::Chdir::handle(p, private).encode().into(),
-        SyscallCode::Dup => sys::Dup::handle(p, private).encode().into(),
-        SyscallCode::Getpid => sys::Getpid::handle(p, private).encode().into(),
-        SyscallCode::Sbrk => sys::Sbrk::handle(p, private).encode().into(),
+        SyscallCode::Fstat => syscall::Fstat::handle(p, private).encode().into(),
+        SyscallCode::Chdir => syscall::Chdir::handle(p, private).encode().into(),
+        SyscallCode::Dup => syscall::Dup::handle(p, private).encode().into(),
+        SyscallCode::Getpid => syscall::Getpid::handle(p, private).encode().into(),
+        SyscallCode::Sbrk => syscall::Sbrk::handle(p, private).encode().into(),
         SyscallCode::Sleep =>
         {
             #[expect(clippy::unit_arg)]
-            sys::Sleep::handle(p, private).encode().into()
+            syscall::Sleep::handle(p, private).encode().into()
         }
-        SyscallCode::Uptime => sys::Uptime::handle(p, private).encode().into(),
-        SyscallCode::Open => sys::Open::handle(p, private).encode().into(),
-        SyscallCode::Write => sys::Write::handle(p, private).encode().into(),
-        SyscallCode::Mknod => sys::Mknod::handle(p, private).encode().into(),
-        SyscallCode::Unlink => sys::Unlink::handle(p, private).encode().into(),
-        SyscallCode::Link => sys::Link::handle(p, private).encode().into(),
-        SyscallCode::Mkdir => sys::Mkdir::handle(p, private).encode().into(),
-        SyscallCode::Close => sys::Close::handle(p, private).encode().into(),
+        SyscallCode::Uptime => syscall::Uptime::handle(p, private).encode().into(),
+        SyscallCode::Open => syscall::Open::handle(p, private).encode().into(),
+        SyscallCode::Write => syscall::Write::handle(p, private).encode().into(),
+        SyscallCode::Mknod => syscall::Mknod::handle(p, private).encode().into(),
+        SyscallCode::Unlink => syscall::Unlink::handle(p, private).encode().into(),
+        SyscallCode::Link => syscall::Link::handle(p, private).encode().into(),
+        SyscallCode::Mkdir => syscall::Mkdir::handle(p, private).encode().into(),
+        SyscallCode::Close => syscall::Close::handle(p, private).encode().into(),
+        SyscallCode::Reboot => syscall::Reboot::handle(p, private).encode().into(),
+        SyscallCode::Halt => syscall::Halt::handle(p, private).encode().into(),
+        SyscallCode::Abort => syscall::Abort::handle(p, private).encode().into(),
     };
 
     let private = private_opt.as_mut().unwrap();

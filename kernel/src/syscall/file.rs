@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use core::alloc::AllocError;
 
 use arrayvec::ArrayVec;
-use ov6_syscall::{OpenFlags, UserSlice, syscall as sys};
+use ov6_syscall::{OpenFlags, UserSlice, syscall};
 use ov6_types::{fs::RawFd, os_str::OsStr, path::Path};
 
 use super::SyscallExt;
@@ -36,7 +36,7 @@ fn fetch_path<'a>(
     Ok(Path::new(OsStr::from_bytes(path_out)))
 }
 
-impl SyscallExt for sys::Dup {
+impl SyscallExt for syscall::Dup {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -48,7 +48,7 @@ impl SyscallExt for sys::Dup {
     }
 }
 
-impl SyscallExt for sys::Read {
+impl SyscallExt for syscall::Read {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -59,7 +59,7 @@ impl SyscallExt for sys::Read {
     }
 }
 
-impl SyscallExt for sys::Write {
+impl SyscallExt for syscall::Write {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -70,7 +70,7 @@ impl SyscallExt for sys::Write {
     }
 }
 
-impl SyscallExt for sys::Close {
+impl SyscallExt for syscall::Close {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -81,7 +81,7 @@ impl SyscallExt for sys::Close {
     }
 }
 
-impl SyscallExt for sys::Fstat {
+impl SyscallExt for syscall::Fstat {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -93,7 +93,7 @@ impl SyscallExt for sys::Fstat {
     }
 }
 
-impl SyscallExt for sys::Link {
+impl SyscallExt for syscall::Link {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -111,7 +111,7 @@ impl SyscallExt for sys::Link {
     }
 }
 
-impl SyscallExt for sys::Unlink {
+impl SyscallExt for syscall::Unlink {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -126,7 +126,7 @@ impl SyscallExt for sys::Unlink {
     }
 }
 
-impl SyscallExt for sys::Open {
+impl SyscallExt for syscall::Open {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -168,7 +168,7 @@ impl SyscallExt for sys::Open {
     }
 }
 
-impl SyscallExt for sys::Mkdir {
+impl SyscallExt for syscall::Mkdir {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -184,7 +184,7 @@ impl SyscallExt for sys::Mkdir {
     }
 }
 
-impl SyscallExt for sys::Mknod {
+impl SyscallExt for syscall::Mknod {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -201,7 +201,7 @@ impl SyscallExt for sys::Mknod {
     }
 }
 
-impl SyscallExt for sys::Chdir {
+impl SyscallExt for syscall::Chdir {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
@@ -226,7 +226,7 @@ pub fn sys_exec(
     p: &'static Proc,
     private: &mut ProcPrivateData,
 ) -> Result<(usize, usize), KernelError> {
-    let Ok((user_path, uargv)) = super::decode_arg::<sys::Exec>(private.trapframe());
+    let Ok((user_path, uargv)) = super::decode_arg::<syscall::Exec>(private.trapframe());
     let mut path = [0; MAX_PATH];
     let path = fetch_path(private, user_path, &mut path)?;
 
@@ -253,7 +253,7 @@ pub fn sys_exec(
     exec::exec(p, private, path, &argv)
 }
 
-impl SyscallExt for sys::Pipe {
+impl SyscallExt for syscall::Pipe {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {

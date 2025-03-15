@@ -21,6 +21,7 @@ pub const INVALID_CPUID: usize = usize::MAX;
 /// Must be called with interrupts disabled,
 /// to prevent race with process being moved
 /// to a different CPU.
+#[track_caller]
 pub fn id() -> usize {
     assert!(!interrupt::is_enabled());
 

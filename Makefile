@@ -19,15 +19,18 @@ RX=target/$(RUST_CROSS_TARGET)/$(PROFILE)
 RXI=target/$(RUST_CROSS_TARGET)/initcode
 
 PROGS=\
+	abort\
 	cat\
 	echo\
 	grep\
+	halt\
 	hello\
 	init\
 	kill\
 	ln\
 	ls\
 	mkdir\
+	reboot\
 	rm\
 	sh\
 	wc\

@@ -136,3 +136,18 @@ pub fn sleep(n: u64) {
 pub fn uptime() -> u64 {
     syscall::Uptime::call(())
 }
+
+pub fn reboot() -> Result<Infallible, Ov6Error> {
+    let _: Infallible = syscall::Reboot::call(())?;
+    unreachable!()
+}
+
+pub fn halt(code: u16) -> Result<Infallible, Ov6Error> {
+    let _: Infallible = syscall::Halt::call((code,))?;
+    unreachable!()
+}
+
+pub fn abort(code: u16) -> Result<Infallible, Ov6Error> {
+    let _: Infallible = syscall::Abort::call((code,))?;
+    unreachable!()
+}

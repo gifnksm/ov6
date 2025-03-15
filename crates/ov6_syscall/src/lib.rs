@@ -70,6 +70,9 @@ pub enum SyscallCode {
     Link = 19,
     Mkdir = 20,
     Close = 21,
+    Reboot = 22,
+    Halt = 23,
+    Abort = 24,
 }
 
 pub trait Syscall {

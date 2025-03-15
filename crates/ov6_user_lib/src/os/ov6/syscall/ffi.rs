@@ -75,3 +75,6 @@ syscall!(Getpid, getpid());
 syscall!(Sbrk, sbrk(a0));
 syscall!(Sleep, sleep(a0));
 syscall!(Uptime, uptime());
+syscall!(Reboot, reboot());
+syscall!(Halt, halt(a0));
+syscall!(Abort, abort(a0));
