@@ -1,5 +1,151 @@
 pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode, syscall};
-use ov6_syscall::{RegisterValue, ReturnTypeRepr, Syscall};
+use ov6_syscall::{Register, RegisterValue, ReturnTypeRepr, Syscall};
+
+trait CallWithArg {
+    fn call_with_arg(self, code: SyscallCode) -> [usize; 2];
+}
+
+impl<T> CallWithArg for Register<T, 0> {
+    #[cfg(not(target_arch = "riscv64"))]
+    fn call_with_arg(self, _code: SyscallCode) -> [usize; 2] {
+        unimplemented!()
+    }
+
+    #[cfg(target_arch = "riscv64")]
+    fn call_with_arg(self, code: SyscallCode) -> [usize; 2] {
+        let [] = self.a;
+        let (a, b);
+        unsafe {
+            core::arch::asm!(
+                "ecall",
+                in("a7") code as usize,
+                lateout("a0") a,
+                lateout("a1") b,
+            );
+        }
+        [a, b]
+    }
+}
+
+impl<T> CallWithArg for Register<T, 1> {
+    #[cfg(not(target_arch = "riscv64"))]
+    fn call_with_arg(self, _code: SyscallCode) -> [usize; 2] {
+        unimplemented!()
+    }
+
+    #[cfg(target_arch = "riscv64")]
+    fn call_with_arg(self, code: SyscallCode) -> [usize; 2] {
+        let [a0] = self.a;
+        let (a, b);
+        unsafe {
+            core::arch::asm!(
+                "ecall",
+                in("a0") a0,
+                in("a7") code as usize,
+                lateout("a0") a,
+                lateout("a1") b,
+            );
+        }
+        [a, b]
+    }
+}
+
+impl<T> CallWithArg for Register<T, 2> {
+    #[cfg(not(target_arch = "riscv64"))]
+    fn call_with_arg(self, _code: SyscallCode) -> [usize; 2] {
+        unimplemented!()
+    }
+
+    #[cfg(target_arch = "riscv64")]
+    fn call_with_arg(self, code: SyscallCode) -> [usize; 2] {
+        let [a0, a1] = self.a;
+        let (a, b);
+        unsafe {
+            core::arch::asm!(
+                "ecall",
+                in("a0") a0,
+                in("a1") a1,
+                in("a7") code as usize,
+                lateout("a0") a,
+                lateout("a1") b,
+            );
+        }
+        [a, b]
+    }
+}
+
+impl<T> CallWithArg for Register<T, 3> {
+    #[cfg(not(target_arch = "riscv64"))]
+    fn call_with_arg(self, _code: SyscallCode) -> [usize; 2] {
+        unimplemented!()
+    }
+
+    #[cfg(target_arch = "riscv64")]
+    fn call_with_arg(self, code: SyscallCode) -> [usize; 2] {
+        let [a0, a1, a2] = self.a;
+        let (a, b);
+        unsafe {
+            core::arch::asm!(
+                "ecall",
+                in("a0") a0,
+                in("a1") a1,
+                in("a2") a2,
+                in("a7") code as usize,
+                lateout("a0") a,
+                lateout("a1") b,
+            );
+        }
+        [a, b]
+    }
+}
+
+impl<T> CallWithArg for Register<T, 4> {
+    #[cfg(not(target_arch = "riscv64"))]
+    fn call_with_arg(self, _code: SyscallCode) -> [usize; 2] {
+        unimplemented!()
+    }
+
+    #[cfg(target_arch = "riscv64")]
+    fn call_with_arg(self, code: SyscallCode) -> [usize; 2] {
+        let [a0, a1, a2, a3] = self.a;
+        let (a, b);
+        unsafe {
+            core::arch::asm!(
+                "ecall",
+                in("a0") a0,
+                in("a1") a1,
+                in("a2") a2,
+                in("a3") a3,
+                in("a7") code as usize,
+                lateout("a0") a,
+                lateout("a1") b,
+            );
+        }
+        [a, b]
+    }
+}
+
+trait FromArray {
+    fn from_array(a: [usize; 2]) -> Self;
+}
+
+impl<T> FromArray for Register<T, 0> {
+    fn from_array([_a0, _a1]: [usize; 2]) -> Self {
+        Self::new([])
+    }
+}
+
+impl<T> FromArray for Register<T, 1> {
+    fn from_array([a0, _a1]: [usize; 2]) -> Self {
+        Self::new([a0])
+    }
+}
+
+impl<T> FromArray for Register<T, 2> {
+    fn from_array([a0, a1]: [usize; 2]) -> Self {
+        Self::new([a0, a1])
+    }
+}
 
 pub trait SyscallExt: Syscall {
     fn call_raw(arg: Self::Arg) -> ReturnTypeRepr<Self>;
@@ -16,65 +162,37 @@ pub trait SyscallExt: Syscall {
     }
 }
 
-macro_rules! syscall_fn {
-    ($name:ident => $(#[$attr:meta])* fn $fn_name:ident($($params:tt)*) -> $ret:ty) => {
-        #[cfg(target_arch = "riscv64")]
-        #[naked]
-        pub extern "C" fn $fn_name($($params)*) -> $ret {
-            unsafe {
-                core::arch::naked_asm!(
-                    "li a7, {ty}",
-                    "ecall",
-                    "ret",
-                    ty = const SyscallCode::$name as usize
-                );
+macro_rules! syscall {
+    ($name:ident) => {
+        impl SyscallExt for syscall::$name {
+            fn call_raw(arg: Self::Arg) -> ReturnTypeRepr<Self> {
+                FromArray::from_array(Self::Arg::encode(arg).call_with_arg(Self::CODE))
             }
-        }
-
-        #[cfg(not(target_arch = "riscv64"))]
-        #[allow(clippy::allow_attributes)]
-        #[allow(unused_variables)]
-        #[allow(clippy::must_use_candidate)]
-        pub extern "C" fn $fn_name($($params)*) -> $ret {
-            panic!();
         }
     };
 }
 
-macro_rules! syscall {
-    ($(#[$attr:meta])* $name:ident, $fn_name:ident($($arg:ident),*)) => {
-        impl SyscallExt for syscall::$name {
-            fn call_raw(arg: Self::Arg) -> ReturnTypeRepr<Self> {
-                let [$($arg),*] = Self::Arg::encode(arg).a;
-                $fn_name($($arg),*)
-            }
-        }
-
-        syscall_fn!($name => $(#[$attr])* fn $fn_name($($arg: usize),*) -> ReturnTypeRepr<syscall::$name>);
-    }
-}
-
-syscall!(Fork, fork());
-syscall!(Exit, exit(a0));
-syscall!(Wait, wait(a0));
-syscall!(Pipe, pipe(a0));
-syscall!(Write, write(a0, a1, a2));
-syscall!(Read, read(a0, a1, a2));
-syscall!(Close, close(a0));
-syscall!(Kill, kill(a0));
-syscall!(Exec, exec(a0, a1, a2, a3));
-syscall!(Open, open(a0, a1, a2));
-syscall!(Mknod, mknod(a0, a1, a2, a3));
-syscall!(Unlink, unlink(a0, a1));
-syscall!(Fstat, fstat(a0, a1));
-syscall!(Link, link(a0, a1, a2, a3));
-syscall!(Mkdir, mkdir(a0, a1));
-syscall!(Chdir, chdir(a0, a1));
-syscall!(Dup, dup(a0));
-syscall!(Getpid, getpid());
-syscall!(Sbrk, sbrk(a0));
-syscall!(Sleep, sleep(a0));
-syscall!(Uptime, uptime());
-syscall!(Reboot, reboot());
-syscall!(Halt, halt(a0));
-syscall!(Abort, abort(a0));
+syscall!(Fork);
+syscall!(Exit);
+syscall!(Wait);
+syscall!(Pipe);
+syscall!(Write);
+syscall!(Read);
+syscall!(Close);
+syscall!(Kill);
+syscall!(Exec);
+syscall!(Open);
+syscall!(Mknod);
+syscall!(Unlink);
+syscall!(Fstat);
+syscall!(Link);
+syscall!(Mkdir);
+syscall!(Chdir);
+syscall!(Dup);
+syscall!(Getpid);
+syscall!(Sbrk);
+syscall!(Sleep);
+syscall!(Uptime);
+syscall!(Reboot);
+syscall!(Halt);
+syscall!(Abort);
