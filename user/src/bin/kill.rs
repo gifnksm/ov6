@@ -1,7 +1,7 @@
 #![no_std]
 
 use ov6_user_lib::{env, process};
-use user::{try_or, usage_and_exit};
+use user::{message, try_or, usage_and_exit};
 
 fn main() {
     let args = env::args();
@@ -16,11 +16,13 @@ fn main() {
             continue,
             e => "invalid pid: {e}",
         );
-        try_or!(
-            process::kill(pid),
-            continue,
-            e => "kill process {pid} failed: {e}"
-        );
+
+        match process::kill(pid) {
+            Ok(()) => {}
+            Err(e) => {
+                message!("kill process {pid} failed: {e}");
+            }
+        }
     }
 
     process::exit(0);

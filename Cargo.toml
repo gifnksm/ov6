@@ -76,7 +76,6 @@ unused = "warn"
 pedantic = { level = "warn", priority = -1 }
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
-needless_continue = "allow"
 similar_names = "allow"
 
 # restriction group

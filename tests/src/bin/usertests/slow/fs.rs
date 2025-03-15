@@ -140,7 +140,7 @@ pub fn disk_full() {
         let path = OsStr::from_bytes(&name);
         let _ = fs::remove_file(path);
         match File::create(path) {
-            Ok(_) => continue,
+            Ok(_) => {}
             Err(Ov6Error::StorageFull) => break,
             Err(e) => panic!("unexpected error: {e:?}"),
         }
@@ -180,7 +180,7 @@ pub fn out_of_inodes() {
         let path = OsStr::from_bytes(&name);
         let _ = fs::remove_file(path);
         match File::create(path) {
-            Ok(_) => continue,
+            Ok(_) => {}
             Err(Ov6Error::StorageFull) => break,
             Err(e) => panic!("unexpected error: {e:?}"),
         }

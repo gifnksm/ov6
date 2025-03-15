@@ -40,12 +40,13 @@ pub trait Read {
 
     fn read_exact(&mut self, mut buf: &mut [u8]) -> Result<(), Ov6Error> {
         while !buf.is_empty() {
-            match self.read(buf) {
+            let n = match self.read(buf) {
                 Ok(0) => break,
-                Ok(n) => buf = &mut buf[n..],
+                Ok(n) => n,
                 Err(e) if e.is_interrupted() => continue,
                 Err(e) => return Err(e),
-            }
+            };
+            buf = &mut buf[n..];
         }
 
         if !buf.is_empty() {
@@ -98,12 +99,13 @@ pub trait Write {
 
     fn write_all(&mut self, mut buf: &[u8]) -> Result<(), Ov6Error> {
         while !buf.is_empty() {
-            match self.write(buf) {
+            let n = match self.write(buf) {
                 Ok(0) => return Err(Ov6Error::WriteAllEof),
-                Ok(n) => buf = &buf[n..],
+                Ok(n) => n,
                 Err(e) if e.is_interrupted() => continue,
                 Err(e) => return Err(e),
-            }
+            };
+            buf = &buf[n..];
         }
         Ok(())
     }
