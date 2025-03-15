@@ -9,12 +9,13 @@ use ov6_user_lib::{
 use tests::message;
 
 fn main() {
+    const N: u8 = 4;
     message!("starting");
 
     let mut path: [u8; 9] = *b"stressfs0";
 
     let mut idx = 0;
-    for i in 0..4 {
+    for i in 0..N {
         let res = process::fork().unwrap();
         idx = i;
         if res.is_parent() {
@@ -51,6 +52,8 @@ fn main() {
     }
     drop(file);
 
-    process::wait().unwrap();
+    if idx != N - 1 {
+        process::wait().unwrap();
+    }
     process::exit(0);
 }
