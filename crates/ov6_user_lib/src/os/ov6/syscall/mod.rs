@@ -1,4 +1,4 @@
-use core::{convert::Infallible, ptr};
+use core::{convert::Infallible, ptr, time::Duration};
 
 use dataview::PodMethods as _;
 pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
@@ -128,8 +128,8 @@ pub unsafe fn sbrk(increment: isize) -> Result<*mut u8, Ov6Error> {
     Ok(ptr::with_exposed_provenance_mut(addr))
 }
 
-pub fn sleep(n: u64) {
-    syscall::Sleep::call((n,));
+pub fn sleep(dur: Duration) {
+    syscall::Sleep::call((dur,));
 }
 
 #[must_use]

@@ -1,4 +1,4 @@
-use core::convert::Infallible;
+use core::{convert::Infallible, time::Duration};
 
 use ov6_types::{fs::RawFd, process::ProcId};
 
@@ -41,7 +41,7 @@ syscall!(Chdir => fn(UserSlice<u8>) -> Result<(), SyscallError>);
 syscall!(Dup => fn(RawFd) -> Result<RawFd, SyscallError>);
 syscall!(Getpid => fn() -> ProcId);
 syscall!(Sbrk => fn(isize) -> Result<usize, SyscallError>);
-syscall!(Sleep => fn(u64) -> ());
+syscall!(Sleep => fn(Duration) -> ());
 syscall!(Uptime => fn() -> u64);
 syscall!(Open => fn(UserSlice<u8>, OpenFlags) -> Result<RawFd, SyscallError>);
 syscall!(Write => fn(RawFd, UserSlice<u8>) -> Result<usize, SyscallError>);

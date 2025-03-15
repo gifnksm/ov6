@@ -7,6 +7,13 @@ use crate::{
     sync::{SpinLock, SpinLockCondVar},
 };
 
+const NANOS_PER_CLOCK: u64 = 100;
+const NANOS_PER_SEC: u64 = 1_000_000_000;
+const TICKS_PER_SEC: u64 = 10;
+const NANOS_PER_TICK: u64 = NANOS_PER_SEC / TICKS_PER_SEC;
+const CLOCKS_PER_TICK: u64 = NANOS_PER_TICK / NANOS_PER_CLOCK;
+pub const NANOS_PER_TICKS: u64 = NANOS_PER_SEC / TICKS_PER_SEC;
+
 pub static TICKS: SpinLock<u64> = SpinLock::new(0);
 pub static TICKS_UPDATED: SpinLockCondVar = SpinLockCondVar::new();
 
@@ -50,9 +57,9 @@ pub(super) fn handle_interrupt() {
     // ask for the next timer interrupt. this also clears
     // the interrupt request. 1_000_000 is about a tenth
     // of a second.
-    let time: usize;
+    let time: u64;
     unsafe {
         asm!("csrr {}, time", out(reg) time);
-        asm!("csrw stimecmp, {}", in(reg) time + 1_000_000);
+        asm!("csrw stimecmp, {}", in(reg) time + CLOCKS_PER_TICK);
     }
 }

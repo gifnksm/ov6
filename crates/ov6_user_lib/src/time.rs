@@ -4,21 +4,6 @@ use core::{
     ops::{Add, Sub, SubAssign},
 };
 
-const TICKS_PER_SEC: u64 = 10;
-const NANOS_PER_TICKS: u64 = NANOS_PER_SEC / TICKS_PER_SEC;
-
-const NANOS_PER_SEC: u64 = 1_000_000_000;
-
-pub(crate) trait DurationExt {
-    fn as_ticks(&self) -> u64;
-}
-
-impl DurationExt for Duration {
-    fn as_ticks(&self) -> u64 {
-        self.as_secs() * TICKS_PER_SEC + u64::from(self.subsec_nanos()) / NANOS_PER_TICKS
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Instant {
     nanos: u64,

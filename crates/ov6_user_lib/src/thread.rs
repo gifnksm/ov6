@@ -1,8 +1,5 @@
-use crate::{
-    os::ov6::syscall,
-    time::{Duration, DurationExt as _},
-};
+use crate::{os::ov6::syscall, time::Duration};
 
 pub fn sleep(dur: Duration) {
-    syscall::sleep(dur.as_ticks());
+    syscall::sleep(dur);
 }

@@ -1,4 +1,4 @@
-use core::{convert::Infallible, marker::PhantomData, num::NonZero};
+use core::{convert::Infallible, marker::PhantomData, num::NonZero, time::Duration};
 
 use ov6_types::{fs::RawFd, process::ProcId};
 
@@ -283,6 +283,24 @@ where
             addr,
             _phantom: PhantomData,
         })
+    }
+}
+
+impl RegisterValue for Duration {
+    type DecodeError = RegisterDecodeError;
+    type Repr = Register<Self, 2>;
+
+    fn encode(self) -> Self::Repr {
+        let [a0] = self.as_secs().encode().a;
+        let [a1] = self.subsec_nanos().encode().a;
+        Self::Repr::new([a0, a1])
+    }
+
+    fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
+        let [a0, a1] = repr.a;
+        let secs = Register::new([a0]).try_decode()?;
+        let subsec_nanos = Register::new([a1]).try_decode()?;
+        Ok(Self::new(secs, subsec_nanos))
     }
 }
 
@@ -585,6 +603,13 @@ impl_value!(
 );
 impl_value!([](u64,), Infallible, 1, tuple1_encode, tuple1_decode);
 impl_value!([](isize,), Infallible, 1, tuple1_encode, tuple1_decode);
+impl_value!(
+    [](Duration,),
+    RegisterDecodeError,
+    2,
+    tuple1_encode,
+    tuple1_decode
+);
 impl_value!([](RawFd,), Infallible, 1, tuple1_encode, tuple1_decode);
 impl_value!(
     [](ProcId,),
