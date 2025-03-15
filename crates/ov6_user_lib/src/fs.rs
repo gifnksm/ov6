@@ -61,6 +61,7 @@ impl Metadata {
     }
 }
 
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Default, Debug, Clone)]
 pub struct OpenOptions {
     read: bool,
