@@ -81,12 +81,7 @@ $(RX)/tests.stamp: FORCE
 	cargo build -p tests --target $(RUST_CROSS_TARGET) $(CARGO_PROFILE_FLAG)
 	touch $@
 
-define user_rule
-$$(RX)/$(1): $$(RX)/user.stamp
-
-endef
-
-$(foreach p,$(PROGS),$(eval $(call user_rule,$(p))))
+$(foreach p,$(PROGS),$(eval $$(RX)/$(p): $$(RX)/user.stamp))
 $(foreach t,$(TESTS),$(eval $$(RX)/$(t): $$(RX)/tests.stamp))
 
 $(RN)/mkfs:
