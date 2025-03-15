@@ -79,7 +79,7 @@ fn write(src: GenericSlice<u8>) -> Result<usize, KernelError> {
             }
             return Err(e);
         }
-        uart::putc(c[0] as char);
+        uart::putc(c[0]);
     }
     Ok(src.len())
 }

@@ -125,7 +125,7 @@ pub fn init() {
 /// Because it may block, it can't be called
 /// from interrupts; it's only suitable for use
 /// by `write()`.
-pub fn putc(c: char) {
+pub fn putc(c: u8) {
     let mut buffer = TX_BUFFER.lock();
 
     if PANICKED.load(Ordering::Relaxed) {
@@ -139,7 +139,7 @@ pub fn putc(c: char) {
         // wait for start() to open up space in the buffer.
         buffer = TX_BUFFER_SPACE_AVAILABLE.wait(buffer);
     }
-    buffer.put(c as u8);
+    buffer.put(c);
     start(&mut buffer);
 }
 
@@ -165,7 +165,10 @@ pub fn putc_sync(c: char) {
         }
 
         unsafe {
-            write_reg(THR, c as u8);
+            let mut bytes = [0; 4];
+            for b in c.encode_utf8(&mut bytes).as_bytes() {
+                write_reg(THR, *b);
+            }
         }
     });
 }
