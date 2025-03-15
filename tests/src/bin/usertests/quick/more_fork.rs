@@ -7,7 +7,7 @@ use ov6_user_lib::{
     io::{Read as _, Write as _},
     pipe, process, thread,
 };
-use user::message;
+use tests::message;
 
 use crate::{KERN_BASE, MAX_VA, PAGE_SIZE, expect};
 

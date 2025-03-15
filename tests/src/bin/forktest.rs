@@ -1,7 +1,7 @@
 #![no_std]
 
 use ov6_user_lib::process;
-use user::{message, try_or_panic};
+use tests::message;
 
 const N: usize = 1000;
 
@@ -20,10 +20,7 @@ fn forktest() {
     assert_ne!(n, N, "fork claimed to work N times!");
 
     for _ in 0..n {
-        let (_pid, status) = try_or_panic!(
-            process::wait(),
-            e => "wait stopped early: {e}"
-        );
+        let (_pid, status) = process::wait().unwrap();
         assert!(status.success(), "child failed");
     }
 

@@ -14,7 +14,7 @@ use ov6_user_lib::{
     process::{self},
     time::Instant,
 };
-use user::{message, usage_and_exit};
+use tests::message;
 
 mod macros;
 mod quick;
@@ -217,7 +217,8 @@ struct Param {
 
 impl Param {
     fn usage_and_exit() -> ! {
-        usage_and_exit!("[-c] [-C] [-q] [testname]");
+        eprintln!("Usage: {} [-c] [-C] [-q] [testname]", env::arg0().display());
+        process::exit(1);
     }
 
     fn parse() -> Self {

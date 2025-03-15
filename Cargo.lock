@@ -94,7 +94,6 @@ dependencies = [
  "page_alloc",
  "riscv",
  "slab_allocator",
- "strum",
  "thiserror",
  "vcell",
 ]
@@ -173,7 +172,6 @@ dependencies = [
  "ov6_fs_types",
  "ov6_syscall",
  "ov6_types",
- "strum",
  "thiserror",
 ]
 
@@ -279,6 +277,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tests"
+version = "0.1.0"
+dependencies = [
+ "ov6_fs_types",
+ "ov6_kernel_params",
+ "ov6_user_lib",
+]
+
+[[package]]
 name = "thiserror"
 version = "2.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -308,8 +315,6 @@ checksum = "5a5f39404a5da50712a4c1eecf25e90dd62b613502b7e925fd4e4d19b5c96512"
 name = "user"
 version = "0.1.0"
 dependencies = [
- "ov6_fs_types",
- "ov6_kernel_params",
  "ov6_syscall",
  "ov6_user_lib",
 ]

@@ -37,7 +37,6 @@ ov6_types.workspace = true
 page_alloc.workspace = true
 riscv.workspace = true
 slab_allocator.workspace = true
-strum.workspace = true
 thiserror.workspace = true
 vcell.workspace = true
 

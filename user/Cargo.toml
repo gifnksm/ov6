@@ -19,8 +19,6 @@ test = false
 bench = false
 
 [dependencies]
-ov6_fs_types.workspace = true
-ov6_kernel_params.workspace = true
 ov6_syscall.workspace = true
 ov6_user_lib.workspace = true
 

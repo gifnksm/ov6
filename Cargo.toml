@@ -12,7 +12,7 @@ members = [
     "crates/page_alloc",
     "crates/slab_allocator",
     "kernel",
-    "mkfs",
+    "mkfs", "tests",
     "user"
 ]
 resolver = "2"

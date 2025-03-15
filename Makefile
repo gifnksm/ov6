@@ -18,12 +18,10 @@ RUST_CROSS_TARGET=riscv64imac-unknown-none-elf
 RX=target/$(RUST_CROSS_TARGET)/$(PROFILE)
 RXI=target/$(RUST_CROSS_TARGET)/initcode
 
-RUPROGS=\
+PROGS=\
 	cat\
 	echo\
-	forktest\
 	grep\
-	grind\
 	hello\
 	init\
 	kill\
@@ -32,19 +30,27 @@ RUPROGS=\
 	mkdir\
 	rm\
 	sh\
-	stressfs\
 	wc\
 	zombie\
+
+TESTS=\
+	forktest\
+	grind\
+	stressfs\
 	usertests\
 
-RX_RUPROGS=$(patsubst %,$(RX)/%,$(RUPROGS))
-R_RUPROGS=$(patsubst %,$R/%,$(RUPROGS))
+RX_PROGS=$(patsubst %,$(RX)/%,$(PROGS))
+R_PROGS=$(patsubst %,$R/%,$(PROGS))
+
+RX_TESTS=$(patsubst %,$(RX)/%,$(TESTS))
+R_TESTS=$(patsubst %,$R/%,$(TESTS))
+
 
 QEMU = qemu-system-riscv64
 
 OBJCOPY = llvm-objcopy
 
-all: $R/kernel $I/initcode $(R_RUPROGS) fs.img
+all: $R/kernel $I/initcode $(R_PROGS) $(R_TESTS) fs.img
 
 # create separate debuginfo file
 # https://users.rust-lang.org/t/how-to-gdb-with-split-debug-files/102989/3
@@ -68,12 +74,17 @@ $(RX)/user.stamp: FORCE
 	cargo build -p user --target $(RUST_CROSS_TARGET) $(CARGO_PROFILE_FLAG)
 	touch $@
 
+$(RX)/tests.stamp: FORCE
+	cargo build -p tests --target $(RUST_CROSS_TARGET) $(CARGO_PROFILE_FLAG)
+	touch $@
+
 define user_rule
 $$(RX)/$(1): $$(RX)/user.stamp
 
 endef
 
-$(foreach u,$(RUPROGS),$(eval $(call user_rule,$(u))))
+$(foreach p,$(PROGS),$(eval $(call user_rule,$(p))))
+$(foreach t,$(TESTS),$(eval $$(RX)/$(t): $$(RX)/tests.stamp))
 
 $(RN)/mkfs:
 	cargo build -p mkfs $(CARGO_PROFILE_FLAG)
@@ -81,8 +92,8 @@ $(RN)/mkfs:
 %/:
 	mkdir -p $@
 
-fs.img: $(RN)/mkfs README $(R_RUPROGS)
-	$(RN)/mkfs $@ README $(R_RUPROGS)
+fs.img: $(RN)/mkfs README $(R_PROGS) $(R_TESTS)
+	$(RN)/mkfs $@ README $(R_PROGS) $(R_TESTS)
 
 clean:
 	rm -f fs.img .gdbinit
