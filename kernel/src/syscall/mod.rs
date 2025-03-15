@@ -5,8 +5,9 @@ use ov6_syscall::{
 };
 
 use crate::{
+    interrupt::trap::TrapFrame,
     println,
-    proc::{Proc, ProcPrivateDataGuard, TrapFrame},
+    proc::{Proc, ProcPrivateDataGuard},
 };
 
 mod file;

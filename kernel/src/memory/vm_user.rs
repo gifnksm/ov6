@@ -6,11 +6,15 @@ use ov6_syscall::{UserMutRef, UserMutSlice, UserRef, UserSlice};
 
 use super::{
     PAGE_SIZE, PageRound as _, PhysAddr, PhysPageNum, VirtAddr,
+    addr::{GenericMutSlice, GenericSlice},
     layout::{TRAMPOLINE, TRAPFRAME},
     page::{self, PageFrameAllocator},
     page_table::{PageTable, PtEntryFlags},
 };
-use crate::{error::KernelError, interrupt::trampoline, proc::TrapFrame};
+use crate::{
+    error::KernelError,
+    interrupt::{trampoline, trap::TrapFrame},
+};
 
 pub struct UserPageTable {
     pt: Box<PageTable, PageFrameAllocator>,
@@ -238,6 +242,20 @@ impl UserPageTable {
         Ok(())
     }
 
+    /// Copies to either a user address, or kernel address.
+    pub fn either_copy_out_bytes(
+        &mut self,
+        dst: GenericMutSlice<u8>,
+        src: &[u8],
+    ) -> Result<(), KernelError> {
+        assert_eq!(dst.len(), src.len());
+        match dst {
+            GenericMutSlice::User(dst) => self.copy_out_bytes(dst, src)?,
+            GenericMutSlice::Kernel(dst) => dst.copy_from_slice(src),
+        }
+        Ok(())
+    }
+
     /// Copies from user to kernel.
     pub fn copy_in<T>(&self, src: UserRef<T>) -> Result<T, KernelError>
     where
@@ -266,6 +284,20 @@ impl UserPageTable {
             src_va = va0.byte_add(PAGE_SIZE);
         }
 
+        Ok(())
+    }
+
+    /// Copies from either a user address, or kernel address.
+    pub fn either_copy_in_bytes(
+        &self,
+        dst: &mut [u8],
+        src: GenericSlice<u8>,
+    ) -> Result<(), KernelError> {
+        assert_eq!(dst.len(), src.len());
+        match src {
+            GenericSlice::User(src) => self.copy_in_bytes(dst, src)?,
+            GenericSlice::Kernel(src) => dst.copy_from_slice(src),
+        }
         Ok(())
     }
 }

@@ -14,8 +14,10 @@ use crate::{
         BlockNo, SUPER_BLOCK, data_block,
         repr::{self, FS_BLOCK_SIZE, MAX_FILE, NUM_DIRECT_REFS, NUM_INDIRECT_REFS},
     },
-    memory::addr::{GenericMutSlice, GenericSlice},
-    proc::{self, ProcPrivateData},
+    memory::{
+        addr::{GenericMutSlice, GenericSlice},
+        vm_user::UserPageTable,
+    },
 };
 
 impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
@@ -147,7 +149,7 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
     /// there was an error of some kind.
     pub fn read(
         &mut self,
-        private: &mut ProcPrivateData,
+        pt: &mut UserPageTable,
         mut dst: GenericMutSlice<u8>,
         off: usize,
     ) -> Result<usize, KernelError> {
@@ -177,9 +179,7 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
             let Ok(bg) = br.lock().read();
             let m = usize::min(dst.len(), FS_BLOCK_SIZE - off % FS_BLOCK_SIZE);
             let dst = dst.take_mut(m);
-            if let Err(e) =
-                proc::either_copy_out_bytes(private, dst, &bg.bytes()[off % FS_BLOCK_SIZE..][..m])
-            {
+            if let Err(e) = pt.either_copy_out_bytes(dst, &bg.bytes()[off % FS_BLOCK_SIZE..][..m]) {
                 if tot > 0 {
                     break;
                 }
@@ -191,16 +191,12 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
     }
 
     /// Reads the inode's data as `T`.
-    pub fn read_as<T>(
-        &mut self,
-        private: &mut ProcPrivateData,
-        off: usize,
-    ) -> Result<T, KernelError>
+    pub fn read_as<T>(&mut self, pt: &mut UserPageTable, off: usize) -> Result<T, KernelError>
     where
         T: Pod,
     {
         let mut dst = T::zeroed();
-        let read = self.read(private, dst.as_bytes_mut().into(), off)?;
+        let read = self.read(pt, dst.as_bytes_mut().into(), off)?;
         assert_eq!(read, size_of::<T>());
         Ok(dst)
     }
@@ -216,7 +212,7 @@ impl LockedTxInode<'_, '_, false> {
     /// there was an error of some kind.
     pub fn write(
         &mut self,
-        private: &ProcPrivateData,
+        pt: &UserPageTable,
         src: GenericSlice<u8>,
         off: usize,
     ) -> Result<usize, KernelError> {
@@ -252,11 +248,9 @@ impl LockedTxInode<'_, '_, false> {
             let Ok(mut bg) = br.lock().read();
             let m = usize::min(src.len(), FS_BLOCK_SIZE - off % FS_BLOCK_SIZE);
             let src = src.take(m);
-            if let Err(e) = proc::either_copy_in_bytes(
-                private,
-                &mut bg.bytes_mut()[off % FS_BLOCK_SIZE..][..m],
-                src,
-            ) {
+            if let Err(e) =
+                pt.either_copy_in_bytes(&mut bg.bytes_mut()[off % FS_BLOCK_SIZE..][..m], src)
+            {
                 if tot > 0 {
                     break;
                 }
@@ -281,14 +275,14 @@ impl LockedTxInode<'_, '_, false> {
     /// Writes `data` to inode.
     pub fn write_data<T>(
         &mut self,
-        private: &ProcPrivateData,
+        pt: &UserPageTable,
         off: usize,
         data: &T,
     ) -> Result<(), KernelError>
     where
         T: Pod,
     {
-        let written = self.write(private, data.as_bytes().into(), off)?;
+        let written = self.write(pt, data.as_bytes().into(), off)?;
         assert_eq!(written, size_of::<T>());
         Ok(())
     }

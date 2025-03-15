@@ -44,7 +44,7 @@ pub fn exec(
     // Check ELF header
     let mut elf = ElfHeader::zero();
 
-    let nread = lip.read(private, elf.as_bytes_mut().into(), 0)?;
+    let nread = lip.read(private.pagetable_mut(), elf.as_bytes_mut().into(), 0)?;
     if nread != size_of::<ElfHeader>() {
         return Err(KernelError::InvalidExecutable);
     }
@@ -86,13 +86,13 @@ pub fn exec(
 fn load_segments<const READ_ONLY: bool>(
     private: &mut ProcPrivateData,
     lip: &mut LockedTxInode<READ_ONLY>,
-    pagetable: &mut UserPageTable,
+    new_pt: &mut UserPageTable,
     elf: &ElfHeader,
 ) -> Result<(), KernelError> {
     for i in 0..elf.phnum {
         let off = usize::try_from(elf.phoff).unwrap() + usize::from(i) * size_of::<ProgramHeader>();
         let mut ph = ProgramHeader::zero();
-        lip.read(private, ph.as_bytes_mut().into(), off)?;
+        lip.read(private.pagetable_mut(), ph.as_bytes_mut().into(), off)?;
         if ph.ty != ELF_PROG_LOAD {
             continue;
         }
@@ -105,13 +105,13 @@ fn load_segments<const READ_ONLY: bool>(
         if !usize::try_from(ph.vaddr).unwrap().is_page_aligned() {
             return Err(KernelError::InvalidExecutable);
         }
-        pagetable.grow_to(
+        new_pt.grow_to(
             usize::try_from(ph.vaddr + ph.memsz).unwrap(),
             flags2perm(ph.flags),
         )?;
         load_segment(
             private,
-            pagetable,
+            new_pt,
             VirtAddr::new(ph.vaddr.try_into().unwrap()),
             lip,
             ph.off.try_into().unwrap(),
@@ -127,7 +127,7 @@ fn load_segments<const READ_ONLY: bool>(
 /// `va` must be page-aligned.
 fn load_segment<const READ_ONLY: bool>(
     private: &mut ProcPrivateData,
-    pagetable: &UserPageTable,
+    new_pt: &UserPageTable,
     va: VirtAddr,
     lip: &mut LockedTxInode<READ_ONLY>,
     offset: usize,
@@ -136,7 +136,7 @@ fn load_segment<const READ_ONLY: bool>(
     assert!(va.is_page_aligned());
 
     for i in (0..sz).step_by(PAGE_SIZE) {
-        let pa = pagetable
+        let pa = new_pt
             .resolve_virtual_address(va.byte_add(i), PtEntryFlags::U)
             .unwrap();
 
@@ -147,7 +147,7 @@ fn load_segment<const READ_ONLY: bool>(
         };
 
         let dst = unsafe { slice::from_raw_parts_mut(pa.as_mut_ptr().as_ptr(), n) };
-        let nread = lip.read(private, dst.into(), offset + i)?;
+        let nread = lip.read(private.pagetable_mut(), dst.into(), offset + i)?;
         if nread != n {
             return Err(KernelError::InvalidExecutable);
         }
@@ -160,17 +160,15 @@ fn load_segment<const READ_ONLY: bool>(
 ///
 /// Makes the first inaccessible as a stack guard.
 /// Uses the rest as the user stack.
-fn allocate_stack_pages(pagetable: &mut UserPageTable) -> Result<(), KernelError> {
-    let size = pagetable.size().page_roundup();
-    pagetable.grow_to(size + (USER_STACK + 1) * PAGE_SIZE, PtEntryFlags::W)?;
-    pagetable.forbide_user_access(VirtAddr::new(
-        pagetable.size() - (USER_STACK + 1) * PAGE_SIZE,
-    ))?;
+fn allocate_stack_pages(pt: &mut UserPageTable) -> Result<(), KernelError> {
+    let size = pt.size().page_roundup();
+    pt.grow_to(size + (USER_STACK + 1) * PAGE_SIZE, PtEntryFlags::W)?;
+    pt.forbide_user_access(VirtAddr::new(pt.size() - (USER_STACK + 1) * PAGE_SIZE))?;
     Ok(())
 }
 
 fn push_arguments(
-    pagetable: &mut UserPageTable,
+    pt: &mut UserPageTable,
     mut sp: usize,
     stack_base: usize,
     argv: &[(usize, Box<[u8; PAGE_SIZE], PageFrameAllocator>)],
@@ -185,9 +183,9 @@ fn push_arguments(
             return Err(KernelError::ArgumentListTooLarge);
         }
         let dst = UserMutSlice::from_raw_parts(sp, src.len());
-        pagetable.copy_out_bytes(dst, src)?;
+        pt.copy_out_bytes(dst, src)?;
         let dst = UserMutSlice::from_raw_parts(sp + src.len(), 1);
-        pagetable.copy_out_bytes(dst, &[0])?;
+        pt.copy_out_bytes(dst, &[0])?;
         *uarg = sp;
     }
     ustack[argv.len()] = 0;
@@ -205,6 +203,6 @@ fn push_arguments(
         )
     };
     let dst = UserMutSlice::from_raw_parts(sp, src.len());
-    pagetable.copy_out_bytes(dst, src)?;
+    pt.copy_out_bytes(dst, src)?;
     Ok((sp, argv.len()))
 }

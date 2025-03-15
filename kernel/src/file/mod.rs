@@ -106,7 +106,7 @@ impl File {
 
         match &self.data.data {
             Some(SpecificData::Pipe(pipe)) => pipe.read(p, private, dst),
-            Some(SpecificData::Inode(inode)) => inode.read(private, dst),
+            Some(SpecificData::Inode(inode)) => inode.read(private.pagetable_mut(), dst),
             Some(SpecificData::Device(device)) => device.read(p, private, dst),
             None => unreachable!(),
         }
@@ -127,7 +127,7 @@ impl File {
 
         match &self.data.data {
             Some(SpecificData::Pipe(pipe)) => pipe.write(p, private, src),
-            Some(SpecificData::Inode(inode)) => inode.write(private, src),
+            Some(SpecificData::Inode(inode)) => inode.write(private.pagetable(), src),
             Some(SpecificData::Device(device)) => device.write(p, private, src),
             _ => unreachable!(),
         }

@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use core::{
     alloc::AllocError,
     cell::UnsafeCell,
-    cmp, mem,
+    mem,
     num::NonZero,
     ops::{Deref, DerefMut},
     panic::Location,
@@ -11,10 +11,9 @@ use core::{
 };
 
 use arrayvec::ArrayVec;
-use dataview::{Pod, PodMethods as _};
+use dataview::PodMethods as _;
 use once_init::OnceInit;
-use ov6_syscall::{RegisterValue as _, ReturnType, UserMutRef, syscall as sys};
-use ov6_types::{fs::RawFd, os_str::OsStr, path::Path, process::ProcId};
+use ov6_types::{fs::RawFd, os_str::OsStr, process::ProcId};
 
 use self::{
     scheduler::Context,
@@ -25,74 +24,28 @@ use crate::{
     error::KernelError,
     file::File,
     fs::{self, DeviceNo, Inode},
-    interrupt::{self, trap},
+    interrupt::{
+        self,
+        trap::{self, TrapFrame},
+    },
     memory::{
         PAGE_SIZE, VirtAddr,
-        addr::{GenericMutSlice, GenericSlice},
         layout::{self, KSTACK_PAGES},
         page::PageFrameAllocator,
-        page_table::PtEntryFlags,
         vm_user::UserPageTable,
     },
     param::{NOFILE, NPROC},
-    println,
     sync::{SpinLock, SpinLockCondVar, SpinLockGuard, TryLockError},
-    syscall::ReturnValue,
 };
 
 mod elf;
 pub mod exec;
+pub mod ops;
 pub mod scheduler;
 mod wait_lock;
 
 static PROC: [Proc; NPROC] = [const { Proc::new() }; NPROC];
 static INIT_PROC: OnceInit<&'static Proc> = OnceInit::new();
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Pod)]
-pub struct TrapFrame {
-    /// Kernel page table.
-    pub kernel_satp: usize, // 0
-    /// Top of process's kernel stack.
-    pub kernel_sp: usize, // 8
-    /// usertrap.
-    pub kernel_trap: usize, // 16
-    /// Saved user program counter.
-    pub epc: usize, // 24
-    /// saved kernel tp
-    pub kernel_hartid: usize, // 32
-    pub ra: usize,  // 40
-    pub sp: usize,  // 48
-    pub gp: usize,  // 56
-    pub tp: usize,  // 64
-    pub t0: usize,  // 72
-    pub t1: usize,  // 80
-    pub t2: usize,  // 88
-    pub s0: usize,  // 96
-    pub s1: usize,  // 104
-    pub a0: usize,  // 112
-    pub a1: usize,  // 120
-    pub a2: usize,  // 128
-    pub a3: usize,  // 136
-    pub a4: usize,  // 144
-    pub a5: usize,  // 152
-    pub a6: usize,  // 160
-    pub a7: usize,  // 168
-    pub s2: usize,  // 176
-    pub s3: usize,  // 184
-    pub s4: usize,  // 192
-    pub s5: usize,  // 200
-    pub s6: usize,  // 208
-    pub s7: usize,  // 216
-    pub s8: usize,  // 224
-    pub s9: usize,  // 232
-    pub s10: usize, // 240
-    pub s11: usize, // 248
-    pub t3: usize,  // 256
-    pub t4: usize,  // 264
-    pub t5: usize,  // 272
-    pub t6: usize,  // 280
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProcState {
@@ -489,221 +442,6 @@ impl Proc {
     }
 }
 
-/// Set up first user process.
-pub fn spawn_init() {
-    /// A user program that calls `exec("/init")`.
-    #[cfg(feature = "initcode_env")]
-    static INIT_CODE: &[u8] = const { include_bytes!(env!("INIT_CODE_PATH")) };
-    /// A user program that calls `exec("/init")`.
-    #[cfg(not(feature = "initcode_env"))]
-    static INIT_CODE: &[u8] = &[];
-
-    const _: () = const { assert!(INIT_CODE.len() < 128) };
-
-    let (p, mut shared, mut private) = Proc::allocate().unwrap();
-    assert_eq!(shared.pid.unwrap().get().get(), 1);
-    INIT_PROC.init(p);
-
-    // allocate one user page and copy initcode's instructions
-    // and data into it.
-    private.pagetable_mut().map_first(INIT_CODE).unwrap();
-
-    // prepare for the very first `return` from kernel to user.
-    let trapframe = private.trapframe_mut();
-    trapframe.epc = 0; // user program counter
-    trapframe.sp = PAGE_SIZE; // user stack pointer
-
-    let tx = fs::begin_readonly_tx();
-    private.cwd = Some(Inode::from_tx(
-        &fs::path::resolve(&tx, &mut private, Path::new("/")).unwrap(),
-    ));
-    tx.end();
-    shared.set_name(OsStr::new("initcode"));
-    shared.state = ProcState::Runnable;
-
-    drop(shared);
-}
-
-/// Grows user memory by `n` Bytes.
-pub fn resize_by(private: &mut ProcPrivateData, increment: isize) -> Result<(), KernelError> {
-    let pagetable = private.pagetable_mut();
-    let old_sz = pagetable.size();
-    let new_sz = old_sz.saturating_add_signed(increment);
-    match new_sz.cmp(&old_sz) {
-        cmp::Ordering::Less => pagetable.shrink_to(new_sz),
-        cmp::Ordering::Equal => {}
-        cmp::Ordering::Greater => pagetable.grow_to(new_sz, PtEntryFlags::W)?,
-    }
-    Ok(())
-}
-
-/// Creates a new process, copying the parent.
-///
-/// Sets up child kernel stack to return as if from `fork()` system call.
-pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Result<ProcId, KernelError> {
-    let parent_name = p.shared().lock().name.clone();
-
-    // Allocate process.
-    let (np, mut np_shared, mut np_private) = Proc::allocate()?;
-
-    // Copy use memory from parent to child.
-    if let Err(e) = p_private
-        .pagetable()
-        .try_clone_into(np_private.pagetable_mut())
-    {
-        np.free(&mut np_shared);
-        drop(np_shared);
-        return Err(e);
-    }
-
-    // Copy saved user registers.
-    *np_private.trapframe_mut() = *p_private.trapframe();
-
-    // Cause fork to return 0 in the child.
-    let child_ret: ReturnType<sys::Fork> = Ok(None);
-    ReturnValue::from(child_ret.encode()).store(np_private.trapframe_mut());
-
-    // increment refereence counts on open file descriptors.
-    for (of, nof) in p_private.ofile.iter().zip(&mut np_private.ofile) {
-        if let Some(of) = of {
-            *nof = Some(of.dup());
-        }
-    }
-    np_private.cwd.clone_from(&p_private.cwd);
-    np_shared.name = parent_name;
-
-    let pid = np_shared.pid.unwrap();
-    drop(np_shared);
-
-    let mut wait_lock = wait_lock::lock();
-    np.parent.set(p, &mut wait_lock);
-    drop(wait_lock);
-
-    // After setting the state to Runnable, the scheduler can pick up `np` and the
-    // process context may start. The started process context (e.g., forkret)
-    // will refer to `ProcPrivateData`, so we must drop `np_private` here.
-    drop(np_private);
-    np.shared.lock().state = ProcState::Runnable;
-
-    Ok(pid)
-}
-
-/// Pass p's abandoned children to init.
-///
-/// Caller must hold `WAIT_LOCK`
-fn reparent(old_parent: &Proc, new_parent: &'static Proc, wait_lock: &mut SpinLockGuard<WaitLock>) {
-    for pp in &PROC {
-        if pp.is_child_of(old_parent, wait_lock) {
-            pp.set_parent(new_parent, wait_lock);
-            new_parent.child_ended.notify();
-        }
-    }
-}
-
-/// Exits the current process.
-///
-/// Does not return.
-/// An exited process remains in the zombie state
-/// until its parent calls `wait()`.
-pub fn exit(p: &Proc, mut p_private: ProcPrivateDataGuard, status: i32) -> ! {
-    let init_proc = *INIT_PROC.get();
-
-    // Ensure all destruction is done before `sched().`
-    let mut shared = {
-        assert!(!ptr::eq(p, init_proc), "init exiting");
-
-        // Close all open files.
-        for of in &mut p_private.ofile {
-            if let Some(of) = of.take() {
-                of.close();
-            }
-        }
-
-        let tx = fs::begin_tx();
-        p_private.cwd.take().unwrap().into_tx(&tx).put();
-        tx.end();
-
-        let mut wait_lock = wait_lock::lock();
-
-        // Give any children to init.
-        reparent(p, init_proc, &mut wait_lock);
-
-        // Parent might be sleeping in wait().
-        if let Some(parent) = p.parent.get(&mut wait_lock) {
-            parent.child_ended.notify();
-        }
-
-        let mut shared = p.shared.lock();
-        shared.state = ProcState::Zombie {
-            exit_status: status,
-        };
-
-        p_private.remove_private();
-
-        drop(wait_lock);
-        shared
-    };
-
-    // Jump into the scheduler, never to return.
-    scheduler::sched(&mut shared);
-
-    unreachable!("zombie exit");
-}
-
-/// Waits for a child process to exit and return its pid.
-///
-/// Returns `Err` if this process has no children.
-pub fn wait(
-    p: &Proc,
-    p_private: &mut ProcPrivateData,
-    user_status: UserMutRef<i32>,
-) -> Result<ProcId, KernelError> {
-    let mut wait_lock = wait_lock::lock();
-
-    loop {
-        let mut have_kids = false;
-        for pp in &PROC {
-            if !pp.is_child_of(p, &mut wait_lock) {
-                continue;
-            }
-
-            // Make sure the child isn't still in `exit()` or `switch()``.
-            let mut pp_shared = pp.shared.lock();
-
-            have_kids = true;
-            if let ProcState::Zombie { exit_status } = pp_shared.state {
-                // Found one.
-                let pid = pp_shared.pid.unwrap();
-                if user_status.addr() != 0 {
-                    p_private
-                        .pagetable_mut()
-                        .copy_out(user_status, &exit_status)?;
-                }
-                pp.free(&mut pp_shared);
-                return Ok(pid);
-            }
-        }
-
-        // No point waiting if we don't have any children.
-        if !have_kids || p.shared.lock().killed() {
-            drop(wait_lock);
-            return Err(KernelError::NoChildProcess);
-        }
-
-        // Wait for a child to exit.
-        wait_lock = p.child_ended.wait(wait_lock);
-    }
-}
-
-/// Gives up the CPU for one shceduling round.
-pub fn yield_(p: &Proc) {
-    let mut shared = p.shared.lock();
-    assert!(matches!(shared.state, ProcState::Running));
-    shared.state = ProcState::Runnable;
-    scheduler::sched(&mut shared);
-    drop(shared);
-}
-
 /// A fork child's very first scheduling by `scheduler()`
 /// will switch for forkret.
 extern "C" fn forkret() {
@@ -714,7 +452,7 @@ extern "C" fn forkret() {
     let _ = unsafe { p.shared.remember_locked() }; // unlock here
     let Some(private) = p.borrow_private() else {
         // process is already exited (in zombie state)
-        yield_(p);
+        scheduler::yield_(p);
         unreachable!();
     };
 
@@ -728,127 +466,4 @@ extern "C" fn forkret() {
     }
 
     trap::trap_user_ret(private);
-}
-
-/// Automatically releases `lock` and sleeps on `chan`.
-///
-/// Reacquires lock when awakened.
-pub fn sleep<'a, T>(cond: &SpinLockCondVar, guard: SpinLockGuard<'a, T>) -> SpinLockGuard<'a, T> {
-    let p = ProcShared::current();
-    // Must acquire `p.lock` in order to change
-    // `p.state` and then call `sched()`.
-    // Once we hold `p.lock()`, we can be
-    // guaranteed that we won't miss any wakeup
-    // (wakeup locks `p.lock`),
-    // so it's okay to release `lock' here.`
-    let mut shared = p.lock();
-    let lock = guard.into_lock();
-
-    // Go to sleep.
-    let cond = ptr::from_ref(cond).addr();
-    shared.state = ProcState::Sleeping { chan: cond };
-
-    scheduler::sched(&mut shared);
-
-    // Reacquire original lock.
-    drop(shared);
-    lock.lock()
-}
-
-/// Wakes up all processes sleeping on `chan`.
-///
-/// Must be called without any processes locked.
-pub fn wakeup(cond: &SpinLockCondVar) {
-    let cond = ptr::from_ref(cond).addr();
-    for p in &PROC {
-        let mut shared = p.shared.lock();
-        if let ProcState::Sleeping { chan: ch } = shared.state {
-            if ch == cond {
-                shared.state = ProcState::Runnable;
-            }
-        }
-        drop(shared);
-    }
-}
-
-/// Kills the process with the given PID.
-///
-/// The victim won't exit until it tries to return
-/// to user spaec (see `usertrap()`).
-pub fn kill(pid: ProcId) -> Result<(), KernelError> {
-    for p in &PROC {
-        let mut shared = p.shared.lock();
-        if shared.pid == Some(pid) {
-            shared.killed = true;
-            if let ProcState::Sleeping { .. } = shared.state {
-                // Wake process from sleep().
-                shared.state = ProcState::Runnable;
-            }
-            drop(shared);
-            return Ok(());
-        }
-        drop(shared);
-    }
-    Err(KernelError::ProcessNotFound(pid))
-}
-
-/// Copies to either a user address, or kernel address,
-/// depending on `user_dst`.
-pub fn either_copy_out_bytes(
-    p_private: &mut ProcPrivateData,
-    dst: GenericMutSlice<u8>,
-    src: &[u8],
-) -> Result<(), KernelError> {
-    assert_eq!(dst.len(), src.len());
-    match dst {
-        GenericMutSlice::User(dst) => p_private.pagetable_mut().copy_out_bytes(dst, src)?,
-        GenericMutSlice::Kernel(dst) => dst.copy_from_slice(src),
-    }
-    Ok(())
-}
-
-/// Copies from either a user address, or kernel address,
-/// depending on `user_src`.
-pub fn either_copy_in_bytes(
-    p_private: &ProcPrivateData,
-    dst: &mut [u8],
-    src: GenericSlice<u8>,
-) -> Result<(), KernelError> {
-    assert_eq!(dst.len(), src.len());
-    match src {
-        GenericSlice::User(src) => p_private.pagetable().copy_in_bytes(dst, src)?,
-        GenericSlice::Kernel(src) => dst.copy_from_slice(src),
-    }
-    Ok(())
-}
-
-/// Prints a process listing to console.
-///
-/// For debugging.
-/// Runs when user type ^P on console
-pub fn dump() {
-    println!();
-    for p in &PROC {
-        let shared = p.shared.lock();
-        let pid = shared.pid;
-        let state = shared.state;
-        let name = shared.name.clone();
-        drop(shared);
-        if state == ProcState::Unused {
-            continue;
-        }
-
-        let state = match state {
-            ProcState::Unused => "unused",
-            ProcState::Used => "used",
-            ProcState::Sleeping { .. } => "sleep",
-            ProcState::Runnable => "runble",
-            ProcState::Running => "run",
-            ProcState::Zombie { .. } => "zombie",
-        };
-
-        let pid = pid.unwrap();
-        let name = OsStr::from_bytes(&name).display();
-        println!("{pid:5} {state:<10} {name}");
-    }
 }

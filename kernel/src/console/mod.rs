@@ -70,7 +70,10 @@ static CONSOLE_BUFFER_WRITTEN: SpinLockCondVar = SpinLockCondVar::new();
 fn write(private: &ProcPrivateData, src: GenericSlice<u8>) -> Result<usize, KernelError> {
     for i in 0..src.len() {
         let mut c: [u8; 1] = [0];
-        if let Err(e) = proc::either_copy_in_bytes(private, &mut c, src.skip(i).take(1)) {
+        if let Err(e) = private
+            .pagetable()
+            .either_copy_in_bytes(&mut c, src.skip(i).take(1))
+        {
             if i > 0 {
                 return Ok(i);
             }
@@ -124,7 +127,10 @@ fn read(
 
         // copy the input byte to the user-space buffer.
         let cbuf = &[c];
-        if let Err(e) = proc::either_copy_out_bytes(private, dst.skip_mut(i).take_mut(1), cbuf) {
+        if let Err(e) = private
+            .pagetable_mut()
+            .either_copy_out_bytes(dst.skip_mut(i).take_mut(1), cbuf)
+        {
             if i > 0 {
                 break;
             }
@@ -152,7 +158,7 @@ pub fn handle_interrupt(c: u8) {
 
     match c {
         // Print process list.
-        CTRL_P => proc::dump(),
+        CTRL_P => proc::ops::dump(),
         // Kill line.
         CTRL_U => {
             while cons.e != cons.w && cons.buf[(cons.e - 1) % cons.buf.len()] != b'\n' {

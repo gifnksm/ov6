@@ -11,11 +11,11 @@
 use core::{arch::naked_asm, mem::offset_of};
 
 use crate::{
+    interrupt::trap::TrapFrame,
     memory::{
         VirtAddr,
         layout::{TRAMPOLINE, TRAPFRAME},
     },
-    proc::TrapFrame,
 };
 
 pub fn user_vec_addr() -> VirtAddr {

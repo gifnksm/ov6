@@ -6,6 +6,7 @@ use super::{File, FileData, FileDataArc, SpecificData};
 use crate::{
     error::KernelError,
     fs::{self, FS_BLOCK_SIZE, Inode},
+    memory::vm_user::UserPageTable,
     param::MAX_OP_BLOCKS,
     proc::ProcPrivateData,
 };
@@ -42,13 +43,13 @@ impl InodeFile {
 
     pub(super) fn read(
         &self,
-        private: &mut ProcPrivateData,
+        pt: &mut UserPageTable,
         dst: UserMutSlice<u8>,
     ) -> Result<usize, KernelError> {
         let tx = fs::begin_readonly_tx();
         let mut ip = self.inode.clone().into_tx(&tx);
         let mut lip = ip.lock();
-        let res = lip.read(private, dst.into(), self.off.load(Ordering::Relaxed));
+        let res = lip.read(pt, dst.into(), self.off.load(Ordering::Relaxed));
         if let Ok(sz) = res {
             self.off.fetch_add(sz, Ordering::Relaxed);
         }
@@ -57,7 +58,7 @@ impl InodeFile {
 
     pub(super) fn write(
         &self,
-        private: &ProcPrivateData,
+        pt: &UserPageTable,
         src: UserSlice<u8>,
     ) -> Result<usize, KernelError> {
         // write a few blocks at a time to avoid exceeding
@@ -76,7 +77,7 @@ impl InodeFile {
             let tx = fs::begin_tx();
             let mut ip = self.inode.clone().into_tx(&tx);
             let mut lip = ip.lock();
-            let res = lip.write(private, src.into(), self.off.load(Ordering::Relaxed));
+            let res = lip.write(pt, src.into(), self.off.load(Ordering::Relaxed));
             if let Ok(sz) = res {
                 self.off.fetch_add(sz, Ordering::Relaxed);
             }

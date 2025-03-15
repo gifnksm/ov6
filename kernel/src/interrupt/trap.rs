@@ -1,5 +1,6 @@
 use core::mem;
 
+use dataview::Pod;
 use riscv::{
     interrupt::{
         Trap,
@@ -22,9 +23,55 @@ use crate::{
         layout::{KSTACK_PAGES, UART0_IRQ, VIRTIO0_IRQ},
     },
     println,
-    proc::{self, Proc, ProcPrivateDataGuard},
+    proc::{self, Proc, ProcPrivateDataGuard, scheduler},
     syscall,
 };
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod)]
+pub struct TrapFrame {
+    /// Kernel page table.
+    pub kernel_satp: usize, // 0
+    /// Top of process's kernel stack.
+    pub kernel_sp: usize, // 8
+    /// usertrap.
+    pub kernel_trap: usize, // 16
+    /// Saved user program counter.
+    pub epc: usize, // 24
+    /// saved kernel tp
+    pub kernel_hartid: usize, // 32
+    pub ra: usize,  // 40
+    pub sp: usize,  // 48
+    pub gp: usize,  // 56
+    pub tp: usize,  // 64
+    pub t0: usize,  // 72
+    pub t1: usize,  // 80
+    pub t2: usize,  // 88
+    pub s0: usize,  // 96
+    pub s1: usize,  // 104
+    pub a0: usize,  // 112
+    pub a1: usize,  // 120
+    pub a2: usize,  // 128
+    pub a3: usize,  // 136
+    pub a4: usize,  // 144
+    pub a5: usize,  // 152
+    pub a6: usize,  // 160
+    pub a7: usize,  // 168
+    pub s2: usize,  // 176
+    pub s3: usize,  // 184
+    pub s4: usize,  // 192
+    pub s5: usize,  // 200
+    pub s6: usize,  // 208
+    pub s7: usize,  // 216
+    pub s8: usize,  // 224
+    pub s9: usize,  // 232
+    pub s10: usize, // 240
+    pub s11: usize, // 248
+    pub t3: usize,  // 256
+    pub t4: usize,  // 264
+    pub t5: usize,  // 272
+    pub t6: usize,  // 280
+}
 
 pub fn init_hart() {
     let mut stvec = stvec::Stvec::from_bits(0);
@@ -62,7 +109,7 @@ extern "C" fn trap_user() {
         Trap::Exception(Exception::UserEnvCall) => {
             // system call
             if p.shared().lock().killed() {
-                proc::exit(p, private, -1);
+                proc::ops::exit(p, private, -1);
             }
 
             // sepc points to the ecall instruction,
@@ -103,12 +150,12 @@ extern "C" fn trap_user() {
     }
 
     if p.shared().lock().killed() {
-        proc::exit(p, private, -1);
+        proc::ops::exit(p, private, -1);
     }
 
     // gibe up the CPU if this is a timer interrupt.
     if which_dev == IntrKind::Timer {
-        proc::yield_(p);
+        scheduler::yield_(p);
     }
 
     trap_user_ret(private);
@@ -191,7 +238,7 @@ pub extern "C" fn trap_kernel() {
         IntrKind::Timer => {
             // give up the CPU if this is a timer interrupt.
             if let Some(p) = Proc::try_current() {
-                proc::yield_(p)
+                scheduler::yield_(p)
             }
         }
         IntrKind::Other => {}

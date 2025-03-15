@@ -3,7 +3,7 @@ use core::{arch::naked_asm, mem::offset_of};
 use ov6_kernel_params::NCPU;
 use riscv::asm;
 
-use super::{PROC, ProcSharedData, ProcState};
+use super::{PROC, Proc, ProcSharedData, ProcState};
 use crate::{
     cpu::{self, Cpu},
     interrupt,
@@ -115,6 +115,15 @@ pub fn schedule() -> ! {
             asm::wfi();
         }
     }
+}
+
+/// Gives up the CPU for one shceduling round.
+pub fn yield_(p: &Proc) {
+    let mut shared = p.shared.lock();
+    assert!(matches!(shared.state, ProcState::Running));
+    shared.state = ProcState::Runnable;
+    sched(&mut shared);
+    drop(shared);
 }
 
 /// Switch to shcduler.

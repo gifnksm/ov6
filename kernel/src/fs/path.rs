@@ -25,7 +25,7 @@ pub fn resolve<'a, const READ_ONLY: bool>(
             return Err(KernelError::NonDirectoryPathComponent);
         };
 
-        let Some((next, _off)) = dip.lookup(private, name) else {
+        let Some((next, _off)) = dip.lookup(private.pagetable_mut(), name) else {
             return Err(KernelError::FsEntryNotFound);
         };
 

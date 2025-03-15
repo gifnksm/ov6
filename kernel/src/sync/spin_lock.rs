@@ -181,7 +181,7 @@ impl SpinLockCondVar {
     pub fn wait<'a, T>(&self, mut guard: SpinLockGuard<'a, T>) -> SpinLockGuard<'a, T> {
         let counter = self.counter.load(Ordering::Relaxed);
         loop {
-            guard = proc::sleep(self, guard);
+            guard = proc::ops::sleep(self, guard);
             if counter != self.counter.load(Ordering::Relaxed) {
                 break;
             }
@@ -191,6 +191,6 @@ impl SpinLockCondVar {
 
     pub fn notify(&self) {
         self.counter.fetch_add(1, Ordering::Relaxed);
-        proc::wakeup(self);
+        proc::ops::wakeup(self);
     }
 }

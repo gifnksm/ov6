@@ -12,7 +12,7 @@ impl SyscallExt for sys::Fork {
 
     fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
         let Ok(()) = Self::decode_arg(private.trapframe());
-        let pid = proc::fork(p, private)?;
+        let pid = proc::ops::fork(p, private)?;
         Ok(Some(pid))
     }
 }
@@ -26,7 +26,7 @@ impl SyscallExt for sys::Exit {
             Ok((status,)) => status,
             Err(_e) => -1,
         };
-        proc::exit(p, private, status);
+        proc::ops::exit(p, private, status);
     }
 }
 
@@ -34,8 +34,12 @@ impl SyscallExt for sys::Wait {
     type Private<'a> = ProcPrivateData;
 
     fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((addr,)) = Self::decode_arg(private.trapframe());
-        let pid = proc::wait(p, private, addr)?;
+        let Ok((user_status,)) = Self::decode_arg(private.trapframe());
+        let (pid, status) = proc::ops::wait(p)?;
+        // TODO: more reliable check
+        if user_status.addr() != 0 {
+            private.pagetable_mut().copy_out(user_status, &status)?;
+        }
         Ok(pid)
     }
 }
@@ -45,7 +49,7 @@ impl SyscallExt for sys::Kill {
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
         let (pid,) = Self::decode_arg(private.trapframe()).map_err(KernelError::from)?;
-        proc::kill(pid)?;
+        proc::ops::kill(pid)?;
         Ok(())
     }
 }
@@ -65,7 +69,7 @@ impl SyscallExt for sys::Sbrk {
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
         let Ok((increment,)) = Self::decode_arg(private.trapframe());
         let addr = private.size();
-        proc::resize_by(private, increment)?;
+        proc::ops::resize_by(private, increment)?;
         Ok(addr)
     }
 }
