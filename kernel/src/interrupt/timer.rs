@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use riscv::register::{mcounteren, mie};
+use riscv::register::{mcounteren, mie, scounteren};
 
 use crate::{
     cpu,
@@ -25,6 +25,10 @@ pub fn init() {
     // allow supervisor to use stimecmp and time.
     unsafe {
         mcounteren::set_tm();
+    }
+    // allow user to use time.
+    unsafe {
+        scounteren::set_tm();
     }
 
     // ask for the very first timer interrupt.
