@@ -34,6 +34,8 @@ pub(crate) enum KernelError {
     FileDescriptorNotWritable,
     #[error("path too long")]
     PathTooLong,
+    #[error("null in path")]
+    NullInPath,
     #[error("non-directory component in path")]
     NonDirectoryPathComponent,
     #[error("file system entry not found")]
@@ -117,7 +119,7 @@ impl From<KernelError> for SyscallError {
             KernelError::DirectoryNotEmpty => Self::DirectoryNotEmpty,
             KernelError::WriteOffsetTooLarge => Self::NotSeekable,
             KernelError::UnlinkRootDir => Self::ResourceBusy,
-            KernelError::UnlinkDots => Self::InvalidInput,
+            KernelError::UnlinkDots | KernelError::NullInPath => Self::InvalidInput,
             KernelError::CreateRootDir
             | KernelError::CreateAlreadyExists
             | KernelError::LinkRootDir

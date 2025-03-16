@@ -195,8 +195,11 @@ impl ProcPrivateData {
         Ok(RawFd::new(fd))
     }
 
-    pub fn unset_ofile(&mut self, fd: RawFd) -> Option<File> {
-        self.ofile.get_mut(fd.get())?.take()
+    pub fn unset_ofile(&mut self, fd: RawFd) -> Result<File, KernelError> {
+        self.ofile
+            .get_mut(fd.get())
+            .and_then(Option::take)
+            .ok_or(KernelError::FileDescriptorNotFound(fd, self.pid))
     }
 
     pub fn cwd(&self) -> Option<&Inode> {

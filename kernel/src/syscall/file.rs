@@ -3,7 +3,7 @@ use core::alloc::AllocError;
 
 use arrayvec::ArrayVec;
 use ov6_syscall::{OpenFlags, UserSlice, syscall};
-use ov6_types::{fs::RawFd, os_str::OsStr, path::Path};
+use ov6_types::{os_str::OsStr, path::Path};
 
 use super::SyscallExt;
 use crate::{
@@ -14,13 +14,6 @@ use crate::{
     param::{MAX_ARG, MAX_PATH},
     proc::{Proc, ProcPrivateData, exec},
 };
-
-/// Allocates a file descriptor for the given `File`.
-///
-/// Takes over file reference from caller on success.
-fn fd_alloc(private: &mut ProcPrivateData, file: File) -> Result<RawFd, KernelError> {
-    private.add_ofile(file)
-}
 
 fn fetch_path<'a>(
     private: &ProcPrivateData,
@@ -33,6 +26,9 @@ fn fetch_path<'a>(
 
     let path_out = &mut path_out[..user_path.len()];
     private.pagetable().copy_in_bytes(path_out, &user_path)?;
+    if path_out.contains(&0) {
+        return Err(KernelError::NullInPath);
+    }
     Ok(Path::new(OsStr::from_bytes(path_out)))
 }
 
@@ -43,7 +39,7 @@ impl SyscallExt for syscall::Dup {
         let Ok((fd,)) = Self::decode_arg(private.trapframe());
         let file = private.ofile(fd)?;
         let file = file.clone();
-        let fd = fd_alloc(private, file)?;
+        let fd = private.add_ofile(file)?;
         Ok(fd)
     }
 }
@@ -75,8 +71,7 @@ impl SyscallExt for syscall::Close {
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
         let Ok((fd,)) = Self::decode_arg(private.trapframe());
-        let _file = private.ofile(fd)?;
-        private.unset_ofile(fd);
+        let _file = private.unset_ofile(fd)?;
         Ok(())
     }
 }
@@ -162,7 +157,7 @@ impl SyscallExt for syscall::Open {
             lip.truncate();
         }
 
-        let fd = fd_alloc(private, f)?;
+        let fd = private.add_ofile(f)?;
 
         Ok(fd)
     }
@@ -261,19 +256,19 @@ impl SyscallExt for syscall::Pipe {
 
         let (rf, wf) = File::new_pipe()?;
 
-        let rfd = fd_alloc(private, rf)?;
-        let wfd = match fd_alloc(private, wf) {
+        let rfd = private.add_ofile(rf)?;
+        let wfd = match private.add_ofile(wf) {
             Ok(wfd) => wfd,
             Err(e) => {
-                private.unset_ofile(rfd);
+                private.unset_ofile(rfd).unwrap();
                 return Err(e.into());
             }
         };
 
         let fds = [rfd, wfd];
         if let Err(e) = private.pagetable_mut().copy_out(&mut fd_array, &fds) {
-            private.unset_ofile(rfd);
-            private.unset_ofile(wfd);
+            private.unset_ofile(rfd).unwrap();
+            private.unset_ofile(wfd).unwrap();
             return Err(e.into());
         }
 
