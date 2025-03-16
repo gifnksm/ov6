@@ -21,6 +21,9 @@ RXI=target/$(RUST_CROSS_TARGET)/initcode
 OV6_INITCODE=\
 	initcode\
 
+OV6_SERVICES=\
+	init\
+
 OV6_UTILS=\
 	abort\
 	cat\
@@ -28,7 +31,6 @@ OV6_UTILS=\
 	grep\
 	halt\
 	hello\
-	init\
 	kill\
 	ln\
 	ls\
@@ -48,13 +50,13 @@ OV6_USER_TESTS=\
 OV6_FS_UTILS=\
 	mkfs\
 
-FS_CONTENTS=$(patsubst %,$R/%,$(OV6_UTILS)) $(patsubst %,$R/%,$(OV6_USER_TESTS))
+FS_CONTENTS=$(addprefix $R/,$(OV6_SERVICES) $(OV6_UTILS) $(OV6_USER_TESTS))
 
 QEMU = qemu-system-riscv64
 
 OBJCOPY = llvm-objcopy
 
-all: $R/kernel $I/initcode $(R_OV6_UTILS) $(R_OV6_USER_TESTS) fs.img
+all: $R/kernel fs.img
 
 # create separate debuginfo file
 # https://users.rust-lang.org/t/how-to-gdb-with-split-debug-files/102989/3
@@ -84,6 +86,7 @@ $(RN)/%.stamp: FORCE
 	touch $@
 
 $(foreach exe,$(OV6_INITCODE),$(eval $$(RXI)/$(exe): $$(RXI)/ov6_initcode.stamp))
+$(foreach exe,$(OV6_SERVICES),$(eval $$(RX)/$(exe): $$(RX)/ov6_services.stamp))
 $(foreach exe,$(OV6_UTILS),$(eval $$(RX)/$(exe): $$(RX)/ov6_utilities.stamp))
 $(foreach exe,$(OV6_USER_TESTS),$(eval $$(RX)/$(exe): $$(RX)/ov6_user_tests.stamp))
 $(foreach exe,$(OV6_FS_UTILS),$(eval $$(RN)/$(exe): $$(RN)/ov6_fs_utilities.stamp))

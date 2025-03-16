@@ -1,11 +1,12 @@
 #![no_std]
 
 use ov6_user_lib::{
+    env, eprintln,
     error::Ov6Error,
     fs::{self, File},
     process,
 };
-use ov6_utilities::{message, try_or_panic};
+// use ov6_utilities::{message, try_or_panic};
 
 const CONSOLE: u32 = 1;
 
@@ -18,6 +19,7 @@ fn create_console() -> Result<(), Ov6Error> {
 }
 
 fn main() {
+    let arg0 = env::arg0();
     let console = open_console()
         .or_else(|_| {
             // stdout/stderr are not created here, so we don't output error message here.
@@ -29,26 +31,23 @@ fn main() {
     let _stderr = console.try_clone().unwrap();
 
     loop {
-        message!("starting sh");
+        eprintln!("{}: starting sh", arg0.display());
 
-        let sh = try_or_panic!(
-            process::fork_fn(|| {
-                try_or_panic!(
-                    process::exec("sh", &["sh"]),
-                    e => "exec sh failed: {e}",
-                );
-                unreachable!()
-            }),
-            e => "fork failed: {e}",
-        );
+        let Ok(sh) = process::fork_fn(|| {
+            let Ok(_) = process::exec("sh", &["sh"]).map_err(|e| {
+                panic!("{} exec sh failed: {e}", arg0.display());
+            });
+            unreachable!()
+        })
+        .map_err(|e| {
+            panic!("{}: fork failed: {e}", arg0.display());
+        });
 
         loop {
             // this call to wait() returns if the shell exits,
             // or if a parentless process exits.
-            let (wpid, _status) = try_or_panic!(
-                process::wait(),
-                e => "wait returned an error: {e}",
-            );
+            let Ok((wpid, _status)) = process::wait()
+                .map_err(|e| panic!("{}: wait returned an error: {e}", arg0.display()));
             if wpid != sh.pid() {
                 // it was a parentless process; do nothing
                 continue;

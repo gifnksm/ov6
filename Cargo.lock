@@ -153,6 +153,13 @@ name = "ov6_kernel_params"
 version = "0.1.0"
 
 [[package]]
+name = "ov6_services"
+version = "0.1.0"
+dependencies = [
+ "ov6_user_lib",
+]
+
+[[package]]
 name = "ov6_syscall"
 version = "0.1.0"
 dependencies = [
