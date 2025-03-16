@@ -26,7 +26,7 @@ fn fetch_path<'a>(
     let user_path = user_path.validate(private.pagetable())?;
 
     let path_out = &mut path_out[..user_path.len()];
-    private.pagetable().copy_in_bytes(path_out, &user_path)?;
+    private.pagetable().copy_in_bytes(path_out, &user_path);
     if path_out.contains(&0) {
         return Err(KernelError::NullInPath);
     }
@@ -87,7 +87,7 @@ impl SyscallExt for syscall::Fstat {
         let mut user_stat = user_stat.validate(private.pagetable_mut())?;
         let file = private.ofile(fd)?;
         let stat = file.clone().stat()?;
-        private.pagetable_mut().copy_out(&mut user_stat, &stat)?;
+        private.pagetable_mut().copy_out(&mut user_stat, &stat);
         Ok(())
     }
 }
@@ -234,7 +234,7 @@ pub fn sys_exec(
         ArrayVec::new();
 
     for i in 0..uargv.len() {
-        let uarg = private.pagetable().copy_in(&uargv.nth(i))?;
+        let uarg = private.pagetable().copy_in(&uargv.nth(i));
         if uarg.len() > PAGE_SIZE {
             return Err(KernelError::ArgumentListTooLarge);
         }
@@ -244,7 +244,7 @@ pub fn sys_exec(
             .map_err(|AllocError| KernelError::NoFreePage)?;
         private
             .pagetable()
-            .copy_in_bytes(&mut buf[..uarg.len()], &uarg)?;
+            .copy_in_bytes(&mut buf[..uarg.len()], &uarg);
 
         if argv.try_push((uarg.len(), buf)).is_err() {
             return Err(KernelError::ArgumentListTooLong);
@@ -273,11 +273,7 @@ impl SyscallExt for syscall::Pipe {
         };
 
         let fds = [rfd, wfd];
-        if let Err(e) = private.pagetable_mut().copy_out(&mut fd_array, &fds) {
-            private.unset_ofile(rfd).unwrap();
-            private.unset_ofile(wfd).unwrap();
-            return Err(e.into());
-        }
+        private.pagetable_mut().copy_out(&mut fd_array, &fds);
 
         Ok(())
     }

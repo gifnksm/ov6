@@ -70,18 +70,13 @@ static CONSOLE_BUFFER_WRITTEN: SpinLockCondVar = SpinLockCondVar::new();
 /// Writes the bytes to the console.
 ///
 /// User write()s to the console go here.
-fn write(src: &GenericSlice<u8>) -> Result<usize, KernelError> {
+fn write(src: &GenericSlice<u8>) -> usize {
     for i in 0..src.len() {
         let mut c: [u8; 1] = [0];
-        if let Err(e) = UserPageTable::either_copy_in_bytes(&mut c, &src.skip(i).take(1)) {
-            if i > 0 {
-                return Ok(i);
-            }
-            return Err(e);
-        }
+        UserPageTable::either_copy_in_bytes(&mut c, &src.skip(i).take(1));
         uart::putc(c[0]);
     }
-    Ok(src.len())
+    src.len()
 }
 
 /// Reads the bytes from the console.
@@ -124,13 +119,7 @@ fn read(dst: &mut GenericMutSlice<u8>) -> Result<usize, KernelError> {
 
         // copy the input byte to the user-space buffer.
         let cbuf = &[c];
-        if let Err(e) = UserPageTable::either_copy_out_bytes(&mut dst.skip_mut(i).take_mut(1), cbuf)
-        {
-            if i > 0 {
-                break;
-            }
-            return Err(e);
-        }
+        UserPageTable::either_copy_out_bytes(&mut dst.skip_mut(i).take_mut(1), cbuf);
 
         i += 1;
 
@@ -191,8 +180,9 @@ pub fn handle_interrupt(c: u8) {
     }
 }
 
+#[expect(clippy::unnecessary_wraps)]
 fn console_write(src: &GenericSlice<u8>) -> Result<usize, KernelError> {
-    write(src)
+    Ok(write(src))
 }
 
 fn console_read(dst: &mut GenericMutSlice<u8>) -> Result<usize, KernelError> {

@@ -174,15 +174,7 @@ impl<const READ_ONLY: bool> LockedTxInode<'_, '_, READ_ONLY> {
             let Ok(bg) = br.lock().read();
             let m = usize::min(dst.len(), FS_BLOCK_SIZE - off % FS_BLOCK_SIZE);
             let mut dst = dst.take_mut(m);
-            if let Err(e) = UserPageTable::either_copy_out_bytes(
-                &mut dst,
-                &bg.bytes()[off % FS_BLOCK_SIZE..][..m],
-            ) {
-                if tot > 0 {
-                    break;
-                }
-                return Err(e);
-            }
+            UserPageTable::either_copy_out_bytes(&mut dst, &bg.bytes()[off % FS_BLOCK_SIZE..][..m]);
             tot += m;
         }
         Ok(tot)
@@ -241,16 +233,10 @@ impl LockedTxInode<'_, '_, false> {
             let Ok(mut bg) = br.lock().read();
             let m = usize::min(src.len(), FS_BLOCK_SIZE - off % FS_BLOCK_SIZE);
             let src = src.take(m);
-            if let Err(e) = UserPageTable::either_copy_in_bytes(
+            UserPageTable::either_copy_in_bytes(
                 &mut bg.bytes_mut()[off % FS_BLOCK_SIZE..][..m],
                 &src,
-            ) {
-                if tot > 0 {
-                    break;
-                }
-                return Err(e);
-            }
-
+            );
             tot += m;
         }
 

@@ -208,91 +208,70 @@ impl UserPageTable {
     }
 
     /// Copies from user to kernel.
-    pub fn copy_out<T>(
-        &mut self,
-        dst: &mut Validated<UserMutRef<T>>,
-        src: &T,
-    ) -> Result<(), KernelError>
+    pub fn copy_out<T>(&mut self, dst: &mut Validated<UserMutRef<T>>, src: &T)
     where
         T: Pod,
     {
-        self.copy_out_bytes(&mut dst.as_bytes_mut(), src.as_bytes())
+        self.copy_out_bytes(&mut dst.as_bytes_mut(), src.as_bytes());
     }
 
     /// Copies from kernel to user.
-    pub fn copy_out_bytes(
-        &mut self,
-        dst: &mut Validated<UserMutSlice<u8>>,
-        mut src: &[u8],
-    ) -> Result<(), KernelError> {
+    pub fn copy_out_bytes(&mut self, dst: &mut Validated<UserMutSlice<u8>>, mut src: &[u8]) {
         assert_eq!(dst.len(), src.len());
         for chunk in AddressChunks::new(dst) {
             let va0 = chunk.page_range().start;
             let offset = chunk.offset_in_page().start;
             let n = chunk.size();
 
-            let dst_page = self.pt.fetch_page_mut(va0, PtEntryFlags::UW)?;
+            let dst_page = self.pt.fetch_page_mut(va0, PtEntryFlags::UW).unwrap();
             let dst = &mut dst_page[offset..][..n];
             dst.copy_from_slice(&src[..n]);
             src = &src[n..];
         }
-
-        Ok(())
     }
 
     /// Copies to either a user address, or kernel address.
     #[track_caller]
-    pub fn either_copy_out_bytes(
-        dst: &mut GenericMutSlice<u8>,
-        src: &[u8],
-    ) -> Result<(), KernelError> {
+    pub fn either_copy_out_bytes(dst: &mut GenericMutSlice<u8>, src: &[u8]) {
         assert_eq!(dst.len(), src.len());
         match dst {
-            GenericMutSlice::User(pt, dst) => pt.copy_out_bytes(dst, src)?,
+            GenericMutSlice::User(pt, dst) => pt.copy_out_bytes(dst, src),
             GenericMutSlice::Kernel(dst) => dst.copy_from_slice(src),
         }
-        Ok(())
     }
 
     /// Copies from user to kernel.
-    pub fn copy_in<T>(&self, src: &Validated<UserRef<T>>) -> Result<T, KernelError>
+    pub fn copy_in<T>(&self, src: &Validated<UserRef<T>>) -> T
     where
         T: Pod,
     {
         let mut dst = T::zeroed();
-        self.copy_in_bytes(dst.as_bytes_mut(), &src.as_bytes())?;
-        Ok(dst)
+        self.copy_in_bytes(dst.as_bytes_mut(), &src.as_bytes());
+        dst
     }
 
     /// Copies from user to kernel.
-    pub fn copy_in_bytes(
-        &self,
-        mut dst: &mut [u8],
-        src: &Validated<UserSlice<u8>>,
-    ) -> Result<(), KernelError> {
+    pub fn copy_in_bytes(&self, mut dst: &mut [u8], src: &Validated<UserSlice<u8>>) {
         assert_eq!(src.len(), dst.len());
         for chunk in AddressChunks::new(src) {
             let va0 = chunk.page_range().start;
             let offset = chunk.offset_in_page().start;
             let n = chunk.size();
 
-            let src_page = self.pt.fetch_page(va0, PtEntryFlags::UR)?;
+            let src_page = self.pt.fetch_page(va0, PtEntryFlags::UR).unwrap();
             let src = &src_page[offset..][..n];
             dst[..n].copy_from_slice(src);
             dst = &mut dst[n..];
         }
-
-        Ok(())
     }
 
     /// Copies from either a user address, or kernel address.
-    pub fn either_copy_in_bytes(dst: &mut [u8], src: &GenericSlice<u8>) -> Result<(), KernelError> {
+    pub fn either_copy_in_bytes(dst: &mut [u8], src: &GenericSlice<u8>) {
         assert_eq!(dst.len(), src.len());
         match src {
-            GenericSlice::User(pt, src) => pt.copy_in_bytes(dst, src)?,
+            GenericSlice::User(pt, src) => pt.copy_in_bytes(dst, src),
             GenericSlice::Kernel(src) => dst.copy_from_slice(src),
         }
-        Ok(())
     }
 }
 

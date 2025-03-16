@@ -184,11 +184,11 @@ fn push_arguments(
         let mut dst = UserMutSlice::from_raw_parts(sp, src.len())
             .validate(pt)
             .unwrap();
-        pt.copy_out_bytes(&mut dst, src)?;
+        pt.copy_out_bytes(&mut dst, src);
         let mut dst = UserMutSlice::from_raw_parts(sp + src.len(), 1)
             .validate(pt)
             .unwrap();
-        pt.copy_out_bytes(&mut dst, &[0])?;
+        pt.copy_out_bytes(&mut dst, &[0]);
         *uarg = sp;
     }
     ustack[argv.len()] = 0;
@@ -208,6 +208,6 @@ fn push_arguments(
     let mut dst = UserMutSlice::from_raw_parts(sp, src.len())
         .validate(pt)
         .unwrap();
-    pt.copy_out_bytes(&mut dst, src)?;
+    pt.copy_out_bytes(&mut dst, src);
     Ok((sp, argv.len()))
 }
