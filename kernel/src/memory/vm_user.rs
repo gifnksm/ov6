@@ -1,12 +1,12 @@
 use alloc::boxed::Box;
-use core::{ptr, slice};
+use core::{ops::Range, ptr, slice};
 
 use dataview::{Pod, PodMethods as _};
 use ov6_syscall::{UserMutRef, UserMutSlice, UserRef, UserSlice};
 
 use super::{
     PAGE_SIZE, PageRound as _, PhysAddr, PhysPageNum, VirtAddr,
-    addr::{AddressChunks, GenericMutSlice, GenericSlice},
+    addr::{AddressChunks, GenericMutSlice, GenericSlice, Validated},
     layout::{TRAMPOLINE, TRAPFRAME},
     page::{self, PageFrameAllocator},
     page_table::{PageTable, PtEntryFlags},
@@ -191,24 +191,28 @@ impl UserPageTable {
         self.pt.resolve_virtual_address(va, flags)
     }
 
-    pub fn fetch_page(
-        &self,
-        va: VirtAddr,
-        flags: PtEntryFlags,
-    ) -> Result<&[u8; PAGE_SIZE], KernelError> {
-        self.pt.fetch_page(va, flags)
+    pub fn validate_read(&self, va: Range<VirtAddr>) -> Result<(), KernelError> {
+        for chunk in AddressChunks::try_new(va)? {
+            let va = chunk.page_range().start;
+            let _pa = self.pt.resolve_virtual_address(va, PtEntryFlags::UR)?;
+        }
+        Ok(())
     }
 
-    pub fn fetch_page_mut(
-        &mut self,
-        va: VirtAddr,
-        flags: PtEntryFlags,
-    ) -> Result<&mut [u8; PAGE_SIZE], KernelError> {
-        self.pt.fetch_page_mut(va, flags)
+    pub fn validate_write(&self, va: Range<VirtAddr>) -> Result<(), KernelError> {
+        for chunk in AddressChunks::try_new(va)? {
+            let va = chunk.page_range().start;
+            let _pa = self.pt.resolve_virtual_address(va, PtEntryFlags::UW)?;
+        }
+        Ok(())
     }
 
     /// Copies from user to kernel.
-    pub fn copy_out<T>(&mut self, dst: &mut UserMutRef<T>, src: &T) -> Result<(), KernelError>
+    pub fn copy_out<T>(
+        &mut self,
+        dst: &mut Validated<UserMutRef<T>>,
+        src: &T,
+    ) -> Result<(), KernelError>
     where
         T: Pod,
     {
@@ -218,16 +222,16 @@ impl UserPageTable {
     /// Copies from kernel to user.
     pub fn copy_out_bytes(
         &mut self,
-        dst: &mut UserMutSlice<u8>,
+        dst: &mut Validated<UserMutSlice<u8>>,
         mut src: &[u8],
     ) -> Result<(), KernelError> {
         assert_eq!(dst.len(), src.len());
-        for chunk in AddressChunks::new(dst)? {
+        for chunk in AddressChunks::new(dst) {
             let va0 = chunk.page_range().start;
             let offset = chunk.offset_in_page().start;
             let n = chunk.size();
 
-            let dst_page = self.fetch_page_mut(va0, PtEntryFlags::UW)?;
+            let dst_page = self.pt.fetch_page_mut(va0, PtEntryFlags::UW)?;
             let dst = &mut dst_page[offset..][..n];
             dst.copy_from_slice(&src[..n]);
             src = &src[n..];
@@ -237,6 +241,7 @@ impl UserPageTable {
     }
 
     /// Copies to either a user address, or kernel address.
+    #[track_caller]
     pub fn either_copy_out_bytes(
         dst: &mut GenericMutSlice<u8>,
         src: &[u8],
@@ -250,7 +255,7 @@ impl UserPageTable {
     }
 
     /// Copies from user to kernel.
-    pub fn copy_in<T>(&self, src: &UserRef<T>) -> Result<T, KernelError>
+    pub fn copy_in<T>(&self, src: &Validated<UserRef<T>>) -> Result<T, KernelError>
     where
         T: Pod,
     {
@@ -263,15 +268,15 @@ impl UserPageTable {
     pub fn copy_in_bytes(
         &self,
         mut dst: &mut [u8],
-        src: &UserSlice<u8>,
+        src: &Validated<UserSlice<u8>>,
     ) -> Result<(), KernelError> {
         assert_eq!(src.len(), dst.len());
-        for chunk in AddressChunks::new(src)? {
+        for chunk in AddressChunks::new(src) {
             let va0 = chunk.page_range().start;
             let offset = chunk.offset_in_page().start;
             let n = chunk.size();
 
-            let src_page = self.fetch_page(va0, PtEntryFlags::UR)?;
+            let src_page = self.pt.fetch_page(va0, PtEntryFlags::UR)?;
             let src = &src_page[offset..][..n];
             dst[..n].copy_from_slice(src);
             dst = &mut dst[n..];

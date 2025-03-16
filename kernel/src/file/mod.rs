@@ -5,7 +5,7 @@ use self::{alloc::FileDataArc, device::DeviceFile, inode::InodeFile, pipe::PipeF
 use crate::{
     error::KernelError,
     fs::{DeviceNo, Inode},
-    memory::vm_user::UserPageTable,
+    memory::{addr::Validated, vm_user::UserPageTable},
 };
 
 mod alloc;
@@ -93,7 +93,7 @@ impl File {
     pub fn read(
         &self,
         pt: &mut UserPageTable,
-        dst: &mut UserMutSlice<u8>,
+        dst: &mut Validated<UserMutSlice<u8>>,
     ) -> Result<usize, KernelError> {
         if !self.data.readable {
             return Err(KernelError::FileDescriptorNotReadable);
@@ -110,7 +110,11 @@ impl File {
     /// Writes to file `f`.
     ///
     /// `addr` is a user virtual address.
-    pub fn write(&self, pt: &UserPageTable, src: &UserSlice<u8>) -> Result<usize, KernelError> {
+    pub fn write(
+        &self,
+        pt: &UserPageTable,
+        src: &Validated<UserSlice<u8>>,
+    ) -> Result<usize, KernelError> {
         if !self.data.writable {
             return Err(KernelError::FileDescriptorNotWritable);
         }

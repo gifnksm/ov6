@@ -6,7 +6,7 @@ use super::{File, FileData, FileDataArc, SpecificData};
 use crate::{
     error::KernelError,
     fs::{self, FS_BLOCK_SIZE, Inode},
-    memory::vm_user::UserPageTable,
+    memory::{addr::Validated, vm_user::UserPageTable},
     param::MAX_OP_BLOCKS,
 };
 
@@ -39,7 +39,7 @@ impl InodeFile {
     pub(super) fn read(
         &self,
         pt: &mut UserPageTable,
-        dst: &mut UserMutSlice<u8>,
+        dst: &mut Validated<UserMutSlice<u8>>,
     ) -> Result<usize, KernelError> {
         let tx = fs::begin_readonly_tx();
         let mut ip = self.inode.clone().into_tx(&tx);
@@ -54,7 +54,7 @@ impl InodeFile {
     pub(super) fn write(
         &self,
         pt: &UserPageTable,
-        src: &UserSlice<u8>,
+        src: &Validated<UserSlice<u8>>,
     ) -> Result<usize, KernelError> {
         // write a few blocks at a time to avoid exceeding
         // the maximum log transaction size, including

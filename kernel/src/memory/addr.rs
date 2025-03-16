@@ -5,6 +5,7 @@ use core::{
     ptr::{self, NonNull},
 };
 
+use dataview::Pod;
 use ov6_syscall::{UserMutRef, UserMutSlice, UserRef, UserSlice};
 
 use super::{PAGE_SHIFT, PAGE_SIZE, vm_user::UserPageTable};
@@ -206,34 +207,34 @@ impl PhysAddr {
     }
 }
 
-pub trait AsVirtAddrRange {
-    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError>;
+pub trait TryAsVirtAddrRange {
+    fn try_as_va_range(&self) -> Result<Range<VirtAddr>, KernelError>;
 }
 
-impl AsVirtAddrRange for Range<VirtAddr> {
-    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
+impl TryAsVirtAddrRange for Range<VirtAddr> {
+    fn try_as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
         Ok(self.clone())
     }
 }
 
-impl<T> AsVirtAddrRange for UserRef<T> {
-    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
+impl<T> TryAsVirtAddrRange for UserRef<T> {
+    fn try_as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
         let start = VirtAddr::new(self.addr())?;
         let end = start.byte_add(self.size())?;
         Ok(start..end)
     }
 }
 
-impl<T> AsVirtAddrRange for UserMutRef<T> {
-    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
+impl<T> TryAsVirtAddrRange for UserMutRef<T> {
+    fn try_as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
         let start = VirtAddr::new(self.addr())?;
         let end = start.byte_add(self.size())?;
         Ok(start..end)
     }
 }
 
-impl<T> AsVirtAddrRange for UserSlice<T> {
-    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
+impl<T> TryAsVirtAddrRange for UserSlice<T> {
+    fn try_as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
         let size = self
             .size()
             .ok_or(KernelError::TooLargeVirtualAddress(usize::MAX))?;
@@ -243,8 +244,8 @@ impl<T> AsVirtAddrRange for UserSlice<T> {
     }
 }
 
-impl<T> AsVirtAddrRange for UserMutSlice<T> {
-    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
+impl<T> TryAsVirtAddrRange for UserMutSlice<T> {
+    fn try_as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
         let size = self
             .size()
             .ok_or(KernelError::TooLargeVirtualAddress(usize::MAX))?;
@@ -254,21 +255,52 @@ impl<T> AsVirtAddrRange for UserMutSlice<T> {
     }
 }
 
-impl<T> AsVirtAddrRange for &'_ T
+impl<T> TryAsVirtAddrRange for &'_ T
 where
-    T: AsVirtAddrRange,
+    T: TryAsVirtAddrRange,
 {
-    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
-        <T as AsVirtAddrRange>::as_va_range(*self)
+    fn try_as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
+        <T as TryAsVirtAddrRange>::try_as_va_range(*self)
     }
 }
 
-impl<T> AsVirtAddrRange for &'_ mut T
+impl<T> TryAsVirtAddrRange for &'_ mut T
 where
-    T: AsVirtAddrRange,
+    T: TryAsVirtAddrRange,
 {
-    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
-        <T as AsVirtAddrRange>::as_va_range(*self)
+    fn try_as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
+        <T as TryAsVirtAddrRange>::try_as_va_range(*self)
+    }
+}
+
+pub trait AsVirtAddrRange {
+    fn as_va_range(&self) -> Range<VirtAddr>;
+}
+
+impl<R> AsVirtAddrRange for Validated<R>
+where
+    R: TryAsVirtAddrRange,
+{
+    fn as_va_range(&self) -> Range<VirtAddr> {
+        self.0.try_as_va_range().unwrap()
+    }
+}
+
+impl<R> AsVirtAddrRange for &'_ Validated<R>
+where
+    R: TryAsVirtAddrRange,
+{
+    fn as_va_range(&self) -> Range<VirtAddr> {
+        self.0.try_as_va_range().unwrap()
+    }
+}
+
+impl<R> AsVirtAddrRange for &'_ mut Validated<R>
+where
+    R: TryAsVirtAddrRange,
+{
+    fn as_va_range(&self) -> Range<VirtAddr> {
+        self.0.try_as_va_range().unwrap()
     }
 }
 
@@ -278,11 +310,20 @@ pub struct AddressChunks {
 }
 
 impl AddressChunks {
-    pub fn new<R>(range: R) -> Result<Self, KernelError>
+    #[expect(clippy::needless_pass_by_value)]
+    pub fn new<R>(range: R) -> Self
     where
         R: AsVirtAddrRange,
     {
-        let range = range.as_va_range()?;
+        let range = range.as_va_range();
+        Self { range }
+    }
+
+    pub fn try_new<R>(range: R) -> Result<Self, KernelError>
+    where
+        R: TryAsVirtAddrRange,
+    {
+        let range = range.try_as_va_range()?;
         Ok(Self { range })
     }
 
@@ -333,9 +374,137 @@ impl Iterator for AddressChunks {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Validated<T>(T);
+
+pub trait Validate: Sized {
+    fn validate(self, pt: &UserPageTable) -> Result<Validated<Self>, KernelError>;
+}
+
+impl<T> Validate for UserRef<T> {
+    fn validate(self, pt: &UserPageTable) -> Result<Validated<Self>, KernelError> {
+        pt.validate_read(self.try_as_va_range()?)?;
+        Ok(Validated(self))
+    }
+}
+
+impl<T> Validate for UserMutRef<T> {
+    fn validate(self, pt: &UserPageTable) -> Result<Validated<Self>, KernelError> {
+        pt.validate_write(self.try_as_va_range()?)?;
+        Ok(Validated(self))
+    }
+}
+
+impl<T> Validate for UserSlice<T> {
+    fn validate(self, pt: &UserPageTable) -> Result<Validated<Self>, KernelError> {
+        pt.validate_read(self.try_as_va_range()?)?;
+        Ok(Validated(self))
+    }
+}
+
+impl<T> Validate for UserMutSlice<T> {
+    fn validate(self, pt: &UserPageTable) -> Result<Validated<Self>, KernelError> {
+        pt.validate_write(self.try_as_va_range()?)?;
+        Ok(Validated(self))
+    }
+}
+
+impl<T> Validated<UserRef<T>> {
+    #[expect(unused)]
+    pub fn addr(&self) -> usize {
+        self.0.addr()
+    }
+
+    #[expect(unused)]
+    pub fn size(&self) -> usize {
+        self.0.size()
+    }
+
+    pub fn as_bytes(&self) -> Validated<UserSlice<u8>>
+    where
+        T: Pod + Sized,
+    {
+        Validated(self.0.as_bytes())
+    }
+}
+
+impl<T> Validated<UserMutRef<T>> {
+    #[expect(unused)]
+    pub fn addr(&self) -> usize {
+        self.0.addr()
+    }
+
+    #[expect(unused)]
+    pub fn size(&self) -> usize {
+        self.0.size()
+    }
+
+    pub fn as_bytes_mut(&mut self) -> Validated<UserMutSlice<u8>>
+    where
+        T: Pod + Sized,
+    {
+        Validated(self.0.as_bytes_mut())
+    }
+}
+
+impl<T> Validated<UserSlice<T>> {
+    pub fn addr(&self) -> usize {
+        self.0.addr()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[expect(unused)]
+    pub fn size(&self) -> usize {
+        self.0.size().unwrap()
+    }
+
+    pub fn nth(&self, n: usize) -> Validated<UserRef<T>> {
+        Validated(self.0.nth(n))
+    }
+
+    pub fn skip(&self, amt: usize) -> Self {
+        Self(self.0.skip(amt))
+    }
+
+    pub fn take(&self, amt: usize) -> Self {
+        Self(self.0.take(amt))
+    }
+}
+
+impl<T> Validated<UserMutSlice<T>> {
+    pub fn addr(&self) -> usize {
+        self.0.addr()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[expect(unused)]
+    pub fn size(&self) -> usize {
+        self.0.size().unwrap()
+    }
+
+    #[expect(unused)]
+    pub fn nth_mut(&mut self, n: usize) -> Validated<UserMutRef<T>> {
+        Validated(self.0.nth_mut(n))
+    }
+
+    pub fn skip_mut(&mut self, amt: usize) -> Self {
+        Self(self.0.skip_mut(amt))
+    }
+
+    pub fn take_mut(&mut self, amt: usize) -> Self {
+        Self(self.0.take_mut(amt))
+    }
+}
+
 #[derive(Clone, Copy, derive_more::From)]
 pub enum GenericSlice<'a, T> {
-    User(&'a UserPageTable, UserSlice<T>),
+    User(&'a UserPageTable, Validated<UserSlice<T>>),
     Kernel(&'a [T]),
 }
 
@@ -364,15 +533,15 @@ impl<T> GenericSlice<'_, T> {
     }
 }
 
-impl<'a, T> From<(&'a UserPageTable, &'a UserSlice<T>)> for GenericSlice<'a, T> {
-    fn from((pt, s): (&'a UserPageTable, &'a UserSlice<T>)) -> Self {
-        Self::User(pt, UserSlice::from_raw_parts(s.addr(), s.len()))
+impl<'a, T> From<(&'a UserPageTable, &'a Validated<UserSlice<T>>)> for GenericSlice<'a, T> {
+    fn from((pt, s): (&'a UserPageTable, &'a Validated<UserSlice<T>>)) -> Self {
+        Self::User(pt, Validated(UserSlice::from_raw_parts(s.addr(), s.len())))
     }
 }
 
 #[derive(derive_more::From)]
 pub enum GenericMutSlice<'a, T> {
-    User(&'a mut UserPageTable, UserMutSlice<T>),
+    User(&'a mut UserPageTable, Validated<UserMutSlice<T>>),
     Kernel(&'a mut [T]),
 }
 
@@ -401,8 +570,13 @@ impl<T> GenericMutSlice<'_, T> {
     }
 }
 
-impl<'a, T> From<(&'a mut UserPageTable, &'a mut UserMutSlice<T>)> for GenericMutSlice<'a, T> {
-    fn from((pt, s): (&'a mut UserPageTable, &'a mut UserMutSlice<T>)) -> Self {
-        Self::User(pt, UserMutSlice::from_raw_parts(s.addr(), s.len()))
+impl<'a, T> From<(&'a mut UserPageTable, &'a mut Validated<UserMutSlice<T>>)>
+    for GenericMutSlice<'a, T>
+{
+    fn from((pt, s): (&'a mut UserPageTable, &'a mut Validated<UserMutSlice<T>>)) -> Self {
+        Self::User(
+            pt,
+            Validated(UserMutSlice::from_raw_parts(s.addr(), s.len())),
+        )
     }
 }

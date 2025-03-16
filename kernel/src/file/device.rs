@@ -5,7 +5,7 @@ use crate::{
     error::KernelError,
     fs::{DeviceNo, Inode},
     memory::{
-        addr::{GenericMutSlice, GenericSlice},
+        addr::{GenericMutSlice, GenericSlice, Validated},
         vm_user::UserPageTable,
     },
     param::NDEV,
@@ -74,7 +74,7 @@ impl DeviceFile {
     pub(super) fn read(
         &self,
         pt: &mut UserPageTable,
-        dst: &mut UserMutSlice<u8>,
+        dst: &mut Validated<UserMutSlice<u8>>,
     ) -> Result<usize, KernelError> {
         let read = DEVICE_TABLE
             .lock()
@@ -87,7 +87,7 @@ impl DeviceFile {
     pub(super) fn write(
         &self,
         pt: &UserPageTable,
-        src: &UserSlice<u8>,
+        src: &Validated<UserSlice<u8>>,
     ) -> Result<usize, KernelError> {
         let write = DEVICE_TABLE
             .lock()

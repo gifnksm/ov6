@@ -10,8 +10,8 @@ use crate::{
     error::KernelError,
     fs::{self, LockedTxInode},
     memory::{
-        PAGE_SIZE, PageRound as _, VirtAddr, page::PageFrameAllocator, page_table::PtEntryFlags,
-        vm_user::UserPageTable,
+        PAGE_SIZE, PageRound as _, VirtAddr, addr::Validate as _, page::PageFrameAllocator,
+        page_table::PtEntryFlags, vm_user::UserPageTable,
     },
     param::{MAX_ARG, USER_STACK},
     proc::{
@@ -180,9 +180,13 @@ fn push_arguments(
         if sp < stack_base {
             return Err(KernelError::ArgumentListTooLarge);
         }
-        let mut dst = UserMutSlice::from_raw_parts(sp, src.len());
+        let mut dst = UserMutSlice::from_raw_parts(sp, src.len())
+            .validate(pt)
+            .unwrap();
         pt.copy_out_bytes(&mut dst, src)?;
-        let mut dst = UserMutSlice::from_raw_parts(sp + src.len(), 1);
+        let mut dst = UserMutSlice::from_raw_parts(sp + src.len(), 1)
+            .validate(pt)
+            .unwrap();
         pt.copy_out_bytes(&mut dst, &[0])?;
         *uarg = sp;
     }
@@ -200,7 +204,9 @@ fn push_arguments(
             (argv.len() + 1) * size_of::<usize>(),
         )
     };
-    let mut dst = UserMutSlice::from_raw_parts(sp, src.len());
+    let mut dst = UserMutSlice::from_raw_parts(sp, src.len())
+        .validate(pt)
+        .unwrap();
     pt.copy_out_bytes(&mut dst, src)?;
     Ok((sp, argv.len()))
 }

@@ -5,7 +5,7 @@ use ov6_syscall::{UserMutSlice, UserSlice};
 use super::{File, FileData, FileDataArc, SpecificData};
 use crate::{
     error::KernelError,
-    memory::{page::PageFrameAllocator, vm_user::UserPageTable},
+    memory::{addr::Validated, page::PageFrameAllocator, vm_user::UserPageTable},
     sync::{SpinLock, SpinLockCondVar},
 };
 
@@ -81,7 +81,7 @@ impl PipeFile {
     pub(super) fn write(
         &self,
         pt: &UserPageTable,
-        src: &UserSlice<u8>,
+        src: &Validated<UserSlice<u8>>,
     ) -> Result<usize, KernelError> {
         let mut nwritten = 0;
 
@@ -116,11 +116,10 @@ impl PipeFile {
         Ok(nwritten)
     }
 
-    #[expect(clippy::needless_pass_by_ref_mut)]
     pub(super) fn read(
         &self,
         pt: &mut UserPageTable,
-        dst: &mut UserMutSlice<u8>,
+        dst: &mut Validated<UserMutSlice<u8>>,
     ) -> Result<usize, KernelError> {
         let mut pipe = self.0.data.lock();
         while pipe.nread == pipe.nwrite && pipe.write_open {

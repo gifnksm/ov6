@@ -324,7 +324,7 @@ impl<T> UserMutSlice<T> {
     }
 
     #[must_use]
-    pub const fn skip_mut(&self, amt: usize) -> Self {
+    pub const fn skip_mut(&mut self, amt: usize) -> Self {
         assert!(amt <= self.len);
         Self {
             addr: self.addr + amt,
@@ -334,7 +334,7 @@ impl<T> UserMutSlice<T> {
     }
 
     #[must_use]
-    pub const fn take_mut(&self, amt: usize) -> Self {
+    pub const fn take_mut(&mut self, amt: usize) -> Self {
         assert!(amt <= self.len);
         Self {
             addr: self.addr,

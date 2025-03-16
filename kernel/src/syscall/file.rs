@@ -10,7 +10,7 @@ use crate::{
     error::KernelError,
     file::File,
     fs::{self, DeviceNo, Inode, T_DEVICE, T_DIR, T_FILE},
-    memory::{PAGE_SIZE, page::PageFrameAllocator},
+    memory::{PAGE_SIZE, addr::Validate as _, page::PageFrameAllocator},
     param::{MAX_ARG, MAX_PATH},
     proc::{Proc, ProcPrivateData, exec},
 };
@@ -23,6 +23,7 @@ fn fetch_path<'a>(
     if user_path.len() > MAX_PATH {
         return Err(KernelError::PathTooLong);
     }
+    let user_path = user_path.validate(private.pagetable())?;
 
     let path_out = &mut path_out[..user_path.len()];
     private.pagetable().copy_in_bytes(path_out, &user_path)?;
@@ -48,7 +49,8 @@ impl SyscallExt for syscall::Read {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((fd, mut data)) = Self::decode_arg(private.trapframe());
+        let Ok((fd, data)) = Self::decode_arg(private.trapframe());
+        let mut data = data.validate(private.pagetable())?;
         let file = private.ofile(fd)?;
         let n = file.clone().read(private.pagetable_mut(), &mut data)?;
         Ok(n)
@@ -60,6 +62,7 @@ impl SyscallExt for syscall::Write {
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
         let Ok((fd, data)) = Self::decode_arg(private.trapframe());
+        let data = data.validate(private.pagetable())?;
         let file = private.ofile(fd)?;
         let n = file.clone().write(private.pagetable(), &data)?;
         Ok(n)
@@ -80,7 +83,8 @@ impl SyscallExt for syscall::Fstat {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((fd, mut user_stat)) = Self::decode_arg(private.trapframe());
+        let Ok((fd, user_stat)) = Self::decode_arg(private.trapframe());
+        let mut user_stat = user_stat.validate(private.pagetable_mut())?;
         let file = private.ofile(fd)?;
         let stat = file.clone().stat()?;
         private.pagetable_mut().copy_out(&mut user_stat, &stat)?;
@@ -224,6 +228,7 @@ pub fn sys_exec(
     let Ok((user_path, uargv)) = super::decode_arg::<syscall::Exec>(private.trapframe());
     let mut path = [0; MAX_PATH];
     let path = fetch_path(private, user_path, &mut path)?;
+    let uargv = uargv.validate(private.pagetable())?;
 
     let mut argv: ArrayVec<(usize, Box<[u8; PAGE_SIZE], PageFrameAllocator>), { MAX_ARG - 1 }> =
         ArrayVec::new();
@@ -233,6 +238,7 @@ pub fn sys_exec(
         if uarg.len() > PAGE_SIZE {
             return Err(KernelError::ArgumentListTooLarge);
         }
+        let uarg = uarg.validate(private.pagetable())?;
 
         let mut buf = Box::try_new_in([0; PAGE_SIZE], PageFrameAllocator)
             .map_err(|AllocError| KernelError::NoFreePage)?;
@@ -252,7 +258,8 @@ impl SyscallExt for syscall::Pipe {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((mut fd_array,)) = Self::decode_arg(private.trapframe());
+        let Ok((fd_array,)) = Self::decode_arg(private.trapframe());
+        let mut fd_array = fd_array.validate(private.pagetable())?;
 
         let (rf, wf) = File::new_pipe()?;
 
