@@ -1,6 +1,16 @@
+MAKEFLAGS += -j
+MAKEFLSGS += --warn-undefined-variables
+MAKEFLSGS += --no-builtin-rules
+MAKEFLAGS += --no-builtin-variables
+
+SHELL := bash
+.SHELLFLAGS := -eu -o pipefail -c
 .DELETE_ON_ERROR:
 .SECONDARY:
 .SECONDEXPANSION:
+
+.PHONY: default
+default: all
 
 PROFILE=release
 ifeq ($(PROFILE),debug)
@@ -56,8 +66,6 @@ QEMU = qemu-system-riscv64
 
 OBJCOPY = llvm-objcopy
 
-all: $R/kernel fs.img
-
 # create separate debuginfo file
 # https://users.rust-lang.org/t/how-to-gdb-with-split-debug-files/102989/3
 target/ov6/%.debug: target/$(RUST_CROSS_TARGET)/% | $$(dir $$@)
@@ -97,27 +105,38 @@ $(foreach exe,$(OV6_FS_UTILS),$(eval $$(RN)/$(exe): $$(RN)/ov6_fs_utilities.stam
 fs.img: $(RN)/mkfs README $(FS_CONTENTS)
 	$(RN)/mkfs $@ README $(FS_CONTENTS)
 
+.PHONY: all
+all: $R/kernel fs.img
+
+.PHONY: clean
 clean:
 	rm -f fs.img .gdbinit
 	cargo clean
 
-check: cargo-clippy typos doc
+.PHONY: check
+check: cargo-clippy typos cargo-doc
 
+.PHONY: test
 test: cargo-test cargo-miri-test
 
+.PHONY: cargo-clippy
 cargo-clippy:
 	cargo clippy --workspace
 
+.PHONY: cargo-test
 cargo-test:
 	cargo nextest run --workspace
 
+.PHONY: cargo-miri-test
 cargo-miri-test:
 	cargo miri nextest run --workspace
 
+.PHONY: typos
 typos:
 	typos
 
-doc:
+.PHONY: cargo-doc
+cargo-doc:
 	cargo doc --workspace --document-private-items
 	cargo doc --workspace --document-private-items --target $(RUST_CROSS_TARGET)
 
@@ -140,15 +159,17 @@ ifdef QEMU_LOG
 QEMUOPTS += -d unimp,guest_errors,int -D target/qemu.log
 endif
 
+.PHONY: qemu
 qemu: $R/kernel fs.img
 	$(QEMU) $(QEMUOPTS)
 
 .gdbinit: .gdbinit.tmpl-riscv
 	sed "s/:1234/:$(GDBPORT)/" < $^ > $@
 
+.PHONY: qemu-gdb
 qemu-gdb: $R/kernel .gdbinit fs.img
 	@echo "*** Now run 'gdb' in another window." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
 FORCE:
-.PHONY: FORCE all clean qemu qemu-gdb check cargo-clippy typos
+.PHONY: FORCE
