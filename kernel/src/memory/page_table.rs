@@ -1,10 +1,10 @@
 use alloc::boxed::Box;
-use core::{alloc::AllocError, ops::Range, ptr};
+use core::{alloc::AllocError, ptr};
 
 use bitflags::bitflags;
 use dataview::Pod;
 
-use super::{PhysAddr, PhysPageNum, VirtAddr, page::PageFrameAllocator};
+use super::{PhysAddr, PhysPageNum, VirtAddr, addr::AddressChunks, page::PageFrameAllocator};
 use crate::{
     error::KernelError,
     memory::{PAGE_SHIFT, PAGE_SIZE, PageRound as _},
@@ -111,7 +111,7 @@ impl PageTable {
     /// Unmaps the page of memory at virtual address `va`.
     ///
     /// Returns the physical address of the page that was unmapped.
-    fn unmap_page(&mut self, va: VirtAddr) -> Result<PhysAddr, KernelError> {
+    pub(super) fn unmap_page(&mut self, va: VirtAddr) -> Result<PhysAddr, KernelError> {
         assert!(va.is_page_aligned(), "va={va:?}");
 
         self.update_level0_entry(va, false, |pte| {
@@ -125,12 +125,16 @@ impl PageTable {
 
     /// Unmaps the pages of memory starting at virtual address `va` and
     /// covering `npages` pages.
-    pub(super) fn unmap_pages(&mut self, va: VirtAddr, npages: usize) -> UnmapPages {
-        UnmapPages {
+    pub(super) fn unmap_pages(
+        &mut self,
+        va: VirtAddr,
+        npages: usize,
+    ) -> Result<UnmapPages, KernelError> {
+        let start = va;
+        Ok(UnmapPages {
             pt: self,
-            va,
-            offsets: 0..npages,
-        }
+            chunks: AddressChunks::from_size(start, npages * PAGE_SIZE)?,
+        })
     }
 
     /// Returns the leaf PTE in the page tables that corredponds to virtual
@@ -302,20 +306,15 @@ bitflags! {
 
 pub(super) struct UnmapPages<'a> {
     pt: &'a mut PageTable,
-    va: VirtAddr,
-    offsets: Range<usize>,
+    chunks: AddressChunks,
 }
 
 impl Iterator for UnmapPages<'_> {
     type Item = Result<PhysAddr, KernelError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let i = self.offsets.next()?;
-        Some(
-            self.va
-                .byte_add(i * PAGE_SIZE)
-                .and_then(|va| self.pt.unmap_page(va)),
-        )
+        let chunk = self.chunks.next()?;
+        Some(self.pt.unmap_page(chunk.page_range().start))
     }
 }
 

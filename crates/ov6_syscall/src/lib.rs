@@ -106,6 +106,14 @@ where
     }
 
     #[must_use]
+    pub fn size(&self) -> usize
+    where
+        T: Sized,
+    {
+        size_of::<T>()
+    }
+
+    #[must_use]
     pub fn cast<U>(&self) -> UserRef<U> {
         UserRef {
             addr: self.addr,
@@ -149,6 +157,14 @@ where
     #[must_use]
     pub fn addr(&self) -> usize {
         self.addr
+    }
+
+    #[must_use]
+    pub fn size(&self) -> usize
+    where
+        T: Sized,
+    {
+        size_of::<T>()
     }
 
     #[must_use]
@@ -210,6 +226,14 @@ impl<T> UserSlice<T> {
     #[must_use]
     pub const fn len(&self) -> usize {
         self.len
+    }
+
+    #[must_use]
+    pub fn size(&self) -> Option<usize>
+    where
+        T: Sized,
+    {
+        size_of::<T>().checked_mul(self.len)
     }
 
     #[must_use]
@@ -280,6 +304,14 @@ impl<T> UserMutSlice<T> {
     #[must_use]
     pub const fn len(&self) -> usize {
         self.len
+    }
+
+    #[must_use]
+    pub fn size(&self) -> Option<usize>
+    where
+        T: Sized,
+    {
+        size_of::<T>().checked_mul(self.len)
     }
 
     #[must_use]

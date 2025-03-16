@@ -1,10 +1,11 @@
 use core::{
-    fmt,
+    cmp, fmt,
     num::NonZero,
+    ops::Range,
     ptr::{self, NonNull},
 };
 
-use ov6_syscall::{UserMutSlice, UserSlice};
+use ov6_syscall::{UserMutRef, UserMutSlice, UserRef, UserSlice};
 
 use super::{PAGE_SHIFT, PAGE_SIZE, vm_user::UserPageTable};
 use crate::error::KernelError;
@@ -131,7 +132,7 @@ impl VirtAddr {
     pub const MIN: Self = Self(0);
 
     pub const fn new(addr: usize) -> Result<Self, KernelError> {
-        if addr >= Self::MAX.0 {
+        if addr > Self::MAX.0 {
             return Err(KernelError::TooLargeVirtualAddress(addr));
         }
         Ok(Self(addr))
@@ -202,6 +203,133 @@ impl PhysAddr {
 
     pub fn map_addr(self, f: impl FnOnce(usize) -> usize) -> Self {
         Self(f(self.0))
+    }
+}
+
+pub trait AsVirtAddrRange {
+    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError>;
+}
+
+impl AsVirtAddrRange for Range<VirtAddr> {
+    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
+        Ok(self.clone())
+    }
+}
+
+impl<T> AsVirtAddrRange for UserRef<T> {
+    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
+        let start = VirtAddr::new(self.addr())?;
+        let end = start.byte_add(self.size())?;
+        Ok(start..end)
+    }
+}
+
+impl<T> AsVirtAddrRange for UserMutRef<T> {
+    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
+        let start = VirtAddr::new(self.addr())?;
+        let end = start.byte_add(self.size())?;
+        Ok(start..end)
+    }
+}
+
+impl<T> AsVirtAddrRange for UserSlice<T> {
+    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
+        let size = self
+            .size()
+            .ok_or(KernelError::TooLargeVirtualAddress(usize::MAX))?;
+        let start = VirtAddr::new(self.addr())?;
+        let end = start.byte_add(size)?;
+        Ok(start..end)
+    }
+}
+
+impl<T> AsVirtAddrRange for UserMutSlice<T> {
+    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
+        let size = self
+            .size()
+            .ok_or(KernelError::TooLargeVirtualAddress(usize::MAX))?;
+        let start = VirtAddr::new(self.addr())?;
+        let end = start.byte_add(size)?;
+        Ok(start..end)
+    }
+}
+
+impl<T> AsVirtAddrRange for &'_ T
+where
+    T: AsVirtAddrRange,
+{
+    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
+        <T as AsVirtAddrRange>::as_va_range(*self)
+    }
+}
+
+impl<T> AsVirtAddrRange for &'_ mut T
+where
+    T: AsVirtAddrRange,
+{
+    fn as_va_range(&self) -> Result<Range<VirtAddr>, KernelError> {
+        <T as AsVirtAddrRange>::as_va_range(*self)
+    }
+}
+
+#[derive(Debug)]
+pub struct AddressChunks {
+    range: Range<VirtAddr>,
+}
+
+impl AddressChunks {
+    pub fn new<R>(range: R) -> Result<Self, KernelError>
+    where
+        R: AsVirtAddrRange,
+    {
+        let range = range.as_va_range()?;
+        Ok(Self { range })
+    }
+
+    pub fn from_size(start: VirtAddr, size: usize) -> Result<Self, KernelError> {
+        let end = start.byte_add(size)?;
+        Ok(Self { range: start..end })
+    }
+
+    pub fn from_range(range: Range<VirtAddr>) -> Self {
+        Self { range }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AddressChunk {
+    range: Range<VirtAddr>,
+}
+
+impl AddressChunk {
+    pub fn page_range(&self) -> Range<VirtAddr> {
+        self.range.start.page_rounddown()..self.range.end.page_roundup()
+    }
+
+    pub fn offset_in_page(&self) -> Range<usize> {
+        (self.range.start.addr() % PAGE_SIZE)..(self.range.end.addr() % PAGE_SIZE)
+    }
+
+    pub fn size(&self) -> usize {
+        self.range.end.addr() - self.range.start.addr()
+    }
+}
+
+impl Iterator for AddressChunks {
+    type Item = AddressChunk;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.range.start >= self.range.end {
+            return None;
+        }
+
+        let start = self.range.start;
+        let end = start
+            .byte_add(PAGE_SIZE)
+            .map(|a| cmp::min(a.page_rounddown(), self.range.end))
+            .unwrap_or(self.range.end);
+        self.range.start = end;
+        Some(AddressChunk { range: start..end })
     }
 }
 

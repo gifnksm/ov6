@@ -102,16 +102,17 @@ fn load_segments<const READ_ONLY: bool>(
         if ph.vaddr.checked_add(ph.memsz).is_none() {
             return Err(KernelError::InvalidExecutable);
         }
-        if !usize::try_from(ph.vaddr).unwrap().is_page_aligned() {
+
+        let va_start = VirtAddr::new(usize::try_from(ph.vaddr).unwrap())?;
+        if !va_start.is_page_aligned() {
             return Err(KernelError::InvalidExecutable);
         }
-        new_pt.grow_to(
-            usize::try_from(ph.vaddr + ph.memsz).unwrap(),
-            flags2perm(ph.flags),
-        )?;
+        let va_end = va_start.byte_add(usize::try_from(ph.memsz).unwrap())?;
+        new_pt.grow_to(va_end.addr(), flags2perm(ph.flags))?;
+
         load_segment(
             new_pt,
-            VirtAddr::new(ph.vaddr.try_into().unwrap())?,
+            va_start,
             lip,
             ph.off.try_into().unwrap(),
             ph.filesz.try_into().unwrap(),
@@ -128,24 +129,23 @@ fn load_segment<const READ_ONLY: bool>(
     new_pt: &UserPageTable,
     va: VirtAddr,
     lip: &mut LockedTxInode<READ_ONLY>,
-    offset: usize,
-    sz: usize,
+    file_offset: usize,
+    file_size: usize,
 ) -> Result<(), KernelError> {
     assert!(va.is_page_aligned());
 
-    for i in (0..sz).step_by(PAGE_SIZE) {
-        let pa = new_pt
-            .resolve_virtual_address(va.byte_add(i)?, PtEntryFlags::U)
-            .unwrap();
+    for i in (0..file_size).step_by(PAGE_SIZE) {
+        let va = va.byte_add(i).unwrap();
+        let pa = new_pt.resolve_virtual_address(va, PtEntryFlags::U).unwrap();
 
-        let n = if sz - i < PAGE_SIZE {
-            sz - i
+        let n = if file_size - i < PAGE_SIZE {
+            file_size - i
         } else {
             PAGE_SIZE
         };
 
         let dst = unsafe { slice::from_raw_parts_mut(pa.as_mut_ptr().as_ptr(), n) };
-        let nread = lip.read(dst.into(), offset + i)?;
+        let nread = lip.read(dst.into(), file_offset + i)?;
         if nread != n {
             return Err(KernelError::InvalidExecutable);
         }
