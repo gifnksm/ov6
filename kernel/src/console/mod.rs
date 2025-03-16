@@ -73,7 +73,7 @@ static CONSOLE_BUFFER_WRITTEN: SpinLockCondVar = SpinLockCondVar::new();
 fn write(src: &GenericSlice<u8>) -> usize {
     for i in 0..src.len() {
         let mut c: [u8; 1] = [0];
-        UserPageTable::either_copy_in_bytes(&mut c, &src.skip(i).take(1));
+        UserPageTable::copy_x2k_bytes(&mut c, &src.skip(i).take(1));
         uart::putc(c[0]);
     }
     src.len()
@@ -119,7 +119,7 @@ fn read(dst: &mut GenericMutSlice<u8>) -> Result<usize, KernelError> {
 
         // copy the input byte to the user-space buffer.
         let cbuf = &[c];
-        UserPageTable::either_copy_out_bytes(&mut dst.skip_mut(i).take_mut(1), cbuf);
+        UserPageTable::copy_k2x_bytes(&mut dst.skip_mut(i).take_mut(1), cbuf);
 
         i += 1;
 

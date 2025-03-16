@@ -208,15 +208,15 @@ impl UserPageTable {
     }
 
     /// Copies from user to kernel.
-    pub fn copy_out<T>(&mut self, dst: &mut Validated<UserMutRef<T>>, src: &T)
+    pub fn copy_k2u<T>(&mut self, dst: &mut Validated<UserMutRef<T>>, src: &T)
     where
         T: Pod,
     {
-        self.copy_out_bytes(&mut dst.as_bytes_mut(), src.as_bytes());
+        self.copy_k2u_bytes(&mut dst.as_bytes_mut(), src.as_bytes());
     }
 
     /// Copies from kernel to user.
-    pub fn copy_out_bytes(&mut self, dst: &mut Validated<UserMutSlice<u8>>, mut src: &[u8]) {
+    pub fn copy_k2u_bytes(&mut self, dst: &mut Validated<UserMutSlice<u8>>, mut src: &[u8]) {
         assert_eq!(dst.len(), src.len());
         for chunk in AddressChunks::new(dst) {
             let va0 = chunk.page_range().start;
@@ -232,26 +232,26 @@ impl UserPageTable {
 
     /// Copies to either a user address, or kernel address.
     #[track_caller]
-    pub fn either_copy_out_bytes(dst: &mut GenericMutSlice<u8>, src: &[u8]) {
+    pub fn copy_k2x_bytes(dst: &mut GenericMutSlice<u8>, src: &[u8]) {
         assert_eq!(dst.len(), src.len());
         match dst {
-            GenericMutSlice::User(pt, dst) => pt.copy_out_bytes(dst, src),
+            GenericMutSlice::User(pt, dst) => pt.copy_k2u_bytes(dst, src),
             GenericMutSlice::Kernel(dst) => dst.copy_from_slice(src),
         }
     }
 
     /// Copies from user to kernel.
-    pub fn copy_in<T>(&self, src: &Validated<UserRef<T>>) -> T
+    pub fn copy_u2k<T>(&self, src: &Validated<UserRef<T>>) -> T
     where
         T: Pod,
     {
         let mut dst = T::zeroed();
-        self.copy_in_bytes(dst.as_bytes_mut(), &src.as_bytes());
+        self.copy_u2k_bytes(dst.as_bytes_mut(), &src.as_bytes());
         dst
     }
 
     /// Copies from user to kernel.
-    pub fn copy_in_bytes(&self, mut dst: &mut [u8], src: &Validated<UserSlice<u8>>) {
+    pub fn copy_u2k_bytes(&self, mut dst: &mut [u8], src: &Validated<UserSlice<u8>>) {
         assert_eq!(src.len(), dst.len());
         for chunk in AddressChunks::new(src) {
             let va0 = chunk.page_range().start;
@@ -266,11 +266,52 @@ impl UserPageTable {
     }
 
     /// Copies from either a user address, or kernel address.
-    pub fn either_copy_in_bytes(dst: &mut [u8], src: &GenericSlice<u8>) {
+    pub fn copy_x2k_bytes(dst: &mut [u8], src: &GenericSlice<u8>) {
         assert_eq!(dst.len(), src.len());
         match src {
-            GenericSlice::User(pt, src) => pt.copy_in_bytes(dst, src),
+            GenericSlice::User(pt, src) => pt.copy_u2k_bytes(dst, src),
             GenericSlice::Kernel(src) => dst.copy_from_slice(src),
+        }
+    }
+
+    /// Copies from user to user.
+    pub fn copy_u2u_bytes(
+        dst_pt: &mut Self,
+        dst: &mut Validated<UserMutSlice<u8>>,
+        src_pt: &Self,
+        src: &Validated<UserSlice<u8>>,
+    ) {
+        assert_eq!(src.len(), dst.len());
+        let mut dst_chunks = AddressChunks::new(dst);
+        let mut src_chunks = AddressChunks::new(src);
+        let mut dst_bytes = &mut [][..];
+        let mut src_bytes = &[][..];
+
+        let mut total_copied = 0;
+        while total_copied < src.len() {
+            if dst_bytes.is_empty() {
+                let dst_chunk = dst_chunks.next().unwrap();
+                let page = dst_pt
+                    .pt
+                    .fetch_page_mut(dst_chunk.page_range().start, PtEntryFlags::UW)
+                    .unwrap();
+                dst_bytes = &mut page[dst_chunk.offset_in_page()];
+            }
+
+            if src_bytes.is_empty() {
+                let src_chunk = src_chunks.next().unwrap();
+                let page = src_pt
+                    .pt
+                    .fetch_page(src_chunk.page_range().start, PtEntryFlags::UR)
+                    .unwrap();
+                src_bytes = &page[src_chunk.offset_in_page()];
+            }
+
+            let n = usize::min(dst_bytes.len(), src_bytes.len());
+            dst_bytes[..n].copy_from_slice(&src_bytes[..n]);
+            dst_bytes = &mut dst_bytes[n..];
+            src_bytes = &src_bytes[n..];
+            total_copied += n;
         }
     }
 }

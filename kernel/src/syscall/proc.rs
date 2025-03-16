@@ -40,7 +40,7 @@ impl SyscallExt for syscall::Wait {
         let mut user_status = user_status.validate(private.pagetable())?;
 
         let (pid, status) = proc::ops::wait(p)?;
-        private.pagetable_mut().copy_out(&mut user_status, &status);
+        private.pagetable_mut().copy_k2u(&mut user_status, &status);
         Ok(pid)
     }
 }

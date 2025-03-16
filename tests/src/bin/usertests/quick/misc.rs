@@ -1,6 +1,6 @@
 use core::{cell::UnsafeCell, mem::MaybeUninit, ptr, slice};
 
-use ov6_kernel_params::{MAX_ARG, USER_STACK};
+use ov6_kernel_params::USER_STACK;
 use ov6_user_lib::{
     error::Ov6Error,
     fs::{self, File},
@@ -50,7 +50,7 @@ pub fn big_arg() {
 
     let status = process::fork_fn(|| {
         static BIG: &OsStr = OsStr::from_bytes(&[b' '; 400]);
-        const ARGS: [&OsStr; MAX_ARG] = [BIG; MAX_ARG];
+        const ARGS: [&OsStr; 100] = [BIG; 100];
         // this exec() should fail (and return) because the
         // arguments are too large.
         expect!(

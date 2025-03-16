@@ -1,8 +1,7 @@
-use alloc::boxed::Box;
 use core::slice;
 
 use dataview::PodMethods as _;
-use ov6_syscall::UserMutSlice;
+use ov6_syscall::{UserMutSlice, UserSlice};
 use ov6_types::path::Path;
 
 use super::ProcPrivateData;
@@ -10,10 +9,12 @@ use crate::{
     error::KernelError,
     fs::{self, LockedTxInode},
     memory::{
-        PAGE_SIZE, PageRound as _, VirtAddr, addr::Validate as _, page::PageFrameAllocator,
-        page_table::PtEntryFlags, vm_user::UserPageTable,
+        PAGE_SIZE, PageRound as _, VirtAddr,
+        addr::{Validate as _, Validated},
+        page_table::PtEntryFlags,
+        vm_user::UserPageTable,
     },
-    param::{MAX_ARG, USER_STACK},
+    param::USER_STACK,
     proc::{
         Proc,
         elf::{ELF_MAGIC, ELF_PROG_LOAD, ElfHeader, ProgramHeader},
@@ -31,12 +32,24 @@ fn flags2perm(flags: u32) -> PtEntryFlags {
     perm
 }
 
+fn arg_stack_size(arg_data_size: usize, arg_len: usize) -> Option<usize> {
+    let argv_size = arg_len.checked_add(1)?.checked_mul(size_of::<usize>())?;
+    let stack_size = argv_size.checked_add(arg_data_size)?;
+    Some(stack_size.next_multiple_of(16))
+}
+
 pub fn exec(
     p: &Proc,
     private: &mut ProcPrivateData,
     path: &Path,
-    argv: &[(usize, Box<[u8; PAGE_SIZE], PageFrameAllocator>)],
+    argv: &Validated<UserSlice<Validated<UserSlice<u8>>>>,
+    arg_data_size: usize,
 ) -> Result<(usize, usize), KernelError> {
+    let user_stack_size = USER_STACK * PAGE_SIZE;
+    let arg_stack_size = arg_stack_size(arg_data_size, argv.len())
+        .filter(|size| *size <= user_stack_size)
+        .ok_or(KernelError::ArgumentListTooLarge)?;
+
     let tx = fs::begin_tx()?;
     let cwd = private.cwd().clone().into_tx(&tx);
     let mut ip = fs::path::resolve(&tx, cwd, path)?;
@@ -65,10 +78,9 @@ pub fn exec(
     allocate_stack_pages(&mut pt)?;
 
     let sp = pt.size();
-    let stack_base = sp - USER_STACK * PAGE_SIZE;
 
     // Push argument strings, prepare rest of stack in ustack.
-    let (sp, argc) = push_arguments(&mut pt, sp, stack_base, argv)?;
+    let (sp, argc) = push_arguments(&mut pt, private.pagetable(), sp, arg_stack_size, argv);
 
     let argv = sp;
 
@@ -167,47 +179,32 @@ fn allocate_stack_pages(pt: &mut UserPageTable) -> Result<(), KernelError> {
 }
 
 fn push_arguments(
-    pt: &mut UserPageTable,
-    mut sp: usize,
-    stack_base: usize,
-    argv: &[(usize, Box<[u8; PAGE_SIZE], PageFrameAllocator>)],
-) -> Result<(usize, usize), KernelError> {
-    assert!(argv.len() < MAX_ARG);
-    let mut ustack = [0_usize; MAX_ARG];
+    dst_pt: &mut UserPageTable,
+    src_pt: &UserPageTable,
+    sp: usize,
+    arg_stack_size: usize,
+    argv: &Validated<UserSlice<Validated<UserSlice<u8>>>>,
+) -> (usize, usize) {
+    let arg_top = sp - arg_stack_size;
+    assert_eq!(arg_top % 16, 0);
 
-    for ((arg_len, arg_data), uarg) in argv.iter().zip(&mut ustack) {
-        let src = &arg_data[..*arg_len];
-        sp -= src.len() + 1;
-        if sp < stack_base {
-            return Err(KernelError::ArgumentListTooLarge);
-        }
-        let mut dst = UserMutSlice::from_raw_parts(sp, src.len())
-            .validate(pt)
-            .unwrap();
-        pt.copy_out_bytes(&mut dst, src);
-        let mut dst = UserMutSlice::from_raw_parts(sp + src.len(), 1)
-            .validate(pt)
-            .unwrap();
-        pt.copy_out_bytes(&mut dst, &[0]);
-        *uarg = sp;
-    }
-    ustack[argv.len()] = 0;
-
-    // push the array of argv[] pointers.
-    sp -= (argv.len() + 1) * size_of::<usize>();
-    sp -= sp % 16; // risc-v sp must be 16-byte aligned
-    if sp < stack_base {
-        return Err(KernelError::ArgumentListTooLarge);
-    }
-    let src = unsafe {
-        slice::from_raw_parts(
-            ustack.as_ptr().cast(),
-            (argv.len() + 1) * size_of::<usize>(),
-        )
-    };
-    let mut dst = UserMutSlice::from_raw_parts(sp, src.len())
-        .validate(pt)
+    let mut arg_stack = UserMutSlice::from_raw_parts(arg_top, arg_stack_size)
+        .validate(dst_pt)
         .unwrap();
-    pt.copy_out_bytes(&mut dst, src);
-    Ok((sp, argv.len()))
+    let argv_size = (argv.len() + 1) * size_of::<usize>();
+    let mut dst_argv = arg_stack.take_mut(argv_size).cast_mut::<usize>();
+    let mut dst_chars = arg_stack.skip_mut(argv_size);
+
+    for i in 0..argv.len() {
+        dst_pt.copy_k2u(&mut dst_argv.nth_mut(i), &dst_chars.addr());
+
+        let uarg = src_pt.copy_u2k(&argv.nth(i));
+        UserPageTable::copy_u2u_bytes(dst_pt, &mut dst_chars.take_mut(uarg.len()), src_pt, &uarg);
+        dst_chars = dst_chars.skip_mut(uarg.len());
+        dst_pt.copy_k2u(&mut dst_chars.nth_mut(0), &0);
+        dst_chars = dst_chars.skip_mut(1);
+    }
+    dst_pt.copy_k2u(&mut dst_argv.nth_mut(argv.len()), &0);
+
+    (arg_top, argv.len())
 }

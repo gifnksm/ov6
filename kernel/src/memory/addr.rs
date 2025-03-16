@@ -375,7 +375,10 @@ impl Iterator for AddressChunks {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
 pub struct Validated<T>(T);
+
+unsafe impl<T> Pod for Validated<T> where T: Pod {}
 
 pub trait Validate: Sized {
     fn validate(self, pt: &UserPageTable) -> Result<Validated<Self>, KernelError>;
@@ -461,14 +464,23 @@ impl<T> Validated<UserSlice<T>> {
         self.0.size().unwrap()
     }
 
+    #[expect(unused)]
+    #[track_caller]
+    pub fn cast<U>(&self) -> Validated<UserSlice<U>> {
+        Validated(self.0.cast())
+    }
+
+    #[track_caller]
     pub fn nth(&self, n: usize) -> Validated<UserRef<T>> {
         Validated(self.0.nth(n))
     }
 
+    #[track_caller]
     pub fn skip(&self, amt: usize) -> Self {
         Self(self.0.skip(amt))
     }
 
+    #[track_caller]
     pub fn take(&self, amt: usize) -> Self {
         Self(self.0.take(amt))
     }
@@ -488,15 +500,22 @@ impl<T> Validated<UserMutSlice<T>> {
         self.0.size().unwrap()
     }
 
-    #[expect(unused)]
+    #[track_caller]
+    pub fn cast_mut<U>(&mut self) -> Validated<UserMutSlice<U>> {
+        Validated(self.0.cast_mut())
+    }
+
+    #[track_caller]
     pub fn nth_mut(&mut self, n: usize) -> Validated<UserMutRef<T>> {
         Validated(self.0.nth_mut(n))
     }
 
+    #[track_caller]
     pub fn skip_mut(&mut self, amt: usize) -> Self {
         Self(self.0.skip_mut(amt))
     }
 
+    #[track_caller]
     pub fn take_mut(&mut self, amt: usize) -> Self {
         Self(self.0.take_mut(amt))
     }

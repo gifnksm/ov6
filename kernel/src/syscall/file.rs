@@ -1,7 +1,5 @@
-use alloc::boxed::Box;
-use core::alloc::AllocError;
+use core::mem;
 
-use arrayvec::ArrayVec;
 use ov6_syscall::{OpenFlags, UserSlice, syscall};
 use ov6_types::{os_str::OsStr, path::Path};
 
@@ -10,8 +8,8 @@ use crate::{
     error::KernelError,
     file::File,
     fs::{self, DeviceNo, Inode, T_DEVICE, T_DIR, T_FILE},
-    memory::{PAGE_SIZE, addr::Validate as _, page::PageFrameAllocator},
-    param::{MAX_ARG, MAX_PATH},
+    memory::addr::{Validate as _, Validated},
+    param::MAX_PATH,
     proc::{Proc, ProcPrivateData, exec},
 };
 
@@ -26,7 +24,7 @@ fn fetch_path<'a>(
     let user_path = user_path.validate(private.pagetable())?;
 
     let path_out = &mut path_out[..user_path.len()];
-    private.pagetable().copy_in_bytes(path_out, &user_path);
+    private.pagetable().copy_u2k_bytes(path_out, &user_path);
     if path_out.contains(&0) {
         return Err(KernelError::NullInPath);
     }
@@ -87,7 +85,7 @@ impl SyscallExt for syscall::Fstat {
         let mut user_stat = user_stat.validate(private.pagetable_mut())?;
         let file = private.ofile(fd)?;
         let stat = file.clone().stat()?;
-        private.pagetable_mut().copy_out(&mut user_stat, &stat);
+        private.pagetable_mut().copy_k2u(&mut user_stat, &stat);
         Ok(())
     }
 }
@@ -230,28 +228,16 @@ pub fn sys_exec(
     let path = fetch_path(private, user_path, &mut path)?;
     let uargv = uargv.validate(private.pagetable())?;
 
-    let mut argv: ArrayVec<(usize, Box<[u8; PAGE_SIZE], PageFrameAllocator>), { MAX_ARG - 1 }> =
-        ArrayVec::new();
-
+    let mut arg_data_size = 0;
     for i in 0..uargv.len() {
-        let uarg = private.pagetable().copy_in(&uargv.nth(i));
-        if uarg.len() > PAGE_SIZE {
-            return Err(KernelError::ArgumentListTooLarge);
-        }
+        let uarg = private.pagetable().copy_u2k(&uargv.nth(i));
         let uarg = uarg.validate(private.pagetable())?;
-
-        let mut buf = Box::try_new_in([0; PAGE_SIZE], PageFrameAllocator)
-            .map_err(|AllocError| KernelError::NoFreePage)?;
-        private
-            .pagetable()
-            .copy_in_bytes(&mut buf[..uarg.len()], &uarg);
-
-        if argv.try_push((uarg.len(), buf)).is_err() {
-            return Err(KernelError::ArgumentListTooLong);
-        }
+        arg_data_size += uarg.len() + 1; // +1 for '\0'
     }
 
-    exec::exec(p, private, path, &argv)
+    let uargv: Validated<UserSlice<Validated<UserSlice<u8>>>> = unsafe { mem::transmute(uargv) };
+
+    exec::exec(p, private, path, &uargv, arg_data_size)
 }
 
 impl SyscallExt for syscall::Pipe {
@@ -273,7 +259,7 @@ impl SyscallExt for syscall::Pipe {
         };
 
         let fds = [rfd, wfd];
-        private.pagetable_mut().copy_out(&mut fd_array, &fds);
+        private.pagetable_mut().copy_k2u(&mut fd_array, &fds);
 
         Ok(())
     }

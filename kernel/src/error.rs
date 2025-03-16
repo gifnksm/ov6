@@ -86,8 +86,6 @@ pub(crate) enum KernelError {
     OpenDirAsWritable,
     #[error("chdir to non-directory")]
     ChdirNotDir,
-    #[error("argument list too long")]
-    ArgumentListTooLong,
     #[error("argument list too large")]
     ArgumentListTooLarge,
     #[error("invalid executable")]
@@ -137,9 +135,7 @@ impl From<KernelError> for SyscallError {
             KernelError::CorruptedInodeType(_, _) => Self::Io,
             KernelError::StorageOutOfBlocks | KernelError::StorageOutOfInodes => Self::StorageFull,
             KernelError::OpenDirAsWritable => Self::IsADirectory,
-            KernelError::ArgumentListTooLong | KernelError::ArgumentListTooLarge => {
-                Self::ArgumentListTooLong
-            }
+            KernelError::ArgumentListTooLarge => Self::ArgumentListTooLong,
             KernelError::InvalidExecutable => Self::ExecFormat,
             KernelError::SyscallDecode(_) | KernelError::CallerProcessAlreadyKilled => {
                 Self::Unknown

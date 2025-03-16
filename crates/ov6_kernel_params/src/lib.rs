@@ -18,9 +18,6 @@ pub const NFILE: usize = 100;
 /// Maximum number of active i-nodes
 pub const NINODE: usize = 50;
 
-/// Max exec arguments
-pub const MAX_ARG: usize = 32;
-
 /// Max # of blocks any FS op writes.
 pub const MAX_OP_BLOCKS: usize = 10;
 

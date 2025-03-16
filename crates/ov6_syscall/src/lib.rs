@@ -106,19 +106,11 @@ where
     }
 
     #[must_use]
-    pub fn size(&self) -> usize
+    pub const fn size(&self) -> usize
     where
         T: Sized,
     {
         size_of::<T>()
-    }
-
-    #[must_use]
-    pub fn cast<U>(&self) -> UserRef<U> {
-        UserRef {
-            addr: self.addr,
-            _phantom: PhantomData,
-        }
     }
 
     #[must_use]
@@ -160,19 +152,11 @@ where
     }
 
     #[must_use]
-    pub fn size(&self) -> usize
+    pub const fn size(&self) -> usize
     where
         T: Sized,
     {
         size_of::<T>()
-    }
-
-    #[must_use]
-    pub fn cast_mut<U>(&self) -> UserMutRef<U> {
-        UserMutRef {
-            addr: self.addr,
-            _phantom: PhantomData,
-        }
     }
 
     #[must_use]
@@ -229,7 +213,7 @@ impl<T> UserSlice<T> {
     }
 
     #[must_use]
-    pub fn size(&self) -> Option<usize>
+    pub const fn size(&self) -> Option<usize>
     where
         T: Sized,
     {
@@ -237,6 +221,20 @@ impl<T> UserSlice<T> {
     }
 
     #[must_use]
+    #[track_caller]
+    pub const fn cast<U>(&self) -> UserSlice<U> {
+        assert!(self.addr() % align_of::<U>() == 0);
+        assert!(self.size().unwrap() % size_of::<U>() == 0);
+
+        UserSlice {
+            addr: self.addr,
+            len: self.size().unwrap() / size_of::<U>(),
+            _phantom: PhantomData,
+        }
+    }
+
+    #[must_use]
+    #[track_caller]
     pub const fn nth(&self, n: usize) -> UserRef<T> {
         assert!(n < self.len());
         UserRef {
@@ -246,6 +244,7 @@ impl<T> UserSlice<T> {
     }
 
     #[must_use]
+    #[track_caller]
     pub const fn skip(&self, amt: usize) -> Self {
         assert!(amt <= self.len);
         Self {
@@ -256,6 +255,7 @@ impl<T> UserSlice<T> {
     }
 
     #[must_use]
+    #[track_caller]
     pub const fn take(&self, amt: usize) -> Self {
         assert!(amt <= self.len);
         Self {
@@ -307,7 +307,7 @@ impl<T> UserMutSlice<T> {
     }
 
     #[must_use]
-    pub fn size(&self) -> Option<usize>
+    pub const fn size(&self) -> Option<usize>
     where
         T: Sized,
     {
@@ -315,6 +315,20 @@ impl<T> UserMutSlice<T> {
     }
 
     #[must_use]
+    #[track_caller]
+    pub const fn cast_mut<U>(&mut self) -> UserMutSlice<U> {
+        assert!(self.addr() % align_of::<U>() == 0);
+        assert!(self.size().unwrap() % size_of::<U>() == 0);
+
+        UserMutSlice {
+            addr: self.addr,
+            len: self.size().unwrap() / size_of::<U>(),
+            _phantom: PhantomData,
+        }
+    }
+
+    #[must_use]
+    #[track_caller]
     pub const fn nth_mut(&mut self, n: usize) -> UserMutRef<T> {
         assert!(n < self.len());
         UserMutRef {
@@ -324,6 +338,7 @@ impl<T> UserMutSlice<T> {
     }
 
     #[must_use]
+    #[track_caller]
     pub const fn skip_mut(&mut self, amt: usize) -> Self {
         assert!(amt <= self.len);
         Self {
@@ -334,6 +349,7 @@ impl<T> UserMutSlice<T> {
     }
 
     #[must_use]
+    #[track_caller]
     pub const fn take_mut(&mut self, amt: usize) -> Self {
         assert!(amt <= self.len);
         Self {

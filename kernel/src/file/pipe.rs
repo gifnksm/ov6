@@ -100,7 +100,7 @@ impl PipeFile {
             }
 
             let mut byte = [0];
-            pt.copy_in_bytes(&mut byte, &src.skip(nwritten).take(1));
+            pt.copy_u2k_bytes(&mut byte, &src.skip(nwritten).take(1));
 
             let idx = pipe.nwrite % PIPE_SIZE;
             pipe.data[idx] = byte[0];
@@ -128,7 +128,7 @@ impl PipeFile {
             let ch = pipe.data[pipe.nread % PIPE_SIZE];
             pipe.nread += 1;
 
-            pt.copy_out_bytes(&mut dst.skip_mut(nread).take_mut(1), &[ch]);
+            pt.copy_k2u_bytes(&mut dst.skip_mut(nread).take_mut(1), &[ch]);
             nread += 1;
         }
         self.0.writer_cond.notify();
