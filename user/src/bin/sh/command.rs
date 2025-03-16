@@ -1,4 +1,5 @@
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, sync::Arc, vec::Vec};
+use core::convert::AsRef;
 
 use ov6_user_lib::{
     fs::File,
@@ -27,11 +28,11 @@ pub(super) enum RedirectFd {
 #[derive(Debug)]
 pub(super) enum Command<'a> {
     Exec {
-        argv: Arc<Mutex<Vec<&'a str>>>,
+        argv: Arc<Mutex<Vec<Cow<'a, str>>>>,
     },
     Redirect {
         cmd: Box<Command<'a>>,
-        file: &'a str,
+        file: Cow<'a, str>,
         mode: RedirectMode,
         fd: RedirectFd,
     },
@@ -56,6 +57,7 @@ impl Command<'_> {
                 if argv.is_empty() {
                     process::exit(0);
                 }
+                let argv = argv.iter().map(AsRef::as_ref).collect::<Vec<_>>();
                 try_or_exit!(
                     process::exec(argv[0], &argv),
                     e => "exec {} failed: {e}", argv[0],
@@ -79,7 +81,7 @@ impl Command<'_> {
                 };
                 unsafe { util::close_or_exit(fd, fd_name) }
                 let _file = try_or_exit!(
-                    options.open(file),
+                    options.open(file.as_ref()),
                     e => "open {} failed: {e}", file
                 );
                 cmd.run();

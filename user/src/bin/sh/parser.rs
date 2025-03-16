@@ -1,4 +1,4 @@
-use alloc::{format, string::String, sync::Arc, vec};
+use alloc::{borrow::Cow, format, string::String, sync::Arc, vec};
 use core::fmt;
 
 use ov6_user_lib::sync::spin::Mutex;
@@ -68,14 +68,6 @@ fn peek_char(s: &mut &str, chars: &[char]) -> Option<char> {
     first(s).filter(|ch| chars.contains(ch))
 }
 
-fn consume_one(s: &mut &str) -> Option<char> {
-    trim_start(s);
-    let mut cs = s.chars();
-    let ch = cs.next()?;
-    *s = cs.as_str();
-    Some(ch)
-}
-
 fn consume_char(s: &mut &str, chars: &[char]) -> Option<char> {
     trim_start(s);
     let rest = s.strip_prefix(chars)?;
@@ -84,31 +76,106 @@ fn consume_char(s: &mut &str, chars: &[char]) -> Option<char> {
     Some(stripped)
 }
 
+fn consume_str<'s>(s: &mut &'s str) -> Token<'s> {
+    let start = *s;
+    let mut in_double_quotes = false;
+    let mut in_single_quotes = false;
+    let mut escaped = false;
+    let mut needs_allocation = false;
+
+    // Counting phase
+    while let Some(ch) = first(s) {
+        if escaped {
+            escaped = false;
+            needs_allocation = true;
+            skip(s, 1);
+            continue;
+        }
+        if ch == '\\' && !in_single_quotes {
+            escaped = true;
+            needs_allocation = true;
+            skip(s, 1);
+            continue;
+        }
+        if ch == '\"' && !in_single_quotes {
+            in_double_quotes = !in_double_quotes;
+            needs_allocation = true;
+            skip(s, 1);
+            continue;
+        }
+        if ch == '\'' && !in_double_quotes {
+            in_single_quotes = !in_single_quotes;
+            needs_allocation = true;
+            skip(s, 1);
+            continue;
+        }
+        if !in_double_quotes && !in_single_quotes && (ch.is_whitespace() || SYMBOLS.contains(&ch)) {
+            break;
+        }
+        skip(s, 1);
+    }
+
+    assert!(!escaped, "unterminated escape sequence");
+    assert!(!in_double_quotes, "unterminated double quote");
+    assert!(!in_single_quotes, "unterminated single quote");
+
+    let input = &start[..start.len() - s.len()];
+    trim_start(s);
+
+    if !needs_allocation {
+        return Token::Str(Cow::Borrowed(input));
+    }
+
+    let mut result = String::with_capacity(start.len() - s.len());
+    let mut escaped = false;
+
+    // Constructing the actual string
+    for ch in input.chars() {
+        if escaped {
+            result.push(ch);
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' && !in_single_quotes {
+            escaped = true;
+            continue;
+        }
+        if ch == '\"' && !in_single_quotes {
+            in_double_quotes = !in_double_quotes;
+            continue;
+        }
+        if ch == '\'' && !in_double_quotes {
+            in_single_quotes = !in_single_quotes;
+            continue;
+        }
+        result.push(ch);
+    }
+
+    Token::Str(Cow::Owned(result))
+}
+
+#[derive(Debug)]
 enum Token<'s> {
-    Str(&'s str),
+    Str(Cow<'s, str>),
     Punct(char),
 }
 
 fn consume_token<'s>(s: &mut &'s str) -> Option<Token<'s>> {
     trim_start(s);
-    let start = *s;
-    let token = match consume_one(s)? {
-        ch @ ('|' | '(' | ')' | ';' | '&' | '<') => Token::Punct(ch),
+    let token = match first(s)? {
+        ch @ ('|' | '(' | ')' | ';' | '&' | '<') => {
+            skip(s, 1);
+            Token::Punct(ch)
+        }
         '>' => {
+            skip(s, 1);
             if consume_char(s, &['>']).is_some() {
                 Token::Punct('+')
             } else {
                 Token::Punct('>')
             }
         }
-        _ => {
-            while first(s).is_some_and(|ch| !ch.is_whitespace() && !SYMBOLS.contains(&ch)) {
-                skip(s, 1);
-            }
-            let end = *s;
-            let qlen = start.len() - end.len();
-            Token::Str(&start[..qlen])
-        }
+        _ => consume_str(s),
     };
     trim_start(s);
     Some(token)
@@ -226,6 +293,78 @@ fn parse_exec<'a>(s: &mut &'a str) -> Result<Option<Command<'a>>, ParseError> {
 mod tests {
     use super::*;
 
+    #[track_caller]
+    fn expect_str(s: &mut &str, expected: &str) {
+        let token = consume_str(s);
+        let Token::Str(token) = token else {
+            panic!("unexpected: {token:?}");
+        };
+        assert_eq!(token, expected);
+    }
+
+    #[test]
+    fn test_consume_str() {
+        let mut s = "hello world";
+        expect_str(&mut s, "hello");
+        expect_str(&mut s, "world");
+
+        let mut s = r#""hello world""#;
+        expect_str(&mut s, "hello world");
+
+        let mut s = "'hello world'";
+        expect_str(&mut s, "hello world");
+
+        let mut s = r"hello\ world";
+        expect_str(&mut s, "hello world");
+    }
+
+    #[test]
+    fn test_consume_str_complex_cases() {
+        let mut s = r#"hello "world" 'test' \n \t \\"#;
+        expect_str(&mut s, "hello");
+        expect_str(&mut s, "world");
+        expect_str(&mut s, "test");
+        expect_str(&mut s, "n");
+        expect_str(&mut s, "t");
+        expect_str(&mut s, "\\");
+
+        let mut s = r#""hello \"world\"""#;
+        expect_str(&mut s, "hello \"world\"");
+
+        let mut s = r"'hello \'world\'''";
+        expect_str(&mut s, "hello \\world\'");
+
+        let mut s = r"hello\ world\!";
+        expect_str(&mut s, "hello world!");
+
+        let mut s = r#""hello\nworld""#;
+        expect_str(&mut s, "hellonworld");
+
+        let mut s = r"'hello\nworld'";
+        expect_str(&mut s, r"hello\nworld");
+    }
+
+    #[test]
+    #[should_panic = "unterminated escape sequence"]
+    fn test_consume_str_unterminated_escape() {
+        let mut s = "hello\\";
+        consume_str(&mut s);
+    }
+
+    #[test]
+    #[should_panic = "unterminated double quote"]
+    fn test_consume_str_unterminated_double_quotes() {
+        let mut s = "hello\"world";
+        consume_str(&mut s);
+    }
+
+    #[test]
+    #[should_panic = "unterminated single quote"]
+    fn test_consume_str_unterminated_single_quotes() {
+        let mut s = "hello\'world";
+        consume_str(&mut s);
+    }
+
     fn parse(input: &str) -> Result<Option<Command>, ParseError> {
         let mut s = input;
         let cmd = try_opt!(parse_cmd(&mut s));
@@ -242,118 +381,135 @@ mod tests {
     #[test]
     fn test_parse_simple_command() {
         let cmd = parse("echo hello").unwrap().unwrap();
-        if let Command::Exec { argv } = cmd {
-            assert_eq!(&*argv.lock(), &["echo", "hello"]);
-        } else {
+        let Command::Exec { argv } = cmd else {
             panic!("Expected Exec command");
-        }
+        };
+        assert_eq!(&*argv.lock(), &["echo", "hello"]);
     }
 
     #[test]
     fn test_parse_pipe() {
         let cmd = parse("echo hello | grep h").unwrap().unwrap();
-        if let Command::Pipe { left, right } = cmd {
-            if let Command::Exec { argv } = *left {
-                assert_eq!(&*argv.lock(), &["echo", "hello"]);
-            } else {
-                panic!("Expected Exec command on the left side of the pipe");
-            }
-            if let Command::Exec { argv } = *right {
-                let args = argv.lock();
-                assert_eq!(&*args, &["grep", "h"]);
-            } else {
-                panic!("Expected Exec command on the right side of the pipe");
-            }
-        } else {
+        let Command::Pipe { left, right } = cmd else {
             panic!("Expected Pipe command");
-        }
+        };
+
+        let Command::Exec { argv } = *left else {
+            panic!("Expected Exec command on the left side of the pipe");
+        };
+        assert_eq!(&*argv.lock(), &["echo", "hello"]);
+        let Command::Exec { argv } = *right else {
+            panic!("Expected Exec command on the right side of the pipe");
+        };
+
+        let args = argv.lock();
+        assert_eq!(&*args, &["grep", "h"]);
     }
 
     #[test]
     fn test_parse_redirection() {
         let cmd = parse("echo hello > output.txt").unwrap().unwrap();
-        if let Command::Redirect {
+        let Command::Redirect {
             cmd,
             file,
             mode,
             fd,
         } = cmd
-        {
-            assert_eq!(file, "output.txt");
-            assert_eq!(mode, RedirectMode::OutputTrunc);
-            assert_eq!(fd, RedirectFd::Stdout);
-            if let Command::Exec { argv } = *cmd {
-                assert_eq!(&*argv.lock(), &["echo", "hello"]);
-            } else {
-                panic!("Expected Exec command");
-            }
-        } else {
+        else {
             panic!("Expected Redirect command");
-        }
+        };
+        assert_eq!(file, "output.txt");
+        assert_eq!(mode, RedirectMode::OutputTrunc);
+        assert_eq!(fd, RedirectFd::Stdout);
+        let Command::Exec { argv } = *cmd else {
+            panic!("Expected Exec command");
+        };
+        assert_eq!(&*argv.lock(), &["echo", "hello"]);
     }
 
     #[test]
     fn test_parse_background() {
         let cmd = parse("sleep 1 &").unwrap().unwrap();
-        if let Command::Back { cmd } = cmd {
-            if let Command::Exec { argv } = *cmd {
-                assert_eq!(&*argv.lock(), &["sleep", "1"]);
-            } else {
-                panic!("Expected Exec command");
-            }
-        } else {
+        let Command::Back { cmd } = cmd else {
             panic!("Expected Back command");
-        }
+        };
+        let Command::Exec { argv } = *cmd else {
+            panic!("Expected Exec command");
+        };
+        assert_eq!(&*argv.lock(), &["sleep", "1"]);
     }
 
     #[test]
     fn test_parse_list() {
         let cmd = parse("echo hello; echo world").unwrap().unwrap();
-        if let Command::List { left, right } = cmd {
-            if let Command::Exec { argv } = *left {
-                assert_eq!(&*argv.lock(), &["echo", "hello"]);
-            } else {
-                panic!("Expected Exec command on the left side of the list");
-            }
-            if let Command::Exec { argv } = *right {
-                assert_eq!(&*argv.lock(), &["echo", "world"]);
-            } else {
-                panic!("Expected Exec command on the right side of the list");
-            }
-        } else {
+        let Command::List { left, right } = cmd else {
             panic!("Expected List command");
-        }
+        };
+        let Command::Exec { argv } = *left else {
+            panic!("Expected Exec command on the left side of the list");
+        };
+        assert_eq!(&*argv.lock(), &["echo", "hello"]);
+        let Command::Exec { argv } = *right else {
+            panic!("Expected Exec command on the right side of the list");
+        };
+        assert_eq!(&*argv.lock(), &["echo", "world"]);
     }
 
     #[test]
     fn test_parse_nested_commands() {
         let cmd = parse("(echo hello; echo world) | grep h").unwrap().unwrap();
-        if let Command::Pipe { left, right } = cmd {
-            if let Command::List {
-                left: list_left,
-                right: list_right,
-            } = *left
-            {
-                if let Command::Exec { argv } = *list_left {
-                    assert_eq!(&*argv.lock(), &["echo", "hello"]);
-                } else {
-                    panic!("Expected Exec command on the left side of the list");
-                }
-                if let Command::Exec { argv } = *list_right {
-                    assert_eq!(&*argv.lock(), &["echo", "world"]);
-                } else {
-                    panic!("Expected Exec command on the right side of the list");
-                }
-            } else {
-                panic!("Expected List command on the left side of the pipe");
-            }
-            if let Command::Exec { argv } = *right {
-                assert_eq!(&*argv.lock(), &["grep", "h"]);
-            } else {
-                panic!("Expected Exec command on the right side of the pipe");
-            }
-        } else {
+        let Command::Pipe { left, right } = cmd else {
             panic!("Expected Pipe command");
-        }
+        };
+        let Command::List {
+            left: list_left,
+            right: list_right,
+        } = *left
+        else {
+            panic!("Expected List command on the left side of the pipe");
+        };
+        let Command::Exec { argv } = *list_left else {
+            panic!("Expected Exec command on the left side of the list");
+        };
+        assert_eq!(&*argv.lock(), &["echo", "hello"]);
+        let Command::Exec { argv } = *list_right else {
+            panic!("Expected Exec command on the right side of the list");
+        };
+        assert_eq!(&*argv.lock(), &["echo", "world"]);
+        let Command::Exec { argv } = *right else {
+            panic!("Expected Exec command on the right side of the pipe");
+        };
+        assert_eq!(&*argv.lock(), &["grep", "h"]);
+    }
+
+    #[test]
+    fn test_parse_multiple_pipes() {
+        let cmd = parse("echo hello | grep h | wc -l").unwrap().unwrap();
+        let Command::Pipe { left, right } = cmd else {
+            panic!("Expected Pipe command");
+        };
+
+        let Command::Exec { argv } = *left else {
+            panic!("Expected Exec command on the right side of the second pipe");
+        };
+        assert_eq!(&*argv.lock(), &["echo", "hello"]);
+
+        let Command::Pipe {
+            left: right_left,
+            right,
+        } = *right
+        else {
+            panic!("Expected Pipe command on the left side of the second pipe");
+        };
+
+        let Command::Exec { argv } = *right_left else {
+            panic!("Expected Exec command on the left side of the first pipe");
+        };
+        assert_eq!(&*argv.lock(), &["grep", "h"]);
+
+        let Command::Exec { argv } = *right else {
+            panic!("Expected Exec command on the right side of the first pipe");
+        };
+        assert_eq!(&*argv.lock(), &["wc", "-l"]);
     }
 }
