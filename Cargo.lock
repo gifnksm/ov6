@@ -119,6 +119,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ov6_initcode"
+version = "0.1.0"
+dependencies = [
+ "ov6_syscall",
+ "ov6_user_lib",
+]
+
+[[package]]
 name = "ov6_kernel"
 version = "0.1.0"
 dependencies = [
@@ -188,7 +196,6 @@ dependencies = [
 name = "ov6_utilities"
 version = "0.1.0"
 dependencies = [
- "ov6_syscall",
  "ov6_user_lib",
 ]
 

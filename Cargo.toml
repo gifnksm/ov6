@@ -14,6 +14,7 @@ members = [
     "crates/user/ov6_user_lib",
     "crates/user/ov6_utilities",
     "crates/user/ov6_user_tests",
+    "crates/user/ov6_initcode",
     "crates/utils/ov6_fs_utilities",
 ]
 resolver = "2"

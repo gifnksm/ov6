@@ -18,6 +18,9 @@ RUST_CROSS_TARGET=riscv64imac-unknown-none-elf
 RX=target/$(RUST_CROSS_TARGET)/$(PROFILE)
 RXI=target/$(RUST_CROSS_TARGET)/initcode
 
+OV6_INITCODE=\
+	initcode\
+
 OV6_UTILS=\
 	abort\
 	cat\
@@ -61,15 +64,16 @@ target/ov6/%.debug: target/$(RUST_CROSS_TARGET)/% | $$(dir $$@)
 target/ov6/%: target/$(RUST_CROSS_TARGET)/% target/ov6/%.debug | $$(dir $$@)
 	$(OBJCOPY) --strip-debug --strip-unneeded --remove-section=".gnu_debuglink" --add-gnu-debuglink="$@.debug" $< $@
 
-target/$(RUST_CROSS_TARGET)/initcode/initcode: FORCE
-	cargo build -p ov6_utilities --bin initcode --profile initcode --target $(RUST_CROSS_TARGET)
-
 $I/initcode.bin: $I/initcode
 	$(OBJCOPY) -S -O binary $< $@
 
 $(RX)/kernel: $I/initcode.bin FORCE
 	INIT_CODE_PATH="$(PWD)/$I/initcode.bin" \
 		cargo build -p ov6_kernel $(CARGO_PROFILE_FLAG) --target $(RUST_CROSS_TARGET) --features initcode_env
+
+$(RXI)/%.stamp: FORCE
+	cargo build -p $(patsubst %.stamp,%,$(notdir $@)) --profile initcode --target $(RUST_CROSS_TARGET)
+	touch $@
 
 $(RX)/%.stamp: FORCE
 	cargo build -p $(patsubst %.stamp,%,$(notdir $@)) --target $(RUST_CROSS_TARGET) $(CARGO_PROFILE_FLAG)
@@ -79,6 +83,7 @@ $(RN)/%.stamp: FORCE
 	cargo build -p $(patsubst %.stamp,%,$(notdir $@)) $(CARGO_PROFILE_FLAG)
 	touch $@
 
+$(foreach exe,$(OV6_INITCODE),$(eval $$(RXI)/$(exe): $$(RXI)/ov6_initcode.stamp))
 $(foreach exe,$(OV6_UTILS),$(eval $$(RX)/$(exe): $$(RX)/ov6_utilities.stamp))
 $(foreach exe,$(OV6_USER_TESTS),$(eval $$(RX)/$(exe): $$(RX)/ov6_user_tests.stamp))
 $(foreach exe,$(OV6_FS_UTILS),$(eval $$(RN)/$(exe): $$(RN)/ov6_fs_utilities.stamp))
