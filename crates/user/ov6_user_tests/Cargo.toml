@@ -1,0 +1,19 @@
+[package]
+name = "ov6_user_tests"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+readme.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+publish.workspace = true
+
+[dependencies]
+ov6_fs_types.workspace = true
+ov6_kernel_params.workspace = true
+ov6_user_lib.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,26 @@
+[package]
+name = "ov6_utilities"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+readme.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "initcode"
+test = false
+bench = false
+
+[dependencies]
+ov6_syscall.workspace = true
+ov6_user_lib.workspace = true
+
+[dev-dependencies]
+ov6_user_lib = {workspace = true, features = ["std"]}

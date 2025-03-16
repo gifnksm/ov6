@@ -18,7 +18,7 @@ RUST_CROSS_TARGET=riscv64imac-unknown-none-elf
 RX=target/$(RUST_CROSS_TARGET)/$(PROFILE)
 RXI=target/$(RUST_CROSS_TARGET)/initcode
 
-PROGS=\
+OV6_UTILS=\
 	abort\
 	cat\
 	echo\
@@ -36,24 +36,22 @@ PROGS=\
 	wc\
 	zombie\
 
-TESTS=\
+OV6_USER_TESTS=\
 	forktest\
 	grind\
 	stressfs\
 	usertests\
 
-RX_PROGS=$(patsubst %,$(RX)/%,$(PROGS))
-R_PROGS=$(patsubst %,$R/%,$(PROGS))
+OV6_FS_UTILS=\
+	mkfs\
 
-RX_TESTS=$(patsubst %,$(RX)/%,$(TESTS))
-R_TESTS=$(patsubst %,$R/%,$(TESTS))
-
+FS_CONTENTS=$(patsubst %,$R/%,$(OV6_UTILS)) $(patsubst %,$R/%,$(OV6_USER_TESTS))
 
 QEMU = qemu-system-riscv64
 
 OBJCOPY = llvm-objcopy
 
-all: $R/kernel $I/initcode $(R_PROGS) $(R_TESTS) fs.img
+all: $R/kernel $I/initcode $(R_OV6_UTILS) $(R_OV6_USER_TESTS) fs.img
 
 # create separate debuginfo file
 # https://users.rust-lang.org/t/how-to-gdb-with-split-debug-files/102989/3
@@ -64,34 +62,32 @@ target/ov6/%: target/$(RUST_CROSS_TARGET)/% target/ov6/%.debug | $$(dir $$@)
 	$(OBJCOPY) --strip-debug --strip-unneeded --remove-section=".gnu_debuglink" --add-gnu-debuglink="$@.debug" $< $@
 
 target/$(RUST_CROSS_TARGET)/initcode/initcode: FORCE
-	cargo build -p user --bin initcode --profile initcode --target $(RUST_CROSS_TARGET)
+	cargo build -p ov6_utilities --bin initcode --profile initcode --target $(RUST_CROSS_TARGET)
 
 $I/initcode.bin: $I/initcode
 	$(OBJCOPY) -S -O binary $< $@
 
 $(RX)/kernel: $I/initcode.bin FORCE
 	INIT_CODE_PATH="$(PWD)/$I/initcode.bin" \
-		cargo build -p kernel $(CARGO_PROFILE_FLAG) --target $(RUST_CROSS_TARGET) --features initcode_env
+		cargo build -p ov6_kernel $(CARGO_PROFILE_FLAG) --target $(RUST_CROSS_TARGET) --features initcode_env
 
-$(RX)/user.stamp: FORCE
-	cargo build -p user --target $(RUST_CROSS_TARGET) $(CARGO_PROFILE_FLAG)
+$(RX)/%.stamp: FORCE
+	cargo build -p $(patsubst %.stamp,%,$(notdir $@)) --target $(RUST_CROSS_TARGET) $(CARGO_PROFILE_FLAG)
 	touch $@
 
-$(RX)/tests.stamp: FORCE
-	cargo build -p tests --target $(RUST_CROSS_TARGET) $(CARGO_PROFILE_FLAG)
+$(RN)/%.stamp: FORCE
+	cargo build -p $(patsubst %.stamp,%,$(notdir $@)) $(CARGO_PROFILE_FLAG)
 	touch $@
 
-$(foreach p,$(PROGS),$(eval $$(RX)/$(p): $$(RX)/user.stamp))
-$(foreach t,$(TESTS),$(eval $$(RX)/$(t): $$(RX)/tests.stamp))
-
-$(RN)/mkfs:
-	cargo build -p mkfs $(CARGO_PROFILE_FLAG)
+$(foreach exe,$(OV6_UTILS),$(eval $$(RX)/$(exe): $$(RX)/ov6_utilities.stamp))
+$(foreach exe,$(OV6_USER_TESTS),$(eval $$(RX)/$(exe): $$(RX)/ov6_user_tests.stamp))
+$(foreach exe,$(OV6_FS_UTILS),$(eval $$(RN)/$(exe): $$(RN)/ov6_fs_utilities.stamp))
 
 %/:
 	mkdir -p $@
 
-fs.img: $(RN)/mkfs README $(R_PROGS) $(R_TESTS)
-	$(RN)/mkfs $@ README $(R_PROGS) $(R_TESTS)
+fs.img: $(RN)/mkfs README $(FS_CONTENTS)
+	$(RN)/mkfs $@ README $(FS_CONTENTS)
 
 clean:
 	rm -f fs.img .gdbinit

@@ -77,28 +77,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
-name = "kernel"
-version = "0.1.0"
-dependencies = [
- "arrayvec",
- "bitflags",
- "block_io",
- "dataview",
- "derive_more",
- "mutex_api",
- "once_init",
- "ov6_fs_types",
- "ov6_kernel_params",
- "ov6_syscall",
- "ov6_types",
- "page_alloc",
- "riscv",
- "slab_allocator",
- "thiserror",
- "vcell",
-]
-
-[[package]]
 name = "lru"
 version = "0.1.0"
 dependencies = [
@@ -110,16 +88,6 @@ name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
-
-[[package]]
-name = "mkfs"
-version = "0.1.0"
-dependencies = [
- "dataview",
- "ov6_fs_types",
- "ov6_kernel_params",
- "ov6_types",
-]
 
 [[package]]
 name = "mutex_api"
@@ -138,6 +106,38 @@ version = "0.1.0"
 dependencies = [
  "dataview",
  "ov6_types",
+]
+
+[[package]]
+name = "ov6_fs_utilities"
+version = "0.1.0"
+dependencies = [
+ "dataview",
+ "ov6_fs_types",
+ "ov6_kernel_params",
+ "ov6_types",
+]
+
+[[package]]
+name = "ov6_kernel"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "bitflags",
+ "block_io",
+ "dataview",
+ "derive_more",
+ "mutex_api",
+ "once_init",
+ "ov6_fs_types",
+ "ov6_kernel_params",
+ "ov6_syscall",
+ "ov6_types",
+ "page_alloc",
+ "riscv",
+ "slab_allocator",
+ "thiserror",
+ "vcell",
 ]
 
 [[package]]
@@ -173,6 +173,23 @@ dependencies = [
  "ov6_syscall",
  "ov6_types",
  "thiserror",
+]
+
+[[package]]
+name = "ov6_user_tests"
+version = "0.1.0"
+dependencies = [
+ "ov6_fs_types",
+ "ov6_kernel_params",
+ "ov6_user_lib",
+]
+
+[[package]]
+name = "ov6_utilities"
+version = "0.1.0"
+dependencies = [
+ "ov6_syscall",
+ "ov6_user_lib",
 ]
 
 [[package]]
@@ -277,15 +294,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tests"
-version = "0.1.0"
-dependencies = [
- "ov6_fs_types",
- "ov6_kernel_params",
- "ov6_user_lib",
-]
-
-[[package]]
 name = "thiserror"
 version = "2.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -310,14 +318,6 @@ name = "unicode-ident"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a5f39404a5da50712a4c1eecf25e90dd62b613502b7e925fd4e4d19b5c96512"
-
-[[package]]
-name = "user"
-version = "0.1.0"
-dependencies = [
- "ov6_syscall",
- "ov6_user_lib",
-]
 
 [[package]]
 name = "vcell"

@@ -1,19 +1,20 @@
 [workspace]
 members = [
-    "crates/block_io",
-    "crates/lru",
-    "crates/mutex_api",
-    "crates/once_init",
-    "crates/ov6_fs_types",
-    "crates/ov6_kernel_params",
-    "crates/ov6_syscall",
-    "crates/ov6_types",
-    "crates/ov6_user_lib",
-    "crates/page_alloc",
-    "crates/slab_allocator",
-    "kernel",
-    "mkfs", "tests",
-    "user"
+    "crates/common/ov6_fs_types",
+    "crates/common/ov6_kernel_params",
+    "crates/common/ov6_syscall",
+    "crates/common/ov6_types",
+    "crates/kernel/block_io",
+    "crates/kernel/lru",
+    "crates/kernel/mutex_api",
+    "crates/kernel/once_init",
+    "crates/kernel/ov6_kernel",
+    "crates/kernel/page_alloc",
+    "crates/kernel/slab_allocator",
+    "crates/user/ov6_user_lib",
+    "crates/user/ov6_utilities",
+    "crates/user/ov6_user_tests",
+    "crates/utils/ov6_fs_utilities",
 ]
 resolver = "2"
 
@@ -39,17 +40,17 @@ strum = { version = "0.27.1", default-features = false, features = ["derive"] }
 thiserror = { version = "2.0.12", default-features = false }
 vcell = "0.1.3"
 
-block_io = { path = "crates/block_io" }
-lru = { path = "crates/lru" }
-mutex_api = { path = "crates/mutex_api" }
-once_init = { path = "crates/once_init" }
-ov6_fs_types = { path = "crates/ov6_fs_types" }
-ov6_kernel_params = { path = "crates/ov6_kernel_params" }
-ov6_syscall = { path = "crates/ov6_syscall" }
-ov6_types = { path = "crates/ov6_types" }
-ov6_user_lib = { path = "crates/ov6_user_lib" }
-page_alloc = { path = "crates/page_alloc" }
-slab_allocator = { path = "crates/slab_allocator" }
+block_io = { path = "crates/kernel/block_io" }
+lru = { path = "crates/kernel/lru" }
+mutex_api = { path = "crates/kernel/mutex_api" }
+once_init = { path = "crates/kernel/once_init" }
+ov6_fs_types = { path = "crates/common/ov6_fs_types" }
+ov6_kernel_params = { path = "crates/common/ov6_kernel_params" }
+ov6_syscall = { path = "crates/common/ov6_syscall" }
+ov6_types = { path = "crates/common/ov6_types" }
+ov6_user_lib = { path = "crates/user/ov6_user_lib" }
+page_alloc = { path = "crates/kernel/page_alloc" }
+slab_allocator = { path = "crates/kernel/slab_allocator" }
 
 [profile.release]
 debug = "full"

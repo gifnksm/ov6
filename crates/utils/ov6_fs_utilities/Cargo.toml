@@ -1,0 +1,24 @@
+[package]
+name = "ov6_fs_utilities"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+readme.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "mkfs"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+dataview.workspace = true
+ov6_fs_types.workspace = true
+ov6_kernel_params.workspace = true
+ov6_types.workspace = true
