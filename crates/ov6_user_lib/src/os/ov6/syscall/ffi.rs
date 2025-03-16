@@ -192,7 +192,6 @@ syscall!(Dup);
 syscall!(Getpid);
 syscall!(Sbrk);
 syscall!(Sleep);
-syscall!(Uptime);
 syscall!(Reboot);
 syscall!(Halt);
 syscall!(Abort);

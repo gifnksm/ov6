@@ -132,11 +132,6 @@ pub fn sleep(dur: Duration) {
     syscall::Sleep::call((dur,));
 }
 
-#[must_use]
-pub fn uptime() -> u64 {
-    syscall::Uptime::call(())
-}
-
 pub fn reboot() -> Result<Infallible, Ov6Error> {
     let _: Infallible = syscall::Reboot::call(())?;
     unreachable!()

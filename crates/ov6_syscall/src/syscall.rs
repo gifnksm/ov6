@@ -42,7 +42,6 @@ syscall!(Dup => fn(RawFd) -> Result<RawFd, SyscallError>);
 syscall!(Getpid => fn() -> ProcId);
 syscall!(Sbrk => fn(isize) -> Result<usize, SyscallError>);
 syscall!(Sleep => fn(Duration) -> ());
-syscall!(Uptime => fn() -> u64);
 syscall!(Open => fn(UserSlice<u8>, OpenFlags) -> Result<RawFd, SyscallError>);
 syscall!(Write => fn(RawFd, UserSlice<u8>) -> Result<usize, SyscallError>);
 syscall!(Mknod => fn(UserSlice<u8>, u32, i16) -> Result<(), SyscallError>);

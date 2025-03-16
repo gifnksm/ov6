@@ -4,18 +4,8 @@ use super::SyscallExt;
 use crate::{
     device::test::{self, Finisher},
     error::KernelError,
-    interrupt::timer::TICKS,
-    proc::{Proc, ProcPrivateData},
+    proc::ProcPrivateData,
 };
-
-impl SyscallExt for syscall::Uptime {
-    type Private<'a> = ProcPrivateData;
-
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok(()) = Self::decode_arg(private.trapframe());
-        *TICKS.lock()
-    }
-}
 
 impl SyscallExt for syscall::Reboot {
     type Private<'a> = ProcPrivateData;
