@@ -177,11 +177,7 @@ pub fn syscall(p: &'static Proc, private_opt: &mut Option<ProcPrivateDataGuard>)
         SyscallCode::Dup => syscall::Dup::handle(p, private).encode().into(),
         SyscallCode::Getpid => syscall::Getpid::handle(p, private).encode().into(),
         SyscallCode::Sbrk => syscall::Sbrk::handle(p, private).encode().into(),
-        SyscallCode::Sleep =>
-        {
-            #[expect(clippy::unit_arg)]
-            syscall::Sleep::handle(p, private).encode().into()
-        }
+        SyscallCode::Sleep => syscall::Sleep::handle(p, private).encode().into(),
         SyscallCode::Open => syscall::Open::handle(p, private).encode().into(),
         SyscallCode::Write => syscall::Write::handle(p, private).encode().into(),
         SyscallCode::Mknod => syscall::Mknod::handle(p, private).encode().into(),

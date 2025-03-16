@@ -128,8 +128,9 @@ pub unsafe fn sbrk(increment: isize) -> Result<*mut u8, Ov6Error> {
     Ok(ptr::with_exposed_provenance_mut(addr))
 }
 
-pub fn sleep(dur: Duration) {
-    syscall::Sleep::call((dur,));
+pub fn sleep(dur: Duration) -> Result<(), Ov6Error> {
+    syscall::Sleep::call((dur,))?;
+    Ok(())
 }
 
 pub fn reboot() -> Result<Infallible, Ov6Error> {

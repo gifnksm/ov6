@@ -81,9 +81,7 @@ impl SyscallExt for syscall::Sleep {
     type Private<'a> = ProcPrivateData;
 
     fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((dur,)) = Self::decode_arg(private.trapframe()) else {
-            return;
-        };
+        let (dur,) = Self::decode_arg(private.trapframe()).map_err(KernelError::from)?;
 
         let sleep_ticks = (dur.as_nanos().div_ceil(u128::from(NANOS_PER_TICKS)))
             .try_into()
@@ -93,10 +91,13 @@ impl SyscallExt for syscall::Sleep {
         let ticks0 = *ticks;
         let end_ticks = ticks0.saturating_add(sleep_ticks);
         while *ticks < end_ticks {
-            ticks = match TICKS_UPDATED.wait(ticks) {
-                Ok(ticks) => ticks,
-                Err((_ticsk, WaitError::WaitingProcessAlreadyKilled)) => return,
-            }
+            ticks = TICKS_UPDATED.wait(ticks).map_err(
+                |(_ticks, WaitError::WaitingProcessAlreadyKilled)| {
+                    KernelError::CallerProcessAlreadyKilled
+                },
+            )?;
         }
+
+        Ok(())
     }
 }
