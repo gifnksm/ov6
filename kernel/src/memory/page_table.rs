@@ -96,14 +96,14 @@ impl PageTable {
 
         let mut va = va;
         let mut pa = pa;
-        let last = va.byte_add(size - PAGE_SIZE);
+        let last = va.byte_add(size - PAGE_SIZE)?;
         loop {
             self.map_page(va, pa, perm)?;
             if va == last {
                 return Ok(());
             }
 
-            va = va.byte_add(PAGE_SIZE);
+            va = va.byte_add(PAGE_SIZE).unwrap();
             pa = pa.byte_add(PAGE_SIZE);
         }
     }
@@ -111,7 +111,7 @@ impl PageTable {
     /// Unmaps the page of memory at virtual address `va`.
     ///
     /// Returns the physical address of the page that was unmapped.
-    fn upmap_page(&mut self, va: VirtAddr) -> Result<PhysAddr, KernelError> {
+    fn unmap_page(&mut self, va: VirtAddr) -> Result<PhysAddr, KernelError> {
         assert!(va.is_page_aligned(), "va={va:?}");
 
         self.update_level0_entry(va, false, |pte| {
@@ -199,10 +199,6 @@ impl PageTable {
         va: VirtAddr,
         flags: PtEntryFlags,
     ) -> Result<PhysAddr, KernelError> {
-        if va >= VirtAddr::MAX {
-            return Err(KernelError::TooLargeVirtualAddress(va));
-        }
-
         let pte = self.find_leaf_entry(va)?;
         assert!(pte.is_valid() && pte.is_leaf());
         if !pte.flags().contains(flags) {
@@ -315,8 +311,11 @@ impl Iterator for UnmapPages<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let i = self.offsets.next()?;
-        let va = self.va.byte_add(i * PAGE_SIZE);
-        Some(self.pt.upmap_page(va))
+        Some(
+            self.va
+                .byte_add(i * PAGE_SIZE)
+                .and_then(|va| self.pt.unmap_page(va)),
+        )
     }
 }
 

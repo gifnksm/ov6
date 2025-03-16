@@ -412,7 +412,11 @@ impl Proc {
             // which returns to user space.
             shared.context.clear();
             shared.context.ra = forkret as usize;
-            shared.context.sp = private.kstack.byte_add(KSTACK_PAGES * PAGE_SIZE).addr();
+            shared.context.sp = private
+                .kstack
+                .byte_add(KSTACK_PAGES * PAGE_SIZE)
+                .unwrap()
+                .addr();
             Ok(private)
         })();
 

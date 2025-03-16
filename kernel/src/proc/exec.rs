@@ -111,7 +111,7 @@ fn load_segments<const READ_ONLY: bool>(
         )?;
         load_segment(
             new_pt,
-            VirtAddr::new(ph.vaddr.try_into().unwrap()),
+            VirtAddr::new(ph.vaddr.try_into().unwrap())?,
             lip,
             ph.off.try_into().unwrap(),
             ph.filesz.try_into().unwrap(),
@@ -135,7 +135,7 @@ fn load_segment<const READ_ONLY: bool>(
 
     for i in (0..sz).step_by(PAGE_SIZE) {
         let pa = new_pt
-            .resolve_virtual_address(va.byte_add(i), PtEntryFlags::U)
+            .resolve_virtual_address(va.byte_add(i)?, PtEntryFlags::U)
             .unwrap();
 
         let n = if sz - i < PAGE_SIZE {
@@ -161,7 +161,7 @@ fn load_segment<const READ_ONLY: bool>(
 fn allocate_stack_pages(pt: &mut UserPageTable) -> Result<(), KernelError> {
     let size = pt.size().page_roundup();
     pt.grow_to(size + (USER_STACK + 1) * PAGE_SIZE, PtEntryFlags::W)?;
-    pt.forbide_user_access(VirtAddr::new(pt.size() - (USER_STACK + 1) * PAGE_SIZE))?;
+    pt.forbide_user_access(VirtAddr::new(pt.size() - (USER_STACK + 1) * PAGE_SIZE)?)?;
     Ok(())
 }
 

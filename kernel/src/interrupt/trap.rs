@@ -182,7 +182,7 @@ pub fn trap_user_ret(mut private: ProcPrivateDataGuard) {
     let kstack = private.kstack();
     let tf = private.trapframe_mut();
     tf.kernel_satp = satp::read().bits(); // kernel page table
-    tf.kernel_sp = kstack.byte_add(KSTACK_PAGES * PAGE_SIZE).addr(); // process's kernel stack
+    tf.kernel_sp = kstack.byte_add(KSTACK_PAGES * PAGE_SIZE).unwrap().addr(); // process's kernel stack
     tf.kernel_trap = trap_user as usize;
     tf.kernel_hartid = cpu::id();
 

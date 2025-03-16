@@ -7,6 +7,7 @@ use core::{
 use ov6_syscall::{UserMutSlice, UserSlice};
 
 use super::{PAGE_SHIFT, PAGE_SIZE, vm_user::UserPageTable};
+use crate::error::KernelError;
 
 pub const fn page_roundup(addr: usize) -> usize {
     (addr + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
@@ -70,11 +71,11 @@ impl<T> PageRound for NonNull<T> {
 
 impl PageRound for VirtAddr {
     fn page_roundup(&self) -> Self {
-        self.map_addr(page_roundup)
+        self.map_addr(page_roundup).unwrap()
     }
 
     fn page_rounddown(&self) -> Self {
-        self.map_addr(page_rounddown)
+        self.map_addr(page_rounddown).unwrap()
     }
 
     fn is_page_aligned(&self) -> bool {
@@ -127,27 +128,35 @@ impl VirtAddr {
     /// Sv39, to avoid having to sign-extend virtual addresses
     /// that have the high bit set.
     pub const MAX: Self = Self(1 << (9 * 3 + PAGE_SHIFT - 1));
+    pub const MIN: Self = Self(0);
 
-    pub const fn new(addr: usize) -> Self {
-        Self(addr)
+    pub const fn new(addr: usize) -> Result<Self, KernelError> {
+        if addr >= Self::MAX.0 {
+            return Err(KernelError::TooLargeVirtualAddress(addr));
+        }
+        Ok(Self(addr))
     }
 
-    pub const fn byte_add(self, offset: usize) -> Self {
-        // FIXME: need overflow check
-        Self(self.0 + offset)
+    pub const fn byte_add(self, offset: usize) -> Result<Self, KernelError> {
+        let Some(addr) = self.0.checked_add(offset) else {
+            return Err(KernelError::TooLargeVirtualAddress(usize::MAX));
+        };
+        Self::new(addr)
     }
 
-    pub const fn byte_sub(self, offset: usize) -> Self {
-        // FIXME: need overflow check
-        Self(self.0 - offset)
+    pub const fn byte_sub(self, offset: usize) -> Result<Self, KernelError> {
+        let Some(addr) = self.0.checked_sub(offset) else {
+            return Err(KernelError::VirtualAddressUnderflow);
+        };
+        Self::new(addr)
     }
 
     pub const fn addr(self) -> usize {
         self.0
     }
 
-    pub fn map_addr(self, f: impl FnOnce(usize) -> usize) -> Self {
-        Self(f(self.0))
+    pub fn map_addr(self, f: impl FnOnce(usize) -> usize) -> Result<Self, KernelError> {
+        Self::new(f(self.0))
     }
 }
 

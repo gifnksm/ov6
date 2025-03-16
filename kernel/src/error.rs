@@ -21,7 +21,9 @@ pub(crate) enum KernelError {
     #[error("device not found: {0}")]
     DeviceNotFound(DeviceNo),
     #[error("too large virtual address: {0:#x}")]
-    TooLargeVirtualAddress(VirtAddr),
+    TooLargeVirtualAddress(usize),
+    #[error("virtual address underflow")]
+    VirtualAddressUnderflow,
     #[error("address not mapped: {0:#x}")]
     AddressNotMapped(VirtAddr),
     #[error("inaccessible memory: {0:#x}")]
@@ -105,6 +107,7 @@ impl From<KernelError> for SyscallError {
             KernelError::DeviceNotFound(_) => Self::DeviceNotFound,
             KernelError::NoChildProcess => Self::NoChildProcess,
             KernelError::TooLargeVirtualAddress(_)
+            | KernelError::VirtualAddressUnderflow
             | KernelError::AddressNotMapped(_)
             | KernelError::InaccessibleMemory(_) => Self::BadAddress,
             KernelError::FileDescriptorNotFound(_, _)

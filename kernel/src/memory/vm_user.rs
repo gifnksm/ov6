@@ -69,7 +69,7 @@ impl UserPageTable {
 
         let mem = page::alloc_zeroed_page().unwrap();
         self.pt.map_page(
-            VirtAddr::new(0),
+            VirtAddr::MIN,
             PhysAddr::new(mem.addr().get()),
             PtEntryFlags::URWX,
         )?;
@@ -86,6 +86,9 @@ impl UserPageTable {
             return Ok(());
         }
 
+        // check address range is valid
+        let _last = VirtAddr::new(new_size.page_roundup())?;
+
         let old_size = self.size;
         for va in (self.size.page_roundup()..new_size).step_by(PAGE_SIZE) {
             self.size = va;
@@ -98,7 +101,7 @@ impl UserPageTable {
             };
 
             if let Err(e) = self.pt.map_page(
-                VirtAddr::new(va),
+                VirtAddr::new(va).unwrap(),
                 PhysAddr::new(mem.addr().get()),
                 xperm | PtEntryFlags::UR,
             ) {
@@ -125,11 +128,8 @@ impl UserPageTable {
 
         if new_size.page_roundup() < self.size.page_roundup() {
             let npages = (self.size.page_roundup() - new_size.page_roundup()) / PAGE_SIZE;
-            for pa in self
-                .pt
-                .unmap_pages(VirtAddr::new(new_size.page_roundup()), npages)
-                .flatten()
-            {
+            let start_va = VirtAddr::new(new_size.page_roundup()).unwrap();
+            for pa in self.pt.unmap_pages(start_va, npages).flatten() {
                 unsafe {
                     page::free_page(pa.as_mut_ptr());
                 }
@@ -145,7 +145,7 @@ impl UserPageTable {
         (|| {
             for va in (0..self.size).step_by(PAGE_SIZE) {
                 target.size = va;
-                let pte = self.pt.find_leaf_entry(VirtAddr::new(va))?;
+                let pte = self.pt.find_leaf_entry(VirtAddr::new(va).unwrap())?;
                 assert!(pte.is_valid() && pte.is_leaf());
 
                 let src_pa = pte.phys_addr();
@@ -156,9 +156,11 @@ impl UserPageTable {
                     dst.as_ptr().copy_from(src_pa.as_ptr(), PAGE_SIZE);
                 }
 
-                target
-                    .pt
-                    .map_page(VirtAddr::new(va), PhysAddr::new(dst.addr().get()), flags)?;
+                target.pt.map_page(
+                    VirtAddr::new(va).unwrap(),
+                    PhysAddr::new(dst.addr().get()),
+                    flags,
+                )?;
             }
             target.size = self.size;
             Ok(())
@@ -219,13 +221,12 @@ impl UserPageTable {
         mut src: &[u8],
     ) -> Result<(), KernelError> {
         assert_eq!(dst.len(), src.len());
-        let mut dst_va = VirtAddr::new(dst.addr());
+        let mut dst_va = VirtAddr::new(dst.addr())?;
+        // check address is valid
+        let _last_va = dst_va.byte_add(dst.len())?;
 
         while !src.is_empty() {
             let va0 = dst_va.page_rounddown();
-            if va0 >= VirtAddr::MAX {
-                return Err(KernelError::TooLargeVirtualAddress(dst_va));
-            }
 
             let offset = dst_va.addr() - va0.addr();
             let mut n = PAGE_SIZE - offset;
@@ -237,7 +238,7 @@ impl UserPageTable {
             let dst = &mut dst_page[offset..][..n];
             dst.copy_from_slice(&src[..n]);
             src = &src[n..];
-            dst_va = va0.byte_add(PAGE_SIZE);
+            dst_va = va0.byte_add(PAGE_SIZE).unwrap();
         }
 
         Ok(())
@@ -273,7 +274,10 @@ impl UserPageTable {
         src: &UserSlice<u8>,
     ) -> Result<(), KernelError> {
         assert_eq!(src.len(), dst.len());
-        let mut src_va = VirtAddr::new(src.addr());
+        let mut src_va = VirtAddr::new(src.addr())?;
+        // check address is valid
+        let _last_va = src_va.byte_add(src.len())?;
+
         while !dst.is_empty() {
             let va0 = src_va.page_rounddown();
             let offset = src_va.addr() - va0.addr();
@@ -285,7 +289,7 @@ impl UserPageTable {
             let src = &src_page[offset..][..n];
             dst[..n].copy_from_slice(src);
             dst = &mut dst[n..];
-            src_va = va0.byte_add(PAGE_SIZE);
+            src_va = va0.byte_add(PAGE_SIZE).unwrap();
         }
 
         Ok(())
@@ -309,7 +313,7 @@ impl Drop for UserPageTable {
 
         if self.size > 0 {
             let npages = self.size.page_roundup() / PAGE_SIZE;
-            for pa in self.pt.unmap_pages(VirtAddr::new(0), npages).flatten() {
+            for pa in self.pt.unmap_pages(VirtAddr::MIN, npages).flatten() {
                 unsafe {
                     page::free_page(pa.as_mut_ptr());
                 }

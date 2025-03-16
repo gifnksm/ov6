@@ -48,7 +48,7 @@ unsafe fn ident_map(
     size: usize,
     perm: PtEntryFlags,
 ) -> Result<(), KernelError> {
-    kpgtbl.map_pages(VirtAddr::new(addr), size, PhysAddr::new(addr), perm)
+    kpgtbl.map_pages(VirtAddr::new(addr)?, size, PhysAddr::new(addr), perm)
 }
 
 pub struct KernelPageTable(Box<PageTable, PageFrameAllocator>);
@@ -102,7 +102,7 @@ fn map_proc_stacks(kpgtbl: &mut PageTable) {
     for i in 0..NPROC {
         for k in 0..KSTACK_PAGES {
             let pa = page::alloc_page().unwrap();
-            let va = layout::kstack(i).byte_add(k * PAGE_SIZE);
+            let va = layout::kstack(i).byte_add(k * PAGE_SIZE).unwrap();
             kpgtbl
                 .map_page(va, PhysAddr::new(pa.addr().get()), PtEntryFlags::RW)
                 .unwrap();

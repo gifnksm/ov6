@@ -102,13 +102,22 @@ unsafe extern "C" {
 //  TRAMPOLINE
 // ```
 
-pub const TRAMPOLINE: VirtAddr = VirtAddr::MAX.byte_sub(PAGE_SIZE);
+pub const TRAMPOLINE: VirtAddr = match VirtAddr::MAX.byte_sub(PAGE_SIZE) {
+    Ok(va) => va,
+    Err(_) => unreachable!(),
+};
 
-pub const TRAPFRAME: VirtAddr = TRAMPOLINE.byte_sub(PAGE_SIZE);
+pub const TRAPFRAME: VirtAddr = match TRAMPOLINE.byte_sub(PAGE_SIZE) {
+    Ok(va) => va,
+    Err(_) => unreachable!(),
+};
 
 pub const fn kstack(p: usize) -> VirtAddr {
     assert!(p < NPROC);
-    TRAPFRAME.byte_sub((1 + (p + 1) * (KSTACK_GUARD_PAGES + KSTACK_PAGES)) * PAGE_SIZE)
+    match TRAPFRAME.byte_sub((1 + (p + 1) * (KSTACK_GUARD_PAGES + KSTACK_PAGES)) * PAGE_SIZE) {
+        Ok(va) => va,
+        Err(_) => unreachable!(),
+    }
 }
 
 pub const KSTACK_PAGES: usize = 2;

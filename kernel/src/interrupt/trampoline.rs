@@ -19,11 +19,15 @@ use crate::{
 };
 
 pub fn user_vec_addr() -> VirtAddr {
-    TRAMPOLINE.byte_add(user_vec as usize - trampoline as usize)
+    TRAMPOLINE
+        .byte_add(user_vec as usize - trampoline as usize)
+        .unwrap()
 }
 
 pub fn user_ret_addr() -> VirtAddr {
-    TRAMPOLINE.byte_add(user_ret as usize - trampoline as usize)
+    TRAMPOLINE
+        .byte_add(user_ret as usize - trampoline as usize)
+        .unwrap()
 }
 
 #[naked]
