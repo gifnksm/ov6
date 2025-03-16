@@ -202,8 +202,9 @@ impl ProcPrivateData {
             .ok_or(KernelError::FileDescriptorNotFound(fd, self.pid))
     }
 
-    pub fn cwd(&self) -> Option<&Inode> {
-        self.cwd.as_ref()
+    #[track_caller]
+    pub fn cwd(&self) -> &Inode {
+        self.cwd.as_ref().unwrap()
     }
 
     pub fn update_cwd(&mut self, cwd: Inode) -> Inode {

@@ -104,7 +104,7 @@ impl SyscallExt for syscall::Link {
         let new = fetch_path(private, user_new, &mut new)?;
 
         let tx = fs::begin_tx().map_err(KernelError::from)?;
-        let cwd = private.cwd().unwrap().clone().into_tx(&tx);
+        let cwd = private.cwd().clone().into_tx(&tx);
         fs::ops::link(&tx, cwd, old, new)?;
         Ok(())
     }
@@ -119,7 +119,7 @@ impl SyscallExt for syscall::Unlink {
         let path = fetch_path(private, user_path, &mut path)?;
 
         let tx = fs::begin_tx().map_err(KernelError::from)?;
-        let cwd = private.cwd().unwrap().clone().into_tx(&tx);
+        let cwd = private.cwd().clone().into_tx(&tx);
         fs::ops::unlink(&tx, cwd, path)?;
         Ok(())
     }
@@ -134,7 +134,7 @@ impl SyscallExt for syscall::Open {
         let path = fetch_path(private, user_path, &mut path)?;
 
         let tx = fs::begin_tx().map_err(KernelError::from)?;
-        let cwd = private.cwd().unwrap().clone().into_tx(&tx);
+        let cwd = private.cwd().clone().into_tx(&tx);
         let mut ip = if mode.contains(OpenFlags::CREATE) {
             fs::ops::create(&tx, cwd, path, T_FILE, DeviceNo::ROOT, 0)?
         } else {
@@ -176,7 +176,7 @@ impl SyscallExt for syscall::Mkdir {
         let path = fetch_path(private, user_path, &mut path)?;
 
         let tx = fs::begin_tx().map_err(KernelError::from)?;
-        let cwd = private.cwd().unwrap().clone().into_tx(&tx);
+        let cwd = private.cwd().clone().into_tx(&tx);
         let _ip = fs::ops::create(&tx, cwd, path, T_DIR, DeviceNo::ROOT, 0)?;
 
         Ok(())
@@ -193,7 +193,7 @@ impl SyscallExt for syscall::Mknod {
         let path = fetch_path(private, user_path, &mut path)?;
 
         let tx = fs::begin_tx().map_err(KernelError::from)?;
-        let cwd = private.cwd().unwrap().clone().into_tx(&tx);
+        let cwd = private.cwd().clone().into_tx(&tx);
         let _ip = fs::ops::create(&tx, cwd, path, T_DEVICE, DeviceNo::new(major), minor)?;
 
         Ok(())
@@ -209,7 +209,7 @@ impl SyscallExt for syscall::Chdir {
         let path = fetch_path(private, user_path, &mut path)?;
 
         let tx = fs::begin_tx().map_err(KernelError::from)?;
-        let cwd = private.cwd().unwrap().clone().into_tx(&tx);
+        let cwd = private.cwd().clone().into_tx(&tx);
         let mut ip = fs::path::resolve(&tx, cwd, path)?;
         if !ip.force_wait_lock().is_dir() {
             return Err(KernelError::ChdirNotDir.into());

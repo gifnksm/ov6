@@ -38,7 +38,7 @@ pub fn exec(
     argv: &[(usize, Box<[u8; PAGE_SIZE], PageFrameAllocator>)],
 ) -> Result<(usize, usize), KernelError> {
     let tx = fs::begin_tx()?;
-    let cwd = private.cwd().unwrap().clone().into_tx(&tx);
+    let cwd = private.cwd().clone().into_tx(&tx);
     let mut ip = fs::path::resolve(&tx, cwd, path)?;
     let mut lip = ip.force_wait_lock();
 
@@ -108,6 +108,7 @@ fn load_segments<const READ_ONLY: bool>(
             return Err(KernelError::InvalidExecutable);
         }
         let va_end = va_start.byte_add(usize::try_from(ph.memsz).unwrap())?;
+
         new_pt.grow_to(va_end.addr(), flags2perm(ph.flags))?;
 
         load_segment(
