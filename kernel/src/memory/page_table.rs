@@ -1,14 +1,11 @@
 use alloc::boxed::Box;
-use core::{alloc::AllocError, ptr};
+use core::{alloc::AllocError, ops::Range, ptr};
 
 use bitflags::bitflags;
 use dataview::Pod;
 
-use super::{PhysAddr, PhysPageNum, VirtAddr, addr::AddressChunks, page::PageFrameAllocator};
-use crate::{
-    error::KernelError,
-    memory::{PAGE_SHIFT, PAGE_SIZE, PageRound as _},
-};
+use super::{PhysAddr, PhysPageNum, VirtAddr, addr::VirtPageNum, page::PageFrameAllocator};
+use crate::{error::KernelError, memory::PAGE_SIZE};
 
 #[repr(transparent)]
 #[derive(Pod)]
@@ -34,10 +31,10 @@ impl PageTable {
     ///     12..=20 -- 9 bits of level-0 index.
     ///      0..=11 -- 12 bits byte offset with the page.
     /// ```
-    fn entry_index(level: usize, va: VirtAddr) -> usize {
+    fn entry_index(level: usize, vpn: VirtPageNum) -> usize {
         assert!(level <= 2);
-        let shift = PAGE_SHIFT + (9 * level);
-        (va.addr() >> shift) & 0x1ff
+        let shift = 9 * level;
+        (vpn.value() >> shift) & 0x1ff
     }
 
     /// Returns the physical address containing this page table
@@ -51,70 +48,60 @@ impl PageTable {
         self.phys_addr().phys_page_num()
     }
 
-    /// Creates PTE for virtual address `va` that refer to
-    /// physical addresses `pa`.
-    ///
-    /// `va` MUST be page-aligned.
+    /// Creates PTE for virtual page `vpn` that refer to
+    /// physical page `ppn`.
     ///
     /// Returns `Ok(())` on success, `Err()` if `walk()` couldn't
     /// allocate a needed page-table page.
     pub fn map_page(
         &mut self,
-        va: VirtAddr,
-        pa: PhysAddr,
+        vpn: VirtPageNum,
+        ppn: PhysPageNum,
         perm: PtEntryFlags,
     ) -> Result<(), KernelError> {
-        assert!(va.is_page_aligned(), "va={va:?}");
         assert!(perm.intersects(PtEntryFlags::RWX), "perm={perm:?}");
 
-        self.update_level0_entry(va, true, |pte| {
+        self.update_level0_entry(vpn, true, |pte| {
             assert!(
                 !pte.is_valid(),
-                "remap on the already mapped address: va={va:?}"
+                "remap on the already mapped address: va={vpn:?}"
             );
-            pte.set_phys_addr(pa, perm | PtEntryFlags::V);
+            pte.set_phys_page_num(ppn, perm | PtEntryFlags::V);
         })
     }
 
-    /// Creates PTEs for virtual addresses starting at `va` that refer to
-    /// physical addresses starting at `pa`.
+    /// Creates PTEs for virtual addresses starting at `vpn` that refer to
+    /// physical addresses starting at `ppn`.
     ///
-    /// `va` and `size` MUST be page-aligned.
+    /// `size` MUST be page-aligned.
     ///
     /// Returns `Ok(())` on success, `Err()` if `walk()` couldn't
     /// allocate a needed page-table page.
     pub fn map_pages(
         &mut self,
-        va: VirtAddr,
-        size: usize,
-        pa: PhysAddr,
+        vpn: VirtPageNum,
+        npages: usize,
+        ppn: PhysPageNum,
         perm: PtEntryFlags,
     ) -> Result<(), KernelError> {
-        assert!(va.is_page_aligned(), "va={va:?}");
-        assert!(size.is_page_aligned(), "size={size:#x}");
-        assert_ne!(size, 0, "size={size:#x}");
+        assert_ne!(npages, 0, "npages={npages:#x}");
 
-        let mut va = va;
-        let mut pa = pa;
-        let last = va.byte_add(size - PAGE_SIZE)?;
-        loop {
-            self.map_page(va, pa, perm)?;
-            if va == last {
-                return Ok(());
-            }
-
-            va = va.byte_add(PAGE_SIZE).unwrap();
-            pa = pa.byte_add(PAGE_SIZE);
+        let mut vpn = vpn;
+        let mut ppn = ppn;
+        let last = vpn.checked_add(npages)?;
+        while vpn < last {
+            self.map_page(vpn, ppn, perm)?;
+            vpn = vpn.checked_add(1).unwrap();
+            ppn = ppn.checked_add(1).unwrap();
         }
+        Ok(())
     }
 
-    /// Unmaps the page of memory at virtual address `va`.
+    /// Unmaps the page of memory at virtual page `vpn`.
     ///
     /// Returns the physical address of the page that was unmapped.
-    pub(super) fn unmap_page(&mut self, va: VirtAddr) -> Result<PhysAddr, KernelError> {
-        assert!(va.is_page_aligned(), "va={va:?}");
-
-        self.update_level0_entry(va, false, |pte| {
+    pub(super) fn unmap_page(&mut self, vpn: VirtPageNum) -> Result<PhysAddr, KernelError> {
+        self.update_level0_entry(vpn, false, |pte| {
             assert!(pte.is_valid());
             assert!(pte.is_leaf(), "{:?}", pte.flags());
             let pa = pte.phys_addr();
@@ -123,43 +110,42 @@ impl PageTable {
         })
     }
 
-    /// Unmaps the pages of memory starting at virtual address `va` and
+    /// Unmaps the pages of memory starting at virtual page `vpn` and
     /// covering `npages` pages.
     pub(super) fn unmap_pages(
         &mut self,
-        va: VirtAddr,
+        vpn: VirtPageNum,
         npages: usize,
     ) -> Result<UnmapPages, KernelError> {
-        let start = va;
+        let start = vpn;
+        let end = vpn.checked_add(npages)?;
         Ok(UnmapPages {
             pt: self,
-            chunks: AddressChunks::from_size(start, npages * PAGE_SIZE)?,
+            vpns: start..end,
         })
     }
 
     /// Returns the leaf PTE in the page tables that corredponds to virtual
-    /// address `va`.
-    pub(super) fn find_leaf_entry(&self, va: VirtAddr) -> Result<&PtEntry, KernelError> {
-        assert!(va < VirtAddr::MAX);
-
+    /// page `vpn`.
+    pub(super) fn find_leaf_entry(&self, vpn: VirtPageNum) -> Result<&PtEntry, KernelError> {
         let mut pt = self;
         for level in (1..=2).rev() {
-            let index = Self::entry_index(level, va);
+            let index = Self::entry_index(level, vpn);
             pt = pt.0[index]
                 .get_page_table()
-                .ok_or(KernelError::AddressNotMapped(va))?;
+                .ok_or(KernelError::VirtualPageNotMapped(vpn))?;
         }
 
-        let index = Self::entry_index(0, va);
+        let index = Self::entry_index(0, vpn);
         let pte = &pt.0[index];
         if !pte.is_leaf() {
-            return Err(KernelError::AddressNotMapped(va));
+            return Err(KernelError::VirtualPageNotMapped(vpn));
         }
         Ok(pte)
     }
 
     /// Updates the level-0 PTE in the page tables that corredponds to virtual
-    /// address `va`.
+    /// page `vpn`.
     ///
     /// If `insert_new_table` is `true`, it will allocate new page-table pages
     /// if needed.
@@ -167,21 +153,19 @@ impl PageTable {
     /// Updated PTE must be leaf PTE or invalid.
     pub(super) fn update_level0_entry<T, F>(
         &mut self,
-        va: VirtAddr,
+        vpn: VirtPageNum,
         insert_new_table: bool,
         f: F,
     ) -> Result<T, KernelError>
     where
         F: for<'a> FnOnce(&'a mut PtEntry) -> T,
     {
-        assert!(va < VirtAddr::MAX);
-
         let mut pt = self;
         for level in (1..=2).rev() {
-            let index = Self::entry_index(level, va);
+            let index = Self::entry_index(level, vpn);
             if !pt.0[index].is_valid() {
                 if !insert_new_table {
-                    return Err(KernelError::AddressNotMapped(va));
+                    return Err(KernelError::VirtualPageNotMapped(vpn));
                 }
                 let new_pt = Self::try_allocate()?;
                 pt.0[index].set_page_table(new_pt);
@@ -189,7 +173,7 @@ impl PageTable {
             pt = pt.0[index].get_page_table_mut().unwrap();
         }
 
-        let index = Self::entry_index(0, va);
+        let index = Self::entry_index(0, vpn);
         let pte = &mut pt.0[index];
         let res = f(pte);
         // cannot change PTE to non-leaf (level0 PTE must be invalid or leaf)
@@ -198,28 +182,38 @@ impl PageTable {
     }
 
     /// Looks up a virtual address, returns the physical address.
-    pub fn resolve_virtual_address(
+    pub fn resolve_page(
+        &self,
+        vpn: VirtPageNum,
+        flags: PtEntryFlags,
+    ) -> Result<PhysPageNum, KernelError> {
+        let pte = self.find_leaf_entry(vpn)?;
+        assert!(pte.is_valid() && pte.is_leaf());
+        if !pte.flags().contains(flags) {
+            return Err(KernelError::InaccessiblePage(vpn));
+        }
+
+        Ok(pte.phys_page_num())
+    }
+
+    /// Looks up a virtual address, returns the physical address.
+    pub fn resolve_virt_addr(
         &self,
         va: VirtAddr,
         flags: PtEntryFlags,
     ) -> Result<PhysAddr, KernelError> {
-        let pte = self.find_leaf_entry(va)?;
-        assert!(pte.is_valid() && pte.is_leaf());
-        if !pte.flags().contains(flags) {
-            return Err(KernelError::InaccessibleMemory(va));
-        }
-
-        Ok(pte.phys_addr())
+        let ppn = self.resolve_page(va.virt_page_num(), flags)?;
+        Ok(ppn.phys_addr().map_addr(|a| a + va.addr() % PAGE_SIZE))
     }
 
     /// Fetches the page that is mapped at virtual address `va`.
     pub(super) fn fetch_page(
         &self,
-        va: VirtAddr,
+        vpn: VirtPageNum,
         flags: PtEntryFlags,
     ) -> Result<&[u8; PAGE_SIZE], KernelError> {
-        let pa = self.resolve_virtual_address(va, flags)?;
-        let page = unsafe { pa.as_mut_ptr::<[u8; PAGE_SIZE]>().as_ref() };
+        let ppn = self.resolve_page(vpn, flags)?;
+        let page = unsafe { ppn.as_ptr().as_ref() };
         Ok(page)
     }
 
@@ -227,11 +221,11 @@ impl PageTable {
     #[expect(clippy::needless_pass_by_ref_mut)]
     pub(super) fn fetch_page_mut(
         &mut self,
-        va: VirtAddr,
+        vpn: VirtPageNum,
         flags: PtEntryFlags,
     ) -> Result<&mut [u8; PAGE_SIZE], KernelError> {
-        let pa = self.resolve_virtual_address(va, flags)?;
-        let page = unsafe { pa.as_mut_ptr::<[u8; PAGE_SIZE]>().as_mut() };
+        let ppn = self.resolve_page(vpn, flags)?;
+        let page = unsafe { ppn.as_ptr().as_mut() };
         Ok(page)
     }
 
@@ -306,15 +300,19 @@ bitflags! {
 
 pub(super) struct UnmapPages<'a> {
     pt: &'a mut PageTable,
-    chunks: AddressChunks,
+    vpns: Range<VirtPageNum>,
 }
 
 impl Iterator for UnmapPages<'_> {
     type Item = Result<PhysAddr, KernelError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let chunk = self.chunks.next()?;
-        Some(self.pt.unmap_page(chunk.page_range().start))
+        let vpn = self.vpns.start;
+        if vpn >= self.vpns.end {
+            return None;
+        }
+        self.vpns.start = vpn.checked_add(1).unwrap();
+        Some(self.pt.unmap_page(vpn))
     }
 }
 
@@ -381,10 +379,6 @@ impl PtEntry {
     /// Returns physical address (PA)
     pub(super) fn phys_addr(&self) -> PhysAddr {
         self.phys_page_num().phys_addr()
-    }
-
-    pub(super) fn set_phys_addr(&mut self, pa: PhysAddr, flags: PtEntryFlags) {
-        self.set_phys_page_num(pa.phys_page_num(), flags);
     }
 
     /// Returns `true` if this page is valid

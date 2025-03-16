@@ -14,6 +14,7 @@ use super::{
 use crate::{
     error::KernelError,
     interrupt::{trampoline, trap::TrapFrame},
+    memory::addr::VirtPageNum,
 };
 
 pub struct UserPageTable {
@@ -28,8 +29,8 @@ impl UserPageTable {
         // An empty page table.
         let mut pt = PageTable::try_allocate()?;
         if let Err(e) = pt.map_page(
-            TRAMPOLINE,
-            PhysAddr::new(trampoline::trampoline as usize),
+            TRAMPOLINE.virt_page_num(),
+            PhysAddr::new(trampoline::trampoline as usize).phys_page_num(),
             PtEntryFlags::RX,
         ) {
             pt.free_descendant();
@@ -38,11 +39,11 @@ impl UserPageTable {
         }
 
         if let Err(e) = pt.map_page(
-            TRAPFRAME,
-            PhysAddr::new(ptr::from_ref(tf).addr()),
+            TRAPFRAME.virt_page_num(),
+            PhysAddr::new(ptr::from_ref(tf).addr()).phys_page_num(),
             PtEntryFlags::RW,
         ) {
-            pt.unmap_pages(TRAMPOLINE, 1).unwrap();
+            pt.unmap_pages(TRAMPOLINE.virt_page_num(), 1).unwrap();
             pt.free_descendant();
             drop(pt);
             return Err(e);
@@ -69,8 +70,8 @@ impl UserPageTable {
 
         let mem = page::alloc_zeroed_page().unwrap();
         self.pt.map_page(
-            VirtAddr::MIN,
-            PhysAddr::new(mem.addr().get()),
+            VirtPageNum::MIN,
+            PhysAddr::new(mem.addr().get()).phys_page_num(),
             PtEntryFlags::URWX,
         )?;
         unsafe { slice::from_raw_parts_mut(mem.as_ptr(), src.len()) }.copy_from_slice(src);
@@ -90,8 +91,8 @@ impl UserPageTable {
         let map_start = VirtAddr::new(self.size.page_roundup()).unwrap();
         let map_end = VirtAddr::new(new_size)?;
         for range in AddressChunks::from_range(map_start..map_end) {
-            let va0 = range.page_range().start;
-            self.size = va0.addr();
+            let vpn = range.page_num();
+            self.size = vpn.virt_addr().addr();
 
             let mem = match page::alloc_zeroed_page() {
                 Ok(mem) => mem,
@@ -102,8 +103,8 @@ impl UserPageTable {
             };
 
             if let Err(e) = self.pt.map_page(
-                va0,
-                PhysAddr::new(mem.addr().get()),
+                vpn,
+                PhysAddr::new(mem.addr().get()).phys_page_num(),
                 xperm | PtEntryFlags::UR,
             ) {
                 unsafe {
@@ -131,7 +132,11 @@ impl UserPageTable {
         if new_size.page_roundup() < self.size.page_roundup() {
             let npages = (self.size.page_roundup() - new_size.page_roundup()) / PAGE_SIZE;
             let start_va = VirtAddr::new(new_size.page_roundup()).unwrap();
-            for pa in self.pt.unmap_pages(start_va, npages).unwrap() {
+            for pa in self
+                .pt
+                .unmap_pages(start_va.virt_page_num(), npages)
+                .unwrap()
+            {
                 let pa = pa.unwrap();
                 unsafe {
                     page::free_page(pa.as_mut_ptr());
@@ -147,9 +152,9 @@ impl UserPageTable {
 
         (|| {
             for chunk in AddressChunks::from_size(VirtAddr::MIN, self.size).unwrap() {
-                let va = chunk.page_range().start;
-                target.size = va.addr();
-                let pte = self.pt.find_leaf_entry(va)?;
+                let vpn = chunk.page_num();
+                target.size = vpn.virt_addr().addr();
+                let pte = self.pt.find_leaf_entry(vpn)?;
                 assert!(pte.is_valid() && pte.is_leaf());
 
                 let src_pa = pte.phys_addr();
@@ -162,7 +167,7 @@ impl UserPageTable {
 
                 target
                     .pt
-                    .map_page(va, PhysAddr::new(dst.addr().get()), flags)?;
+                    .map_page(vpn, PhysAddr::new(dst.addr().get()).phys_page_num(), flags)?;
             }
             target.size = self.size;
             Ok(())
@@ -175,8 +180,8 @@ impl UserPageTable {
     /// Marks a PTE invalid for user access.
     ///
     /// Used by exec for the user stackguard page.
-    pub fn forbide_user_access(&mut self, va: VirtAddr) -> Result<(), KernelError> {
-        self.pt.update_level0_entry(va, false, |pte| {
+    pub fn forbide_user_access(&mut self, vpn: VirtPageNum) -> Result<(), KernelError> {
+        self.pt.update_level0_entry(vpn, false, |pte| {
             let mut flags = pte.flags();
             flags.remove(PtEntryFlags::U);
             pte.set_flags(flags);
@@ -188,21 +193,21 @@ impl UserPageTable {
         va: VirtAddr,
         flags: PtEntryFlags,
     ) -> Result<PhysAddr, KernelError> {
-        self.pt.resolve_virtual_address(va, flags)
+        self.pt.resolve_virt_addr(va, flags)
     }
 
     pub fn validate_read(&self, va: Range<VirtAddr>) -> Result<(), KernelError> {
         for chunk in AddressChunks::try_new(va)? {
-            let va = chunk.page_range().start;
-            let _pa = self.pt.resolve_virtual_address(va, PtEntryFlags::UR)?;
+            let vpn = chunk.page_num();
+            let _ppn = self.pt.resolve_page(vpn, PtEntryFlags::UR)?;
         }
         Ok(())
     }
 
     pub fn validate_write(&self, va: Range<VirtAddr>) -> Result<(), KernelError> {
         for chunk in AddressChunks::try_new(va)? {
-            let va = chunk.page_range().start;
-            let _pa = self.pt.resolve_virtual_address(va, PtEntryFlags::UW)?;
+            let vpn = chunk.page_num();
+            let _ppn = self.pt.resolve_page(vpn, PtEntryFlags::UW)?;
         }
         Ok(())
     }
@@ -219,11 +224,11 @@ impl UserPageTable {
     pub fn copy_k2u_bytes(&mut self, dst: &mut Validated<UserMutSlice<u8>>, mut src: &[u8]) {
         assert_eq!(dst.len(), src.len());
         for chunk in AddressChunks::new(dst) {
-            let va0 = chunk.page_range().start;
+            let vpn = chunk.page_num();
             let offset = chunk.offset_in_page().start;
             let n = chunk.size();
 
-            let dst_page = self.pt.fetch_page_mut(va0, PtEntryFlags::UW).unwrap();
+            let dst_page = self.pt.fetch_page_mut(vpn, PtEntryFlags::UW).unwrap();
             let dst = &mut dst_page[offset..][..n];
             dst.copy_from_slice(&src[..n]);
             src = &src[n..];
@@ -254,11 +259,11 @@ impl UserPageTable {
     pub fn copy_u2k_bytes(&self, mut dst: &mut [u8], src: &Validated<UserSlice<u8>>) {
         assert_eq!(src.len(), dst.len());
         for chunk in AddressChunks::new(src) {
-            let va0 = chunk.page_range().start;
+            let vpn = chunk.page_num();
             let offset = chunk.offset_in_page().start;
             let n = chunk.size();
 
-            let src_page = self.pt.fetch_page(va0, PtEntryFlags::UR).unwrap();
+            let src_page = self.pt.fetch_page(vpn, PtEntryFlags::UR).unwrap();
             let src = &src_page[offset..][..n];
             dst[..n].copy_from_slice(src);
             dst = &mut dst[n..];
@@ -293,7 +298,7 @@ impl UserPageTable {
                 let dst_chunk = dst_chunks.next().unwrap();
                 let page = dst_pt
                     .pt
-                    .fetch_page_mut(dst_chunk.page_range().start, PtEntryFlags::UW)
+                    .fetch_page_mut(dst_chunk.page_num(), PtEntryFlags::UW)
                     .unwrap();
                 dst_bytes = &mut page[dst_chunk.offset_in_page()];
             }
@@ -302,7 +307,7 @@ impl UserPageTable {
                 let src_chunk = src_chunks.next().unwrap();
                 let page = src_pt
                     .pt
-                    .fetch_page(src_chunk.page_range().start, PtEntryFlags::UR)
+                    .fetch_page(src_chunk.page_num(), PtEntryFlags::UR)
                     .unwrap();
                 src_bytes = &page[src_chunk.offset_in_page()];
             }
@@ -318,12 +323,12 @@ impl UserPageTable {
 
 impl Drop for UserPageTable {
     fn drop(&mut self) {
-        let _ = self.pt.unmap_page(TRAMPOLINE).unwrap();
-        let _ = self.pt.unmap_page(TRAPFRAME).unwrap();
+        let _ = self.pt.unmap_page(TRAMPOLINE.virt_page_num()).unwrap();
+        let _ = self.pt.unmap_page(TRAPFRAME.virt_page_num()).unwrap();
 
         if self.size > 0 {
             let npages = self.size.page_roundup() / PAGE_SIZE;
-            let unmapped_pages = self.pt.unmap_pages(VirtAddr::MIN, npages).unwrap();
+            let unmapped_pages = self.pt.unmap_pages(VirtPageNum::MIN, npages).unwrap();
             for pa in unmapped_pages {
                 let pa = pa.unwrap();
                 unsafe {

@@ -99,29 +99,57 @@ impl PageRound for PhysAddr {
     }
 }
 
-/// Virtual address
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct VirtAddr(usize);
-
-impl fmt::LowerHex for VirtAddr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+struct Hex(usize);
+impl fmt::Debug for Hex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::LowerHex::fmt(&self.0, f)
     }
 }
 
-impl fmt::UpperHex for VirtAddr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::UpperHex::fmt(&self.0, f)
-    }
+macro_rules! impl_fmt {
+    ($ty:ident) => {
+        impl fmt::Debug for $ty {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.debug_tuple(stringify!($ty)).field(&Hex(self.0)).finish()
+            }
+        }
+        impl fmt::LowerHex for $ty {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                fmt::LowerHex::fmt(&self.0, f)
+            }
+        }
+        impl fmt::UpperHex for $ty {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                fmt::UpperHex::fmt(&self.0, f)
+            }
+        }
+    };
 }
 
 /// Physical Page Number of a page
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct VirtPageNum(usize);
+impl_fmt!(VirtPageNum);
+
+/// Virtual address
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct VirtAddr(usize);
+impl_fmt!(VirtAddr);
+
+/// Physical Page Number of a page
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PhysPageNum(usize);
+impl_fmt!(PhysPageNum);
 
 /// Physical Address
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PhysAddr(usize);
+impl_fmt!(PhysAddr);
+
+impl VirtPageNum {
+    pub const MAX: Self = Self(1 << (9 * 3 - 1));
+    pub const MIN: Self = Self(0);
+}
 
 impl VirtAddr {
     /// One beyond the highest possible virtual address.
@@ -131,12 +159,51 @@ impl VirtAddr {
     /// that have the high bit set.
     pub const MAX: Self = Self(1 << (9 * 3 + PAGE_SHIFT - 1));
     pub const MIN: Self = Self(0);
+}
 
+const _: () = {
+    assert!(VirtAddr::MAX.0 == VirtPageNum::MAX.0 << PAGE_SHIFT);
+    assert!(VirtAddr::MIN.0 == VirtPageNum::MIN.0 << PAGE_SHIFT);
+};
+
+impl VirtPageNum {
+    pub const fn new(vpn: usize) -> Result<Self, KernelError> {
+        if vpn > Self::MAX.0 {
+            return Err(KernelError::TooLargeVirtualPageNumber(vpn));
+        }
+        Ok(Self(vpn))
+    }
+
+    pub const fn virt_addr(self) -> VirtAddr {
+        VirtAddr(self.0 << PAGE_SHIFT)
+    }
+
+    pub const fn value(self) -> usize {
+        self.0
+    }
+
+    pub const fn checked_add(self, n: usize) -> Result<Self, KernelError> {
+        let Some(vpn) = self.0.checked_add(n) else {
+            return Err(KernelError::TooLargeVirtualPageNumber(usize::MAX));
+        };
+        Self::new(vpn)
+    }
+}
+
+impl VirtAddr {
     pub const fn new(addr: usize) -> Result<Self, KernelError> {
         if addr > Self::MAX.0 {
             return Err(KernelError::TooLargeVirtualAddress(addr));
         }
         Ok(Self(addr))
+    }
+
+    pub const fn addr(self) -> usize {
+        self.0
+    }
+
+    pub fn virt_page_num(self) -> VirtPageNum {
+        VirtPageNum(self.0 >> PAGE_SHIFT)
     }
 
     pub const fn byte_add(self, offset: usize) -> Result<Self, KernelError> {
@@ -151,10 +218,6 @@ impl VirtAddr {
             return Err(KernelError::VirtualAddressUnderflow);
         };
         Self::new(addr)
-    }
-
-    pub const fn addr(self) -> usize {
-        self.0
     }
 
     pub fn map_addr(self, f: impl FnOnce(usize) -> usize) -> Result<Self, KernelError> {
@@ -173,6 +236,15 @@ impl PhysPageNum {
 
     pub const fn value(self) -> usize {
         self.0
+    }
+
+    pub fn checked_add(self, n: usize) -> Option<Self> {
+        self.0.checked_add(n).map(Self)
+    }
+
+    pub fn as_ptr(self) -> NonNull<[u8; PAGE_SIZE]> {
+        let addr = self.phys_addr().addr();
+        NonNull::new(ptr::with_exposed_provenance_mut(addr)).unwrap()
     }
 }
 
@@ -195,11 +267,6 @@ impl PhysAddr {
 
     pub fn phys_page_num(self) -> PhysPageNum {
         PhysPageNum(self.0 >> PAGE_SHIFT)
-    }
-
-    pub fn byte_add(self, offset: usize) -> Self {
-        // FIXME: need overflow check
-        Self(self.0 + offset)
     }
 
     pub fn map_addr(self, f: impl FnOnce(usize) -> usize) -> Self {
@@ -343,8 +410,8 @@ pub struct AddressChunk {
 }
 
 impl AddressChunk {
-    pub fn page_range(&self) -> Range<VirtAddr> {
-        self.range.start.page_rounddown()..self.range.end.page_roundup()
+    pub fn page_num(&self) -> VirtPageNum {
+        self.range.start.virt_page_num()
     }
 
     pub fn offset_in_page(&self) -> Range<usize> {

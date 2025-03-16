@@ -174,7 +174,9 @@ fn load_segment<const READ_ONLY: bool>(
 fn allocate_stack_pages(pt: &mut UserPageTable) -> Result<(), KernelError> {
     let size = pt.size().page_roundup();
     pt.grow_to(size + (USER_STACK + 1) * PAGE_SIZE, PtEntryFlags::W)?;
-    pt.forbide_user_access(VirtAddr::new(pt.size() - (USER_STACK + 1) * PAGE_SIZE)?)?;
+    pt.forbide_user_access(
+        VirtAddr::new(pt.size() - (USER_STACK + 1) * PAGE_SIZE)?.virt_page_num(),
+    )?;
     Ok(())
 }
 
