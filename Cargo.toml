@@ -16,7 +16,7 @@ members = [
     "crates/user/ov6_user_tests",
     "crates/user/ov6_initcode",
     "crates/user/ov6_services",
-    "crates/utils/ov6_fs_utilities",
+    "crates/utils/ov6_fs_utilities", "crates/utils/ov6_integration_tests",
 ]
 resolver = "2"
 
@@ -32,14 +32,17 @@ keywords = ["xv6", "riscv", "rust", "operating-system"]
 publish = false
 
 [workspace.dependencies]
+anyhow = "1.0.97"
 arrayvec = { version = "0.7.6", default-features = false }
 bitflags = "2.9.0"
 dataview = "1.0.1"
 derive_more = { version = "2.0.1", default-features = false, features = ["from"] }
+fs4 = "0.13.1"
 memchr = { version = "2.7.4", default-features = false, features = ["alloc"] }
 riscv = "0.13.0"
 strum = { version = "0.27.1", default-features = false, features = ["derive"] }
 thiserror = { version = "2.0.12", default-features = false }
+tokio = { version = "1.44.1" }
 vcell = "0.1.3"
 
 block_io = { path = "crates/kernel/block_io" }

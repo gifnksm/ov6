@@ -22,11 +22,10 @@ endif
 
 R=target/ov6/$(PROFILE)
 I=target/ov6/initcode
-RN=target/$(PROFILE)
 
 RUST_CROSS_TARGET=riscv64imac-unknown-none-elf
 RX=target/$(RUST_CROSS_TARGET)/$(PROFILE)
-RXI=target/$(RUST_CROSS_TARGET)/initcode
+IX=target/$(RUST_CROSS_TARGET)/initcode
 
 OV6_INITCODE=\
 	initcode\
@@ -60,6 +59,8 @@ OV6_USER_TESTS=\
 OV6_FS_UTILS=\
 	mkfs\
 
+NATIVE_PKGS=ov6_fs_utilities ov6_integration_tests
+
 FS_CONTENTS=$(addprefix $R/,$(OV6_SERVICES) $(OV6_UTILS) $(OV6_USER_TESTS))
 
 QEMU = qemu-system-riscv64
@@ -81,7 +82,7 @@ $(RX)/kernel: $I/initcode.bin FORCE
 	INIT_CODE_PATH="$(PWD)/$I/initcode.bin" \
 		cargo build -p ov6_kernel $(CARGO_PROFILE_FLAG) --target $(RUST_CROSS_TARGET) --features initcode_env
 
-$(RXI)/%.stamp: FORCE
+$(IX)/%.stamp: FORCE
 	cargo build -p $(patsubst %.stamp,%,$(notdir $@)) --profile initcode --target $(RUST_CROSS_TARGET)
 	touch $@
 
@@ -89,21 +90,16 @@ $(RX)/%.stamp: FORCE
 	cargo build -p $(patsubst %.stamp,%,$(notdir $@)) --target $(RUST_CROSS_TARGET) $(CARGO_PROFILE_FLAG)
 	touch $@
 
-$(RN)/%.stamp: FORCE
-	cargo build -p $(patsubst %.stamp,%,$(notdir $@)) $(CARGO_PROFILE_FLAG)
-	touch $@
-
-$(foreach exe,$(OV6_INITCODE),$(eval $$(RXI)/$(exe): $$(RXI)/ov6_initcode.stamp))
+$(foreach exe,$(OV6_INITCODE),$(eval $$(IX)/$(exe): $$(IX)/ov6_initcode.stamp))
 $(foreach exe,$(OV6_SERVICES),$(eval $$(RX)/$(exe): $$(RX)/ov6_services.stamp))
 $(foreach exe,$(OV6_UTILS),$(eval $$(RX)/$(exe): $$(RX)/ov6_utilities.stamp))
 $(foreach exe,$(OV6_USER_TESTS),$(eval $$(RX)/$(exe): $$(RX)/ov6_user_tests.stamp))
-$(foreach exe,$(OV6_FS_UTILS),$(eval $$(RN)/$(exe): $$(RN)/ov6_fs_utilities.stamp))
 
 %/:
 	mkdir -p $@
 
-fs.img: $(RN)/mkfs README $(FS_CONTENTS)
-	$(RN)/mkfs $@ README $(FS_CONTENTS)
+fs.img: README $(FS_CONTENTS)
+	cargo run --bin mkfs -- $@ README $(FS_CONTENTS)
 
 .PHONY: all
 all: $R/kernel fs.img
@@ -121,10 +117,10 @@ test: cargo-test cargo-miri-test
 
 .PHONY: cargo-clippy
 cargo-clippy:
-	cargo clippy --workspace
+	cargo hack clippy --workspace
 
 .PHONY: cargo-test
-cargo-test:
+cargo-test: $R/kernel fs.img
 	cargo nextest run --workspace
 
 .PHONY: cargo-miri-test
@@ -137,39 +133,49 @@ typos:
 
 .PHONY: cargo-doc
 cargo-doc:
-	cargo doc --workspace --document-private-items
-	cargo doc --workspace --document-private-items --target $(RUST_CROSS_TARGET)
+	cargo hack doc --workspace --no-deps --document-private-items
+	cargo hack doc --workspace --no-deps --document-private-items --target $(RUST_CROSS_TARGET) \
+		$(addprefix --exclude ,$(NATIVE_PKGS))
 
 # try to generate a unique GDB port
-GDBPORT = $(shell expr `id -u` % 5000 + 25000)
-# QEMU's gdb stub command line changed in 0.11
-QEMUGDB = $(shell if $(QEMU) -help | grep -q '^-gdb'; \
-	then echo "-gdb tcp::$(GDBPORT)"; \
-	else echo "-s -p $(GDBPORT)"; fi)
+GDB_PORT = $(shell expr `id -u` % 5000 + 25000)
+QEMU_GDB_TCP = -gdb tcp::$(GDB_PORT)
+QEMU_GDB_SOCK = -chardev socket,path=$(GDB_SOCK),server=on,wait=off,id=gdb0 -gdb chardev:gdb0
+
 ifndef CPUS
 CPUS := 3
 endif
 
-QEMUOPTS = -machine virt -bios none -kernel $R/kernel -m 128M -smp $(CPUS) -nographic
-QEMUOPTS += -global virtio-mmio.force-legacy=false
-QEMUOPTS += -drive file=fs.img,if=none,format=raw,id=x0
-QEMUOPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
+QEMU_KERNEL=$R/kernel
+QEMU_FS=fs.img
+
+QEMU_OPTS = -machine virt -bios none -kernel $(QEMU_KERNEL) -m 128M -smp $(CPUS) -nographic
+QEMU_OPTS += -global virtio-mmio.force-legacy=false
+QEMU_OPTS += -drive file=$(QEMU_FS),if=none,format=raw,id=x0
+QEMU_OPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
 
 ifdef QEMU_LOG
-QEMUOPTS += -d unimp,guest_errors,int -D target/qemu.log
+QEMU_OPTS += -d unimp,guest_errors,int -D target/qemu.log
 endif
 
 .PHONY: qemu
-qemu: $R/kernel fs.img
-	$(QEMU) $(QEMUOPTS)
+qemu: $(QEMU_KERNEL) $(QEMU_FS)
+	$(QEMU) $(QEMU_OPTS)
 
 .gdbinit: .gdbinit.tmpl-riscv
-	sed "s/:1234/:$(GDBPORT)/" < $^ > $@
+	sed "s/:1234/:$(GDB_PORT)/" < $^ > $@
 
 .PHONY: qemu-gdb
-qemu-gdb: $R/kernel .gdbinit fs.img
+qemu-gdb: $(QEMU_KERNEL) $(QEMU_FS) .gdbinit
 	@echo "*** Now run 'gdb' in another window." 1>&2
-	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
+	$(QEMU) $(QEMU_OPTS) -S $(QEMU_GDB_TCP)
+
+.PHONY: qemu-gdb-noinit
+qemu-gdb-noinit: $(QEMU_KERNEL) $(QEMU_FS)
+	@echo "*** Running qemu ***" 1>&2
+	@echo "kernel: $(QEMU_KERNEL:$(CURDIR)/%=%)" 1>&2
+	@echo "fs: $(QEMU_FS:$(CURDIR)/%=%)" 1>&2
+	$(QEMU) $(QEMU_OPTS) -S $(QEMU_GDB_SOCK)
 
 FORCE:
 .PHONY: FORCE
