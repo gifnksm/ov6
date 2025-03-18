@@ -47,6 +47,7 @@ OV6_UTILS=\
 	reboot\
 	rm\
 	sh\
+	sleep\
 	wc\
 	zombie\
 
