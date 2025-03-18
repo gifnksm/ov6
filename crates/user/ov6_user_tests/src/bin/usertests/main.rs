@@ -10,6 +10,7 @@ use ov6_kernel_params::MAX_OP_BLOCKS;
 use ov6_user_lib::{
     env, eprint, eprintln,
     io::{Read as _, Write as _},
+    os::ov6::syscall,
     pipe,
     process::{self},
     time::Instant,
@@ -70,16 +71,24 @@ fn run(name: &str, test: TestFn) -> Result<(), TestError> {
 }
 
 fn run_tests(
+    run_count: &mut usize,
     tests: &[(&str, TestFn)],
-    run_just_one: Option<&str>,
+    target_test_name: Option<&str>,
+    beginning_match: bool,
     continuous: Continuous,
 ) -> Result<(), TestError> {
     for (name, test) in tests {
-        if let Some(just_one) = run_just_one {
-            if *name != just_one {
+        if let Some(target) = target_test_name {
+            let run = if beginning_match {
+                name.starts_with(target)
+            } else {
+                *name == target
+            };
+            if !run {
                 continue;
             }
         }
+        *run_count += 1;
 
         if let Err(e) = continuous.judge_result(run(name, *test)) {
             eprintln!("SOME TESTS FAILED");
@@ -136,7 +145,7 @@ fn count_free_pages() -> usize {
     n
 }
 
-fn drive_tests(param: &Param) -> Result<(), TestError> {
+fn drive_tests(run_count: &mut usize, param: &Param) -> Result<(), TestError> {
     loop {
         eprint!("freepages: ");
         let start = Instant::now();
@@ -151,19 +160,23 @@ fn drive_tests(param: &Param) -> Result<(), TestError> {
         eprintln!("starting");
 
         param.continuous.judge_result(run_tests(
+            run_count,
             quick::TESTS,
-            param.run_just_one.as_deref(),
+            param.test_name.as_deref(),
+            param.beginning_match,
             param.continuous,
         ))?;
 
         if !param.run_quick_only {
-            if param.run_just_one.is_none() {
+            if param.test_name.is_none() {
                 eprintln!("running slow tests");
             }
 
             param.continuous.judge_result(run_tests(
+                run_count,
                 slow::TESTS,
-                param.run_just_one.as_deref(),
+                param.test_name.as_deref(),
+                param.beginning_match,
                 param.continuous,
             ))?;
         }
@@ -211,64 +224,92 @@ impl Continuous {
 
 struct Param {
     run_quick_only: bool,
-    run_just_one: Option<String>,
     continuous: Continuous,
+    beginning_match: bool,
+    shutdown_after_tests: bool,
+    test_name: Option<String>,
 }
+
+const USAGE_ARGS: &str = "[-c] [-C] [-q] [-b] [-t] [-h] [testname]";
 
 impl Param {
     fn usage_and_exit() -> ! {
-        eprintln!("Usage: {} [-c] [-C] [-q] [testname]", env::arg0().display());
+        eprintln!("Usage: {} {USAGE_ARGS}", env::arg0().display());
+        process::exit(1);
+    }
+
+    fn help_and_exit() -> ! {
+        eprintln!("Usage: {} {USAGE_ARGS}", env::arg0().display());
+        eprintln!("    -c          Run tests continuously until a failure");
+        eprintln!("    -C          Run tests continuously forever");
+        eprintln!("    -q          Run only quick tests");
+        eprintln!("    -b          Beginning matching test name");
+        eprintln!("    -t          Shutdown after running tests");
+        eprintln!("    -h          Print this help message");
+        eprintln!("    testname    Run only the test with the given name");
         process::exit(1);
     }
 
     fn parse() -> Self {
-        let mut args = env::args();
-
-        if args.len() > 1 {
-            Self::usage_and_exit();
-        }
+        let args = env::args();
 
         let mut param = Self {
             run_quick_only: false,
-            run_just_one: None,
             continuous: Continuous::Once,
+            beginning_match: false,
+            shutdown_after_tests: false,
+            test_name: None,
         };
 
-        if let Some(arg) = args.next() {
+        for arg in args {
             match arg {
                 "-q" => param.run_quick_only = true,
                 "-c" => param.continuous = Continuous::UntilFailure,
                 "-C" => param.continuous = Continuous::Forever,
-                _ if !arg.starts_with('-') => param.run_just_one = Some(arg.to_owned()),
+                "-b" => param.beginning_match = true,
+                "-t" => param.shutdown_after_tests = true,
+                "-h" => Self::help_and_exit(),
+                _ if !arg.starts_with('-') => param.test_name = Some(arg.to_owned()),
                 _ => Self::usage_and_exit(),
             }
         }
+
         param
     }
 }
 
 fn main() {
     let param = Param::parse();
+    let mut run_count = 0;
 
     let start = Instant::now();
-    let res = drive_tests(&param);
+    let res = drive_tests(&mut run_count, &param);
     let elapsed = start.elapsed();
 
     match res {
-        Ok(()) => {
+        Ok(()) if run_count > 0 => {
             message!(
                 "ALL TESTS PASSED [{:3}.{:03}s]",
                 elapsed.as_secs(),
                 elapsed.subsec_millis(),
             );
+            if param.shutdown_after_tests {
+                syscall::halt(0).unwrap();
+            }
             process::exit(0);
         }
-        Err(TestError::TestFailed) => {
+        Ok(()) | Err(TestError::TestFailed) => {
             message!(
                 "TEST FAILED [{:3}.{:03}s]",
                 elapsed.as_secs(),
                 elapsed.subsec_millis()
             );
+            if run_count == 0 {
+                message!("no tests runnned");
+            }
+            if param.shutdown_after_tests {
+                syscall::abort(1).unwrap();
+            }
             process::exit(1);
         }
     }
