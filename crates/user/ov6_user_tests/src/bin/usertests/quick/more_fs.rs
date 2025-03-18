@@ -1,3 +1,5 @@
+use core::time::Duration;
+
 use ov6_fs_types::FS_BLOCK_SIZE;
 use ov6_kernel_params::{MAX_OP_BLOCKS, NINODE};
 use ov6_user_lib::{
@@ -6,10 +8,158 @@ use ov6_user_lib::{
     fs::{self, File},
     io::{Read as _, Write as _},
     os_str::OsStr,
-    process,
+    process, thread,
 };
 
-use crate::{BUF, README_PATH, expect};
+use crate::{BUF, README_PATH, ROOT_DIR_PATH, expect};
+
+const TRUNC_FILE_PATH: &str = "truncfile";
+const IPUTDIR_PATH: &str = "iputdir";
+const OIDIR_PATH: &str = "oidir";
+
+/// test `O_TRUNC`.
+pub fn truncate1() {
+    let mut buf = [0; 6];
+
+    let _ = fs::remove_file(TRUNC_FILE_PATH);
+
+    let mut file1 = File::create(TRUNC_FILE_PATH).unwrap();
+    file1.write(b"abcd").unwrap();
+    drop(file1);
+
+    let mut file2 = File::open(TRUNC_FILE_PATH).unwrap();
+    expect!(file2.read(&mut buf), Ok(4));
+    assert_eq!(buf[0..4], *b"abcd");
+
+    let mut file1 = File::options()
+        .write(true)
+        .truncate(true)
+        .open(TRUNC_FILE_PATH)
+        .unwrap();
+
+    let mut file3 = File::open(TRUNC_FILE_PATH).unwrap();
+    expect!(file3.read(&mut buf), Ok(0));
+
+    expect!(file2.read(&mut buf), Ok(0));
+
+    file1.write_all(b"efghij").unwrap();
+
+    file3.read_exact(&mut buf).unwrap();
+    assert_eq!(buf[0..6], *b"efghij");
+
+    expect!(file2.read(&mut buf), Ok(2));
+    assert_eq!(buf[0..2], *b"ij");
+
+    fs::remove_file(TRUNC_FILE_PATH).unwrap();
+    drop(file1);
+    drop(file2);
+    drop(file3);
+}
+
+/// write to an open FD whose file has just been truncated.
+/// this causes a write at an offset beyond the end of the file.
+/// such writes fail on ov6 (unlike POSIX) but at least
+/// they don't crash.
+pub fn truncate2() {
+    let mut file1 = File::create(TRUNC_FILE_PATH).unwrap();
+    file1.write_all(b"abcd").unwrap();
+
+    let _file2 = File::options()
+        .write(true)
+        .truncate(true)
+        .open(TRUNC_FILE_PATH)
+        .unwrap();
+
+    expect!(file1.write(b"x"), Err(Ov6Error::NotSeekable));
+
+    fs::remove_file(TRUNC_FILE_PATH).unwrap();
+}
+
+pub fn truncate3() {
+    drop(File::create(TRUNC_FILE_PATH).unwrap());
+
+    let mut buf = [0; 32];
+
+    let child = process::fork_fn(|| {
+        for _i in 0..100 {
+            let mut file = File::options().write(true).open(TRUNC_FILE_PATH).unwrap();
+            file.write_all(b"1234567890").unwrap();
+            drop(file);
+            let mut file = File::open(TRUNC_FILE_PATH).unwrap();
+            file.read(&mut buf).unwrap();
+            drop(file);
+        }
+
+        process::exit(0);
+    })
+    .unwrap();
+
+    for _i in 0..150 {
+        let mut file = File::create(TRUNC_FILE_PATH).unwrap();
+        file.write_all(b"xxx").unwrap();
+        drop(file);
+    }
+
+    let status = child.wait().unwrap();
+    assert!(status.success());
+
+    fs::remove_file(TRUNC_FILE_PATH).unwrap();
+}
+
+/// does the error path in `open()` for attempt to write a
+/// directory call `Inode::put()` in a transaction?
+/// needs a hacked kernel that pauses just after the `namei()`
+/// call in `sys_open()`:
+///
+/// ```c
+/// if((ip = namei(path)) == 0)
+///   return -1;
+/// {
+///   int i;
+///   for(i = 0; i < 10000; i++)
+///     yield();
+/// }
+/// ```
+pub fn inode_put_open() {
+    fs::create_dir(OIDIR_PATH).unwrap();
+
+    let child = process::fork_fn(|| {
+        expect!(
+            File::options().read(true).write(true).open(OIDIR_PATH),
+            Err(Ov6Error::IsADirectory),
+        );
+        process::exit(0);
+    })
+    .unwrap();
+
+    thread::sleep(Duration::from_millis(100));
+    fs::remove_file(OIDIR_PATH).unwrap();
+
+    let status = child.wait().unwrap();
+    assert!(status.success());
+}
+
+/// does `exit()` call `Inode::put(p->cwd)` in a transaction?
+pub fn inode_put_exit() {
+    let status = process::fork_fn(|| {
+        fs::create_dir(IPUTDIR_PATH).unwrap();
+        env::set_current_directory(IPUTDIR_PATH).unwrap();
+        fs::remove_file("../iputdir").unwrap();
+        process::exit(0);
+    })
+    .unwrap()
+    .wait()
+    .unwrap();
+    assert!(status.success());
+}
+
+/// does `chdir()` call `Inode::put(p->cwd)` in a transaction?
+pub fn inode_put_chdir() {
+    fs::create_dir(IPUTDIR_PATH).unwrap();
+    env::set_current_directory(IPUTDIR_PATH).unwrap();
+    fs::remove_file("../iputdir").unwrap();
+    env::set_current_directory(ROOT_DIR_PATH).unwrap();
+}
 
 /// two processes write to the same file descriptor
 /// is the offset shared? does inode locking work?

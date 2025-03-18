@@ -1,26 +1,16 @@
 use crate::{TestFn, test_entry};
 
-mod copy_in;
-mod copy_out;
-mod inode_put;
+mod memory;
 mod misc;
 mod more_fork;
 mod more_fs;
-mod rw_sbrk;
 mod simple_fork;
 mod simple_fs;
-mod truncate;
 
 pub const TESTS: &[(&str, TestFn)] = &[
-    test_entry!(copy_in::test),
-    test_entry!(copy_out::test),
-    test_entry!(rw_sbrk::test),
-    test_entry!(truncate::test1),
-    test_entry!(truncate::test2),
-    test_entry!(truncate::test3),
-    test_entry!(inode_put::open_test),
-    test_entry!(inode_put::exit_test),
-    test_entry!(inode_put::chdir_test),
+    test_entry!(memory::copy_u2k),
+    test_entry!(memory::copy_k2u),
+    test_entry!(memory::rw_sbrk),
     test_entry!(simple_fs::open_test),
     test_entry!(simple_fs::too_many_open_files),
     test_entry!(simple_fs::too_many_open_files_in_system),
@@ -43,6 +33,12 @@ pub const TESTS: &[(&str, TestFn)] = &[
     test_entry!(simple_fork::fork_fork_fork),
     test_entry!(simple_fork::reparent2),
     test_entry!(simple_fork::mem),
+    test_entry!(more_fs::truncate1),
+    test_entry!(more_fs::truncate2),
+    test_entry!(more_fs::truncate3),
+    test_entry!(more_fs::inode_put_open),
+    test_entry!(more_fs::inode_put_exit),
+    test_entry!(more_fs::inode_put_chdir),
     test_entry!(more_fs::shared_fd),
     test_entry!(more_fs::four_files),
     test_entry!(more_fs::create_delete),

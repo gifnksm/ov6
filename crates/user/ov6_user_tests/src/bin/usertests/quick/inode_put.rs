@@ -26,7 +26,7 @@ const OIDIR_PATH: &str = "oidir";
 ///     yield();
 /// }
 /// ```
-pub fn open_test() {
+pub fn inode_put_open() {
     fs::create_dir(OIDIR_PATH).unwrap();
 
     let child = process::fork_fn(|| {
@@ -46,7 +46,7 @@ pub fn open_test() {
 }
 
 /// does `exit()` call `Inode::put(p->cwd)` in a transaction?
-pub fn exit_test() {
+pub fn inode_put_exit() {
     let status = process::fork_fn(|| {
         fs::create_dir(IPUTDIR_PATH).unwrap();
         env::set_current_directory(IPUTDIR_PATH).unwrap();
@@ -60,7 +60,7 @@ pub fn exit_test() {
 }
 
 /// does `chdir()` call `Inode::put(p->cwd)` in a transaction?
-pub fn chdir_test() {
+pub fn inode_put_chdir() {
     fs::create_dir(IPUTDIR_PATH).unwrap();
     env::set_current_directory(IPUTDIR_PATH).unwrap();
     fs::remove_file("../iputdir").unwrap();
