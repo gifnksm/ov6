@@ -114,19 +114,27 @@ clean:
 check: cargo-clippy typos cargo-doc
 
 .PHONY: test
-test: cargo-test cargo-miri-test
+test: cargo-test-build cargo-miri-test-build .WAIT cargo-test .WAIT cargo-miri-test
 
 .PHONY: cargo-clippy
 cargo-clippy:
 	cargo hack clippy --workspace
 
 .PHONY: cargo-test
-cargo-test: $R/kernel fs.img
+cargo-test: cargo-test-build
 	cargo nextest run --workspace
 
+.PHONY: cargo-test-build
+cargo-test-build: $R/kernel fs.img
+	cargo nextest run --workspace --no-run
+
 .PHONY: cargo-miri-test
-cargo-miri-test:
+cargo-miri-test: cargo-miri-test-build
 	cargo miri nextest run --workspace
+
+.PHONY: cargo-miri-test-build
+cargo-miri-test-build:
+	cargo miri nextest run --workspace --no-run
 
 .PHONY: typos
 typos:
