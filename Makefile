@@ -45,6 +45,7 @@ OV6_UTILS=\
 	ls\
 	mkdir\
 	pingpong\
+	primes\
 	reboot\
 	rm\
 	sh\
