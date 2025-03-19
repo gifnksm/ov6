@@ -24,6 +24,16 @@ fn print_entry(name: &OsStr, meta: &Metadata) {
     );
 }
 
+fn print_dir_entry(dir_path: &Path, ent_name: &OsStr) {
+    let file_path = dir_path.join(ent_name);
+    let Ok(meta) = fs::metadata(&file_path)
+        .inspect_err(|e| message_err!(e, "cannot stat '{}'", file_path.display()))
+    else {
+        return;
+    };
+    print_entry(ent_name, &meta);
+}
+
 fn ls<P>(path: P)
 where
     P: AsRef<Path>,
@@ -38,6 +48,10 @@ where
     match meta.ty() {
         StatType::File | StatType::Dev => print_entry(OsStr::new(path.to_str().unwrap()), &meta),
         StatType::Dir => {
+            for name in [".", ".."] {
+                print_dir_entry(path, OsStr::new(name));
+            }
+
             let Ok(entries) = fs::read_dir(path)
                 .inspect_err(|e| message_err!(e, "cannot open '{}' as directory", path.display()))
             else {
@@ -49,14 +63,7 @@ where
                 })
             });
             for ent in entries {
-                let name = ent.name();
-                let file_path = path.join(name);
-                let Ok(meta) = fs::metadata(&file_path)
-                    .inspect_err(|e| message_err!(e, "cannot stat '{}'", file_path.display()))
-                else {
-                    continue;
-                };
-                print_entry(name, &meta);
+                print_dir_entry(path, ent.name());
             }
         }
     }

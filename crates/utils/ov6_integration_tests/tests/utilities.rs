@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use ov6_integration_tests::{monitor, runner};
+use ov6_integration_tests::{monitor, runner, utils};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -71,5 +71,90 @@ async fn primes() -> Result<(), anyhow::Error> {
     for p in primes {
         assert!(stdout.contains(&format!("\nprime {p}\n")));
     }
+    Ok(())
+}
+
+#[cfg_attr(miri, ignore)]
+#[tokio::test]
+async fn find_current_dir() -> Result<(), anyhow::Error> {
+    let r = runner!("find_current_dir").await?;
+    let file = utils::random_str(8);
+    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+        monitor::run_commands(
+            qemu,
+            0,
+            [&format!("echo > {file}"), &format!("find . {file}"), "halt"],
+        )
+        .await?;
+        Ok(())
+    })
+    .await?;
+    assert!(exit_status.success());
+    assert!(stdout.contains(&format!("./{file}\n")));
+    assert!(!stdout.contains("README"));
+    Ok(())
+}
+
+#[cfg_attr(miri, ignore)]
+#[tokio::test]
+async fn find_subdir() -> Result<(), anyhow::Error> {
+    let r = runner!("find_subdir").await?;
+    let dir = utils::random_str(8);
+    let file = utils::random_str(8);
+    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+        monitor::run_commands(
+            qemu,
+            0,
+            [
+                &format!("echo > {file}"),
+                &format!("mkdir {dir}"),
+                &format!("echo > {dir}/{file}"),
+                &format!("find {dir} {file}"),
+                "halt",
+            ],
+        )
+        .await?;
+        Ok(())
+    })
+    .await?;
+    assert!(exit_status.success());
+    assert!(stdout.contains(&format!("{dir}/{file}\n")));
+    assert!(!stdout.contains(&format!("./{dir}\n")));
+    Ok(())
+}
+
+#[cfg_attr(miri, ignore)]
+#[tokio::test]
+async fn find_recursive() -> Result<(), anyhow::Error> {
+    let r = runner!("find_recursive").await?;
+    let needle = utils::random_str(8);
+    let dirs = [
+        utils::random_str(8),
+        utils::random_str(8),
+        utils::random_str(8),
+    ];
+    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+        monitor::run_commands(
+            qemu,
+            0,
+            [
+                &format!("mkdir {}", dirs[0]),
+                &format!("echo > {}/{}", dirs[0], needle),
+                &format!("mkdir {}/{}", dirs[0], dirs[1]),
+                &format!("echo > {}/{}/{}", dirs[0], dirs[1], needle),
+                &format!("mkdir {}", dirs[2]),
+                &format!("echo > {}/{}", dirs[2], needle),
+                &format!("find . {needle}"),
+                "halt",
+            ],
+        )
+        .await?;
+        Ok(())
+    })
+    .await?;
+    assert!(exit_status.success());
+    assert!(stdout.contains(&format!("./{}/{}\n", dirs[0], needle)));
+    assert!(stdout.contains(&format!("./{}/{}/{}\n", dirs[0], dirs[1], needle)));
+    assert!(stdout.contains(&format!("./{}/{}\n", dirs[2], needle)));
     Ok(())
 }

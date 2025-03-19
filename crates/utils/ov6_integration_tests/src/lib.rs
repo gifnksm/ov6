@@ -8,6 +8,7 @@ mod gdb;
 pub mod monitor;
 mod qemu;
 mod runner;
+pub mod utils;
 
 fn make_command(project_root: &Path) -> Command {
     let mut cmd = Command::new("make");

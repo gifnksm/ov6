@@ -37,6 +37,7 @@ OV6_UTILS=\
 	abort\
 	cat\
 	echo\
+	find\
 	grep\
 	halt\
 	hello\

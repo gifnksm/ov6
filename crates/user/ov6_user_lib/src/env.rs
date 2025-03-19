@@ -64,6 +64,14 @@ impl Iterator for Args {
     }
 }
 
+impl DoubleEndedIterator for Args {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.iter
+            .next_back()
+            .map(|&arg| unsafe { CStr::from_ptr(arg).to_str().unwrap() })
+    }
+}
+
 impl ExactSizeIterator for Args {
     fn len(&self) -> usize {
         self.iter.len()
@@ -79,6 +87,15 @@ impl Iterator for ArgsOs {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next().map(|&arg| {
+            let cstr = unsafe { CStr::from_ptr(arg) };
+            OsStr::from_bytes(cstr.to_bytes())
+        })
+    }
+}
+
+impl DoubleEndedIterator for ArgsOs {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.iter.next_back().map(|&arg| {
             let cstr = unsafe { CStr::from_ptr(arg) };
             OsStr::from_bytes(cstr.to_bytes())
         })

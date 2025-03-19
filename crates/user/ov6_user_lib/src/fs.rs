@@ -300,7 +300,7 @@ impl Iterator for ReadDir {
             if size == 0 {
                 return None;
             }
-            if ent.ino().is_none() {
+            if ent.ino().is_none() || ent.name() == "." || ent.name() == ".." {
                 continue;
             }
             assert_eq!(size, size_of::<ov6_fs_types::DirEntry>());
