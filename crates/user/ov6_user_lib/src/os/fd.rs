@@ -37,6 +37,19 @@ impl fmt::Debug for BorrowedFd<'_> {
     }
 }
 
+impl BorrowedFd<'_> {
+    pub const unsafe fn borrow_raw(fd: RawFd) -> Self {
+        Self {
+            fd,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn try_clone_to_owned(&self) -> Result<OwnedFd, Ov6Error> {
+        syscall::dup(self.fd)
+    }
+}
+
 pub trait AsFd {
     fn as_fd(&self) -> BorrowedFd<'_>;
 }

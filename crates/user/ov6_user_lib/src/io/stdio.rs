@@ -7,7 +7,10 @@ use super::{BufRead, BufReader, Read, Write};
 use crate::{
     error::Ov6Error,
     io::DEFAULT_BUF_SIZE,
-    os::{fd::RawFd, ov6::syscall},
+    os::{
+        fd::{AsFd, AsRawFd, BorrowedFd, RawFd},
+        ov6::syscall,
+    },
     sync::spin::{Mutex, MutexGuard},
 };
 
@@ -57,6 +60,18 @@ pub fn stdin() -> Stdin {
 
 pub struct Stdout {}
 
+impl AsFd for Stdout {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        unsafe { BorrowedFd::borrow_raw(STDOUT_FD) }
+    }
+}
+
+impl AsRawFd for Stdout {
+    fn as_raw_fd(&self) -> RawFd {
+        STDOUT_FD
+    }
+}
+
 impl Write for Stdout {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
         syscall::write(STDOUT_FD, buf)
@@ -79,6 +94,18 @@ impl fmt::Write for Stdout {
 }
 
 pub struct Stderr {}
+
+impl AsFd for Stderr {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        unsafe { BorrowedFd::borrow_raw(STDERR_FD) }
+    }
+}
+
+impl AsRawFd for Stderr {
+    fn as_raw_fd(&self) -> RawFd {
+        STDERR_FD
+    }
+}
 
 impl Write for Stderr {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
@@ -120,6 +147,18 @@ impl Stdin {
     pub fn read_line(&mut self, buf: &mut String) -> Result<usize, Ov6Error> {
         let mut locked = self.lock();
         locked.read_line(buf)
+    }
+}
+
+impl AsFd for Stdin {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        unsafe { BorrowedFd::borrow_raw(STDIN_FD) }
+    }
+}
+
+impl AsRawFd for Stdin {
+    fn as_raw_fd(&self) -> RawFd {
+        STDIN_FD
     }
 }
 
