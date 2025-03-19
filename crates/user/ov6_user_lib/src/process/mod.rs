@@ -53,12 +53,12 @@ impl Child {
 }
 
 #[derive(Debug)]
-pub enum ForkResult {
+pub enum JoinHandle {
     Parent { child: Child },
     Child,
 }
 
-impl ForkResult {
+impl JoinHandle {
     #[must_use]
     pub fn into_parent(self) -> Option<Child> {
         match self {
@@ -76,11 +76,18 @@ impl ForkResult {
     pub fn is_child(&self) -> bool {
         matches!(self, Self::Child)
     }
+
+    pub fn join(self) -> Result<ExitStatus, Ov6Error> {
+        match self {
+            Self::Parent { mut child } => child.wait(),
+            Self::Child => exit(0),
+        }
+    }
 }
 
-pub fn fork() -> Result<ForkResult, Ov6Error> {
+pub fn fork() -> Result<JoinHandle, Ov6Error> {
     let pid = syscall::fork()?;
-    Ok(pid.map_or(ForkResult::Child, |pid| ForkResult::Parent {
+    Ok(pid.map_or(JoinHandle::Child, |pid| JoinHandle::Parent {
         child: Child { pid },
     }))
 }

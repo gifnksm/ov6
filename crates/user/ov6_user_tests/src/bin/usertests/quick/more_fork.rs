@@ -69,15 +69,11 @@ pub fn sbrk_basic() {
         assert_eq!(b, a);
         a = b.wrapping_add(1);
     }
-    let res = process::fork().unwrap();
+    let handle = process::fork().unwrap();
     process::grow_break(1).unwrap();
     let c = process::grow_break(1).unwrap();
     assert_eq!(c, a.wrapping_add(1));
-    if res.is_child() {
-        process::exit(0);
-    }
-    let (_, status) = process::wait_any().unwrap();
-    assert!(status.success());
+    assert!(handle.join().unwrap().success());
 }
 
 pub fn sbrk_much() {

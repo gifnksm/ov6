@@ -176,16 +176,12 @@ pub fn shared_fd() {
 
     let _ = fs::remove_file(FILE_PATH);
     let mut file = File::create(FILE_PATH).unwrap();
-    let res = process::fork().unwrap();
-    buf.fill(if res.is_child() { b'c' } else { b'p' });
+    let handle = process::fork().unwrap();
+    buf.fill(if handle.is_child() { b'c' } else { b'p' });
     for _ in 0..N {
         file.write_all(&buf).unwrap();
     }
-    if res.is_child() {
-        process::exit(0);
-    }
-    let (_, status) = process::wait_any().unwrap();
-    assert!(status.success());
+    assert!(handle.join().unwrap().success());
     drop(file);
 
     let mut file = File::open(FILE_PATH).unwrap();
@@ -396,19 +392,14 @@ pub fn concreate() {
         let path = OsStr::from_bytes(&file);
         let _ = fs::remove_file(path);
 
-        let res = process::fork().unwrap();
-        if (res.is_parent() && (i % 3) == 1) || (res.is_child() && (i % 5) == 1) {
+        let handle = process::fork().unwrap();
+        if (handle.is_parent() && (i % 3) == 1) || (handle.is_child() && (i % 5) == 1) {
             let _ = fs::link("C0", path);
         } else {
             let file = File::create(path).unwrap();
             drop(file);
         }
-
-        if res.is_child() {
-            process::exit(0);
-        }
-        let (_, status) = process::wait_any().unwrap();
-        assert!(status.success());
+        assert!(handle.join().unwrap().success());
     }
 
     let mut n = 0;
@@ -429,8 +420,8 @@ pub fn concreate() {
         file[1] = b'0' + u8::try_from(i).unwrap();
         let path = OsStr::from_bytes(&file);
 
-        let res = process::fork().unwrap();
-        if ((i % 3) == 0 && res.is_child()) || ((i % 3) == 1 && res.is_parent()) {
+        let handle = process::fork().unwrap();
+        if ((i % 3) == 0 && handle.is_child()) || ((i % 3) == 1 && handle.is_parent()) {
             let _ = File::open(path);
             let _ = File::open(path);
             let _ = File::open(path);
@@ -445,10 +436,7 @@ pub fn concreate() {
             let _ = fs::remove_file(path);
             let _ = fs::remove_file(path);
         }
-        if res.is_child() {
-            process::exit(0);
-        }
-        process::wait_any().unwrap();
+        assert!(handle.join().unwrap().success());
     }
 }
 
@@ -457,9 +445,9 @@ pub fn concreate() {
 pub fn link_unlink() {
     let _ = fs::remove_file("x");
 
-    let res = process::fork().unwrap();
+    let handle = process::fork().unwrap();
 
-    let mut x: u32 = if res.is_parent() { 1 } else { 97 };
+    let mut x: u32 = if handle.is_parent() { 1 } else { 97 };
     for _ in 0..100 {
         x = x.wrapping_mul(1_103_515_245).wrapping_add(12_345);
         match x % 3 {
@@ -475,12 +463,7 @@ pub fn link_unlink() {
         }
     }
 
-    if res.is_child() {
-        process::exit(0);
-    }
-    let (_, status) = process::wait_any().unwrap();
-    assert!(status.success());
-
+    assert!(handle.join().unwrap().success());
     let _ = fs::remove_file("x");
 }
 
