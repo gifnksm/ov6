@@ -5,40 +5,43 @@ use ov6_user_lib::{
         fd::{AsRawFd as _, RawFd},
         ov6::syscall,
     },
-    process::{self, ExitStatus, ForkFnHandle, ForkResult, ProcId},
+    process::{ChildWithIo, ExitStatus, ProcessBuilder},
 };
-use ov6_utilities::{ensure_or_exit, message, try_or_exit};
+use ov6_utilities::{message, try_or_exit};
 
-pub(super) fn fork_or_exit() -> ForkResult {
-    try_or_exit!(
-        process::fork(),
-        e => "fork child process failed: {e}",
-    )
+pub(super) trait SpawnFnOrExit {
+    fn spawn_fn_or_exit<F>(&mut self, f: F) -> ChildWithIo
+    where
+        F: FnOnce() -> Infallible;
 }
 
-pub(super) fn fork_fn_or_exit<F>(child_fn: F) -> ForkFnHandle
-where
-    F: FnOnce() -> Infallible,
-{
-    try_or_exit!(
-        process::fork_fn(child_fn),
-        e => "fork child process failed: {e}",
-    )
-}
-
-pub(super) fn wait_or_exit(expected_pids: &[ProcId]) -> (ProcId, ExitStatus) {
-    let (pid, status) = try_or_exit!(
-        process::wait_any(),
-        e => "wait child process failed: {e}"
-    );
-    ensure_or_exit!(
-        expected_pids.contains(&pid),
-        "unexpected process caught by wait"
-    );
-    if !status.success() {
-        message!("command failed with status {}", status.code());
+impl SpawnFnOrExit for ProcessBuilder {
+    fn spawn_fn_or_exit<F>(&mut self, f: F) -> ChildWithIo
+    where
+        F: FnOnce() -> Infallible,
+    {
+        try_or_exit!(
+            self.spawn_fn(f),
+            e => "fork child process failed: {e}",
+        )
     }
-    (pid, status)
+}
+
+pub(super) trait WaitOrExit {
+    fn wait_or_exit(&mut self) -> ExitStatus;
+}
+
+impl WaitOrExit for ChildWithIo {
+    fn wait_or_exit(&mut self) -> ExitStatus {
+        let status = try_or_exit!(
+            self.wait(),
+            e => "wait child process failed: {e}",
+        );
+        if !status.success() {
+            message!("command failed with status {}", status.code());
+        }
+        status
+    }
 }
 
 pub(super) unsafe fn close_or_exit(fd: RawFd, fd_name: &str) {

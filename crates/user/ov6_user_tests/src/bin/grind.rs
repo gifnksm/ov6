@@ -8,9 +8,10 @@ use core::{
 use ov6_user_lib::{
     env,
     fs::{self, File},
-    io::{Read as _, STDIN_FD, STDOUT_FD, Write as _},
-    os::{fd::AsRawFd as _, ov6::syscall},
-    pipe, print, process, thread,
+    io::{Read as _, Write as _},
+    pipe, print,
+    process::{self, ProcessBuilder, Stdio},
+    thread,
 };
 
 static RAND_NEXT: AtomicU64 = AtomicU64::new(1);
@@ -138,20 +139,22 @@ fn go(name: char) {
                 let _ = fs::link(".././b", "/grindir/../a");
             }
             13 => {
-                process::fork_fn(|| process::exit(0))
+                ProcessBuilder::new()
+                    .spawn_fn(|| process::exit(0))
                     .unwrap()
                     .wait()
                     .unwrap();
             }
             14 => {
-                process::fork_fn(|| {
-                    let _ = process::fork().unwrap();
-                    let _ = process::fork().unwrap();
-                    process::exit(0);
-                })
-                .unwrap()
-                .wait()
-                .unwrap();
+                ProcessBuilder::new()
+                    .spawn_fn(|| {
+                        let _ = process::fork().unwrap();
+                        let _ = process::fork().unwrap();
+                        process::exit(0);
+                    })
+                    .unwrap()
+                    .wait()
+                    .unwrap();
             }
             15 => {
                 let _ = process::grow_break(6011).unwrap();
@@ -163,59 +166,63 @@ fn go(name: char) {
                 }
             }
             17 => {
-                let child = process::fork_fn(|| {
-                    let _ = File::options()
-                        .read(true)
-                        .write(true)
-                        .create(true)
-                        .open("a");
-                    process::exit(0);
-                })
-                .unwrap();
+                let mut child = ProcessBuilder::new()
+                    .spawn_fn(|| {
+                        let _ = File::options()
+                            .read(true)
+                            .write(true)
+                            .create(true)
+                            .open("a");
+                        process::exit(0);
+                    })
+                    .unwrap();
                 let _ = env::set_current_directory("../grindir/..");
-                let _ = process::kill(child.pid());
+                let _ = process::kill(child.id());
                 child.wait().unwrap();
             }
             18 => {
-                process::fork_fn(|| {
-                    process::kill(process::id()).unwrap();
-                    process::exit(0);
-                })
-                .unwrap()
-                .wait()
-                .unwrap();
+                ProcessBuilder::new()
+                    .spawn_fn(|| {
+                        process::kill(process::id()).unwrap();
+                        process::exit(0);
+                    })
+                    .unwrap()
+                    .wait()
+                    .unwrap();
             }
             19 => {
                 let (mut rx, mut tx) = pipe::pipe().unwrap();
-                let child = process::fork_fn(|| {
-                    process::fork().unwrap();
-                    process::fork().unwrap();
-                    tx.write_all(b"x").unwrap();
-                    let mut buf = [0; 1];
-                    rx.read_exact(&mut buf).unwrap();
-                    process::exit(0);
-                })
-                .unwrap();
+                let mut child = ProcessBuilder::new()
+                    .spawn_fn(|| {
+                        process::fork().unwrap();
+                        process::fork().unwrap();
+                        tx.write_all(b"x").unwrap();
+                        let mut buf = [0; 1];
+                        rx.read_exact(&mut buf).unwrap();
+                        process::exit(0);
+                    })
+                    .unwrap();
                 // close pipe before wait
                 let _ = (rx, tx);
                 child.wait().unwrap();
             }
             20 => {
-                process::fork_fn(|| {
-                    let _ = fs::remove_file("a");
-                    let _ = fs::create_dir("a");
-                    let _ = env::set_current_directory("a");
-                    let _file = File::options()
-                        .read(true)
-                        .write(true)
-                        .create(true)
-                        .open("x");
-                    let _ = fs::remove_file("x");
-                    process::exit(0);
-                })
-                .unwrap()
-                .wait()
-                .unwrap();
+                ProcessBuilder::new()
+                    .spawn_fn(|| {
+                        let _ = fs::remove_file("a");
+                        let _ = fs::create_dir("a");
+                        let _ = env::set_current_directory("a");
+                        let _file = File::options()
+                            .read(true)
+                            .write(true)
+                            .create(true)
+                            .open("x");
+                        let _ = fs::remove_file("x");
+                        process::exit(0);
+                    })
+                    .unwrap()
+                    .wait()
+                    .unwrap();
             }
             21 => {
                 let _ = fs::remove_file("c");
@@ -235,49 +242,32 @@ fn go(name: char) {
                 let _ = fs::remove_file("c");
             }
             22 => {
-                let (arx, atx) = pipe::pipe().unwrap();
-                let (mut brx, btx) = pipe::pipe().unwrap();
+                let mut child_a = ProcessBuilder::new()
+                    .stdout(Stdio::Pipe)
+                    .spawn_fn(|| {
+                        process::exec("grindir/../echo", &["echo", "hi"]).unwrap();
+                        unreachable!();
+                    })
+                    .unwrap();
+                let stdout_a = child_a.stdout.take().unwrap();
 
-                if process::fork().unwrap().is_child() {
-                    drop(brx);
-                    drop(btx);
-                    drop(arx);
-                    unsafe { syscall::close(STDOUT_FD) }.unwrap();
-                    let atx2 = atx.try_clone().unwrap();
-                    assert_eq!(atx2.as_raw_fd(), STDOUT_FD);
-                    drop(atx);
-                    process::exec("grindir/../echo", &["echo", "hi"]).unwrap();
-                    unreachable!();
-                }
+                let mut child_b = ProcessBuilder::new()
+                    .stdin(Stdio::Fd(stdout_a.into()))
+                    .stdout(Stdio::Pipe)
+                    .spawn_fn(|| {
+                        process::exec("/cat", &["cat"]).unwrap();
+                        unreachable!();
+                    })
+                    .unwrap();
 
-                if process::fork().unwrap().is_child() {
-                    drop(atx);
-                    drop(brx);
-                    unsafe { syscall::close(STDIN_FD) }.unwrap();
-                    let arx2 = arx.try_clone().unwrap();
-                    assert_eq!(arx2.as_raw_fd(), STDIN_FD);
-                    drop(arx);
-                    unsafe { syscall::close(STDOUT_FD) }.unwrap();
-                    let btx2 = btx.try_clone().unwrap();
-                    assert_eq!(btx2.as_raw_fd(), STDOUT_FD);
-                    drop(btx);
-                    process::exec("/cat", &["cat"]).unwrap();
-                    unreachable!();
-                }
-
-                drop(arx);
-                drop(atx);
-                drop(btx);
-                let mut buf = [0; 4];
-                brx.read_exact(&mut buf[0..1]).unwrap();
-                brx.read_exact(&mut buf[1..2]).unwrap();
-                brx.read_exact(&mut buf[2..3]).unwrap();
-                drop(brx);
-                let (_, st1) = process::wait_any().unwrap();
-                let (_, st2) = process::wait_any().unwrap();
-                assert!(st1.success());
-                assert!(st2.success());
-                assert_eq!(&buf, b"hi\n\0");
+                let mut stdout_b = child_b.stdout.take().unwrap();
+                let mut buf = [0; 3];
+                stdout_b.read_exact(&mut buf).unwrap();
+                assert_eq!(stdout_b.read(&mut [0]).unwrap(), 0);
+                drop(stdout_b);
+                assert_eq!(&buf, b"hi\n");
+                assert!(child_a.wait().unwrap().success());
+                assert!(child_b.wait().unwrap().success());
             }
             _ => unreachable!(),
         }
@@ -288,24 +278,26 @@ fn iter() {
     let _ = fs::remove_file("a");
     let _ = fs::remove_file("b");
 
-    let child1 = process::fork_fn(|| {
-        RAND_NEXT.fetch_xor(31, Ordering::Relaxed);
-        go('A');
-        process::exit(0);
-    })
-    .unwrap();
+    let mut child1 = ProcessBuilder::new()
+        .spawn_fn(|| {
+            RAND_NEXT.fetch_xor(31, Ordering::Relaxed);
+            go('A');
+            process::exit(0);
+        })
+        .unwrap();
 
-    let child2 = process::fork_fn(|| {
-        RAND_NEXT.fetch_xor(7177, Ordering::Relaxed);
-        go('B');
-        process::exit(0);
-    })
-    .unwrap();
+    let mut child2 = ProcessBuilder::new()
+        .spawn_fn(|| {
+            RAND_NEXT.fetch_xor(7177, Ordering::Relaxed);
+            go('B');
+            process::exit(0);
+        })
+        .unwrap();
 
     let (_pid, status) = process::wait_any().unwrap();
     if !status.success() {
-        let _ = process::kill(child1.pid());
-        let _ = process::kill(child2.pid());
+        let _ = child1.kill();
+        let _ = child2.kill();
     }
     process::wait_any().unwrap();
     process::exit(0);
@@ -313,13 +305,14 @@ fn iter() {
 
 fn main() {
     loop {
-        process::fork_fn(|| {
-            iter();
-            process::exit(0);
-        })
-        .unwrap()
-        .wait()
-        .unwrap();
+        ProcessBuilder::new()
+            .spawn_fn(|| {
+                iter();
+                process::exit(0);
+            })
+            .unwrap()
+            .wait()
+            .unwrap();
 
         thread::sleep(Duration::from_secs(2));
         RAND_NEXT.fetch_add(1, Ordering::Relaxed);

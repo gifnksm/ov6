@@ -5,8 +5,10 @@ use ov6_syscall::{UserSlice, WaitTarget};
 pub use ov6_types::process::ProcId;
 use ov6_types::{os_str::OsStr, path::Path};
 
-pub use crate::os::ov6::syscall::{exit, fork, kill};
+pub use self::builder::{ChildWithIo, ProcessBuilder, Stdio};
 use crate::{error::Ov6Error, os::ov6::syscall};
+
+mod builder;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExitStatus {
@@ -30,17 +32,37 @@ impl ExitStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
+pub struct Child {
+    pid: ProcId,
+}
+
+impl Child {
+    #[must_use]
+    pub fn id(&self) -> ProcId {
+        self.pid
+    }
+
+    pub fn kill(&mut self) -> Result<(), Ov6Error> {
+        kill(self.pid)
+    }
+
+    pub fn wait(&mut self) -> Result<ExitStatus, Ov6Error> {
+        wait_pid(self.pid)
+    }
+}
+
+#[derive(Debug)]
 pub enum ForkResult {
-    Parent { child: ProcId },
+    Parent { child: Child },
     Child,
 }
 
 impl ForkResult {
     #[must_use]
-    pub fn as_parent(&self) -> Option<ProcId> {
+    pub fn into_parent(self) -> Option<Child> {
         match self {
-            Self::Parent { child } => Some(*child),
+            Self::Parent { child } => Some(child),
             Self::Child => None,
         }
     }
@@ -54,6 +76,13 @@ impl ForkResult {
     pub fn is_child(&self) -> bool {
         matches!(self, Self::Child)
     }
+}
+
+pub fn fork() -> Result<ForkResult, Ov6Error> {
+    let pid = syscall::fork()?;
+    Ok(pid.map_or(ForkResult::Child, |pid| ForkResult::Parent {
+        child: Child { pid },
+    }))
 }
 
 #[must_use]
@@ -78,32 +107,6 @@ pub unsafe fn shrink_break(size: usize) -> Result<*mut u8, Ov6Error> {
     unsafe { syscall::sbrk(-isize::try_from(size).unwrap()) }
 }
 
-pub struct ForkFnHandle {
-    pid: ProcId,
-}
-
-impl ForkFnHandle {
-    #[must_use]
-    pub fn pid(&self) -> ProcId {
-        self.pid
-    }
-
-    pub fn wait(self) -> Result<ExitStatus, Ov6Error> {
-        wait_pid(self.pid)
-    }
-}
-
-pub fn fork_fn<F>(child_fn: F) -> Result<ForkFnHandle, Ov6Error>
-where
-    F: FnOnce() -> Infallible,
-{
-    let Some(pid) = fork()?.as_parent() else {
-        child_fn();
-        unreachable!();
-    };
-    Ok(ForkFnHandle { pid })
-}
-
 pub fn exec<P, A>(path: P, argv: &[A]) -> Result<Infallible, Ov6Error>
 where
     P: AsRef<Path>,
@@ -123,6 +126,14 @@ where
 
         syscall::exec(path.as_ref(), &argv)
     }
+}
+
+pub fn kill(pid: ProcId) -> Result<(), Ov6Error> {
+    syscall::kill(pid)
+}
+
+pub fn exit(status: i32) -> ! {
+    syscall::exit(status)
 }
 
 pub fn wait_any() -> Result<(ProcId, ExitStatus), Ov6Error> {

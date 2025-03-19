@@ -11,7 +11,7 @@ use ov6_user_lib::{
         ov6::syscall,
     },
     os_str::OsStr,
-    process,
+    process::{self, ProcessBuilder},
 };
 
 use crate::{BUF, ECHO_PATH, expect};
@@ -43,7 +43,7 @@ pub fn too_many_open_files() {
 pub fn too_many_open_files_in_system() {
     let mut files = vec![];
     loop {
-        let Some(child) = process::fork().unwrap().as_parent() else {
+        let Some(mut child) = process::fork().unwrap().into_parent() else {
             files.clear();
             loop {
                 match File::open(ECHO_PATH) {
@@ -55,9 +55,7 @@ pub fn too_many_open_files_in_system() {
             }
             continue;
         };
-        let (pid, status) = process::wait_any().unwrap();
-        assert_eq!(child, pid);
-        assert!(status.success());
+        assert!(child.wait().unwrap().success());
         break;
     }
     drop(files);
@@ -162,17 +160,18 @@ pub fn exec_test() {
     let echo_argv = ["echo", "OK"];
     let _ = fs::remove_file(ECHO_OK_PATH);
 
-    let status = process::fork_fn(|| {
-        unsafe { syscall::close(STDOUT_FD) }.unwrap();
-        let file = File::create(ECHO_OK_PATH).unwrap();
-        assert_eq!(file.as_raw_fd(), STDOUT_FD);
+    let status = ProcessBuilder::new()
+        .spawn_fn(|| {
+            unsafe { syscall::close(STDOUT_FD) }.unwrap();
+            let file = File::create(ECHO_OK_PATH).unwrap();
+            assert_eq!(file.as_raw_fd(), STDOUT_FD);
 
-        process::exec(ECHO_PATH, &echo_argv).unwrap();
-        unreachable!();
-    })
-    .unwrap()
-    .wait()
-    .unwrap();
+            process::exec(ECHO_PATH, &echo_argv).unwrap();
+            unreachable!();
+        })
+        .unwrap()
+        .wait()
+        .unwrap();
     assert!(status.success());
 
     let mut file = File::open(ECHO_OK_PATH).unwrap();

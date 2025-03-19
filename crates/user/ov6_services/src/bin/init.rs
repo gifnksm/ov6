@@ -4,7 +4,7 @@ use ov6_user_lib::{
     env, eprintln,
     error::Ov6Error,
     fs::{self, File},
-    process,
+    process::{self, ProcessBuilder},
 };
 // use ov6_utilities::{message, try_or_panic};
 
@@ -33,22 +33,23 @@ fn main() {
     loop {
         eprintln!("{}: starting sh", arg0.display());
 
-        let Ok(sh) = process::fork_fn(|| {
-            let Ok(_) = process::exec("sh", &["sh"]).map_err(|e| {
-                panic!("{} exec sh failed: {e}", arg0.display());
+        let Ok(sh) = ProcessBuilder::new()
+            .spawn_fn(|| {
+                let Ok(_) = process::exec("sh", &["sh"]).map_err(|e| {
+                    panic!("{} exec sh failed: {e}", arg0.display());
+                });
+                unreachable!()
+            })
+            .map_err(|e| {
+                panic!("{}: fork failed: {e}", arg0.display());
             });
-            unreachable!()
-        })
-        .map_err(|e| {
-            panic!("{}: fork failed: {e}", arg0.display());
-        });
 
         loop {
             // this call to wait() returns if the shell exits,
             // or if a parentless process exits.
             let Ok((wpid, _status)) = process::wait_any()
                 .map_err(|e| panic!("{}: wait returned an error: {e}", arg0.display()));
-            if wpid != sh.pid() {
+            if wpid != sh.id() {
                 // it was a parentless process; do nothing
                 continue;
             }

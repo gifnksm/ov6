@@ -9,10 +9,9 @@ use ov6_fs_types::FS_BLOCK_SIZE;
 use ov6_kernel_params::MAX_OP_BLOCKS;
 use ov6_user_lib::{
     env, eprint, eprintln,
-    io::{Read as _, Write as _},
+    io::{Read as _, Write as _, stdout},
     os::ov6::syscall,
-    pipe,
-    process::{self},
+    process::{self, ProcessBuilder, Stdio},
     time::Instant,
 };
 use ov6_user_tests::message;
@@ -43,13 +42,14 @@ fn run(name: &str, test: TestFn) -> Result<(), TestError> {
 
     let start = Instant::now();
 
-    let status = process::fork_fn(|| {
-        test();
-        process::exit(0);
-    })
-    .unwrap()
-    .wait()
-    .unwrap();
+    let status = ProcessBuilder::new()
+        .spawn_fn(|| {
+            test();
+            process::exit(0);
+        })
+        .unwrap()
+        .wait()
+        .unwrap();
 
     let elapsed = start.elapsed();
 
@@ -106,30 +106,25 @@ fn run_tests(
 /// Because out of memory with lazy allocation results in the process
 /// taking a fault and being killed, fork and report back.
 fn count_free_pages() -> usize {
-    let (mut rx, mut tx) = pipe::pipe().unwrap();
-
-    if process::fork().unwrap().is_child() {
-        drop(rx);
-
-        loop {
-            unsafe {
-                let Ok(a) = process::grow_break(4096) else {
-                    break;
-                };
-
-                // modify the memory to make sure it's really allocated.
-                a.add(4096 - 1).write(1);
-
-                // report back one more page.
-                tx.write_all(b"x").unwrap();
+    let mut child = process::ProcessBuilder::new()
+        .stdout(Stdio::Pipe)
+        .spawn_fn(|| {
+            loop {
+                unsafe {
+                    let Ok(a) = process::grow_break(4096) else {
+                        break;
+                    };
+                    // modify the memory to make sure it's really allocated.
+                    a.add(4096 - 1).write(1);
+                    // report back one more page.
+                    stdout().write_all(b"x").unwrap();
+                }
             }
-        }
+            process::exit(0);
+        })
+        .unwrap();
 
-        process::exit(0);
-    }
-
-    drop(tx);
-
+    let mut rx = child.stdout.take().unwrap();
     let mut n = 0;
     loop {
         let mut buf = [0];
@@ -138,9 +133,9 @@ fn count_free_pages() -> usize {
         }
         n += 1;
     }
-
     drop(rx);
-    process::wait_any().unwrap();
+    let exit_status = child.wait().unwrap();
+    assert!(exit_status.success());
 
     n
 }

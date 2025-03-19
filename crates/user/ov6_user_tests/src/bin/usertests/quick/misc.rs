@@ -7,7 +7,7 @@ use ov6_user_lib::{
     io::{Read as _, Write as _},
     os_str::OsStr,
     path::Path,
-    process,
+    process::{self, ProcessBuilder},
 };
 
 use crate::{BUF, ECHO_PATH, PAGE_SIZE, expect};
@@ -48,21 +48,22 @@ pub fn big_arg() {
 
     let _ = fs::remove_file(FILE_PATH);
 
-    let status = process::fork_fn(|| {
-        static BIG: &OsStr = OsStr::from_bytes(&[b' '; 400]);
-        const ARGS: [&OsStr; 100] = [BIG; 100];
-        // this exec() should fail (and return) because the
-        // arguments are too large.
-        expect!(
-            process::exec(ECHO_PATH, &ARGS),
-            Err(Ov6Error::ArgumentListTooLong)
-        );
-        let _ = File::create(FILE_PATH).unwrap();
-        process::exit(0);
-    })
-    .unwrap()
-    .wait()
-    .unwrap();
+    let status = ProcessBuilder::new()
+        .spawn_fn(|| {
+            static BIG: &OsStr = OsStr::from_bytes(&[b' '; 400]);
+            const ARGS: [&OsStr; 100] = [BIG; 100];
+            // this exec() should fail (and return) because the
+            // arguments are too large.
+            expect!(
+                process::exec(ECHO_PATH, &ARGS),
+                Err(Ov6Error::ArgumentListTooLong)
+            );
+            let _ = File::create(FILE_PATH).unwrap();
+            process::exit(0);
+        })
+        .unwrap()
+        .wait()
+        .unwrap();
     assert!(status.success());
 
     let _ = File::open(FILE_PATH).unwrap();
@@ -136,16 +137,17 @@ pub fn stack() {
         panic!("not riscv64");
     }
 
-    let status = process::fork_fn(|| {
-        let mut sp = get_sp();
-        sp -= USER_STACK * PAGE_SIZE;
-        // the sp should cause a trap
-        let v = unsafe { ptr::with_exposed_provenance::<u8>(sp).read() };
-        unreachable!("read below stack: {v}");
-    })
-    .unwrap()
-    .wait()
-    .unwrap();
+    let status = ProcessBuilder::new()
+        .spawn_fn(|| {
+            let mut sp = get_sp();
+            sp -= USER_STACK * PAGE_SIZE;
+            // the sp should cause a trap
+            let v = unsafe { ptr::with_exposed_provenance::<u8>(sp).read() };
+            unreachable!("read below stack: {v}");
+        })
+        .unwrap()
+        .wait()
+        .unwrap();
     assert_eq!(status.code(), -1);
 }
 
@@ -162,14 +164,15 @@ pub fn no_write() {
     ];
 
     for &a in addrs {
-        let status = process::fork_fn(|| unsafe {
-            let p = ptr::with_exposed_provenance_mut::<u8>(a);
-            p.write_volatile(10);
-            panic!("write to {p:p} did not fail!");
-        })
-        .unwrap()
-        .wait()
-        .unwrap();
+        let status = ProcessBuilder::new()
+            .spawn_fn(|| unsafe {
+                let p = ptr::with_exposed_provenance_mut::<u8>(a);
+                p.write_volatile(10);
+                panic!("write to {p:p} did not fail!");
+            })
+            .unwrap()
+            .wait()
+            .unwrap();
         assert_eq!(status.code(), -1);
     }
 }
@@ -188,49 +191,52 @@ pub fn pg_bug() {
 /// size to be less than a page, or zero, or reduces the break by an
 /// amount too small to cause a page to be freed?
 pub fn sbrk_bugs() {
-    let status = process::fork_fn(|| {
-        let sz = process::current_break().addr();
-        // free all user memory; there used to be a bug that
-        // would not adjust p->sz correctly in this case,
-        // causing exit() to panic.
-        unsafe { process::shrink_break(sz) }.unwrap();
-        process::exit(0);
-    })
-    .unwrap()
-    .wait()
-    .unwrap();
-    assert_eq!(status.code(), -1);
-
-    let status = process::fork_fn(|| {
-        let sz = process::current_break().addr();
-        // set the break to somewhere in the very first
-        // page; there used to be a bug that would incorrectly
-        // free the first page.
-        unsafe { process::shrink_break(sz - 3500) }.unwrap();
-        process::exit(0);
-    })
-    .unwrap()
-    .wait()
-    .unwrap();
-    assert_eq!(status.code(), -1);
-
-    let status = process::fork_fn(|| {
-        // set the break in the middle of a page.
-        process::grow_break(usize::abs_diff(
-            process::current_break().addr(),
-            10 * PAGE_SIZE + PAGE_SIZE / 2,
-        ))
+    let status = ProcessBuilder::new()
+        .spawn_fn(|| {
+            let sz = process::current_break().addr();
+            // free all user memory; there used to be a bug that
+            // would not adjust p->sz correctly in this case,
+            // causing exit() to panic.
+            unsafe { process::shrink_break(sz) }.unwrap();
+            process::exit(0);
+        })
+        .unwrap()
+        .wait()
         .unwrap();
+    assert_eq!(status.code(), -1);
 
-        // reduce the break a bit, but not enough to
-        // cause a page to be freed. this used to cause
-        // a panic.
-        unsafe { process::shrink_break(10) }.unwrap();
-        process::exit(0);
-    })
-    .unwrap()
-    .wait()
-    .unwrap();
+    let status = ProcessBuilder::new()
+        .spawn_fn(|| {
+            let sz = process::current_break().addr();
+            // set the break to somewhere in the very first
+            // page; there used to be a bug that would incorrectly
+            // free the first page.
+            unsafe { process::shrink_break(sz - 3500) }.unwrap();
+            process::exit(0);
+        })
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(status.code(), -1);
+
+    let status = ProcessBuilder::new()
+        .spawn_fn(|| {
+            // set the break in the middle of a page.
+            process::grow_break(usize::abs_diff(
+                process::current_break().addr(),
+                10 * PAGE_SIZE + PAGE_SIZE / 2,
+            ))
+            .unwrap();
+
+            // reduce the break a bit, but not enough to
+            // cause a page to be freed. this used to cause
+            // a panic.
+            unsafe { process::shrink_break(10) }.unwrap();
+            process::exit(0);
+        })
+        .unwrap()
+        .wait()
+        .unwrap();
     assert!(status.success());
 }
 

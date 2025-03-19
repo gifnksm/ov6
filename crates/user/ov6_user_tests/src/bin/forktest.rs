@@ -1,6 +1,6 @@
 #![no_std]
 
-use ov6_user_lib::process;
+use ov6_user_lib::process::{self, ProcessBuilder};
 use ov6_user_tests::message;
 
 const N: usize = 1000;
@@ -12,7 +12,7 @@ fn forktest() {
 
     for i in 0..N {
         n = i;
-        if process::fork_fn(|| process::exit(0)).is_err() {
+        if ProcessBuilder::new().spawn_fn(|| process::exit(0)).is_err() {
             break;
         }
     }

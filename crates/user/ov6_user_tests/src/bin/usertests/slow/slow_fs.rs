@@ -6,7 +6,7 @@ use ov6_user_lib::{
     fs::{self, File},
     io::Write as _,
     os_str::OsStr,
-    process,
+    process::{self, ProcessBuilder},
 };
 
 use crate::{BUF, expect};
@@ -53,22 +53,23 @@ pub fn many_writes() {
     let buf = unsafe { (&raw mut BUF).as_mut() }.unwrap();
 
     for ci in 0..nchildren {
-        process::fork_fn(|| {
-            let name = [b'b', b'a' + u8::try_from(ci).unwrap()];
-            let path = OsStr::from_bytes(&name);
+        ProcessBuilder::new()
+            .spawn_fn(|| {
+                let name = [b'b', b'a' + u8::try_from(ci).unwrap()];
+                let path = OsStr::from_bytes(&name);
 
-            let _ = fs::remove_file(path);
+                let _ = fs::remove_file(path);
 
-            for _ in 0..howmany {
-                for _ in 0..=ci {
-                    let mut file = File::create(path).unwrap();
-                    file.write_all(buf).unwrap();
+                for _ in 0..howmany {
+                    for _ in 0..=ci {
+                        let mut file = File::create(path).unwrap();
+                        file.write_all(buf).unwrap();
+                    }
                 }
-            }
-            fs::remove_file(path).unwrap();
-            process::exit(0);
-        })
-        .unwrap();
+                fs::remove_file(path).unwrap();
+                process::exit(0);
+            })
+            .unwrap();
     }
 
     for _ in 0..nchildren {

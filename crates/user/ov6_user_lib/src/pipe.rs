@@ -14,8 +14,10 @@ pub fn pipe() -> Result<(PipeReader, PipeWriter), Ov6Error> {
     Ok((PipeReader(rx), PipeWriter(tx)))
 }
 
+#[derive(Debug)]
 pub struct PipeReader(OwnedFd);
 
+#[derive(Debug)]
 pub struct PipeWriter(OwnedFd);
 
 impl PipeReader {
@@ -75,6 +77,30 @@ impl IntoRawFd for PipeReader {
 impl IntoRawFd for PipeWriter {
     fn into_raw_fd(self) -> RawFd {
         self.0.into_raw_fd()
+    }
+}
+
+impl From<OwnedFd> for PipeReader {
+    fn from(fd: OwnedFd) -> Self {
+        Self(fd)
+    }
+}
+
+impl From<OwnedFd> for PipeWriter {
+    fn from(fd: OwnedFd) -> Self {
+        Self(fd)
+    }
+}
+
+impl From<PipeReader> for OwnedFd {
+    fn from(file: PipeReader) -> Self {
+        file.0
+    }
+}
+
+impl From<PipeWriter> for OwnedFd {
+    fn from(file: PipeWriter) -> Self {
+        file.0
     }
 }
 

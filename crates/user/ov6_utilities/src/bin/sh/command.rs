@@ -4,13 +4,12 @@ use core::convert::AsRef;
 use ov6_user_lib::{
     fs::File,
     io::{STDIN_FD, STDOUT_FD},
-    pipe,
-    process::{self, ForkResult},
+    process::{self, ProcessBuilder, Stdio},
     sync::spin::Mutex,
 };
 use ov6_utilities::try_or_exit;
 
-use crate::util;
+use crate::util::{self, SpawnFnOrExit as _, WaitOrExit as _};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RedirectMode {
@@ -87,48 +86,26 @@ impl Command<'_> {
                 cmd.run();
             }
             Command::Pipe { left, right } => {
-                let (rx, tx) = try_or_exit!(
-                    pipe::pipe(),
-                    e => "pipe create failed: {e}",
-                );
-
-                let ForkResult::Parent { child: left } = util::fork_or_exit() else {
-                    unsafe {
-                        util::close_or_exit(STDOUT_FD, "stdout");
-                    }
-                    let _stdout = try_or_exit!(
-                        tx.try_clone(),
-                        e => "cloning pipe failed: {e}",
-                    );
-                    drop(rx);
-                    drop(tx);
-                    left.run();
-                };
-
-                let ForkResult::Parent { child: right } = util::fork_or_exit() else {
-                    unsafe {
-                        util::close_or_exit(STDIN_FD, "stdin");
-                    }
-                    let _stdin = try_or_exit!(
-                        rx.try_clone(),
-                        e => "cloning pipe failed: {e}",
-                    );
-                    drop(rx);
-                    drop(tx);
-                    right.run();
-                };
-                drop(rx);
-                drop(tx);
-                util::wait_or_exit(&[left, right]);
-                util::wait_or_exit(&[left, right]);
+                let mut left = ProcessBuilder::new()
+                    .stdout(Stdio::Pipe)
+                    .spawn_fn_or_exit(|| left.run());
+                let left_out = left.stdout.take().unwrap();
+                let mut right = ProcessBuilder::new()
+                    .stdin(Stdio::Fd(left_out.into()))
+                    .spawn_fn_or_exit(|| {
+                        right.run();
+                    });
+                left.wait_or_exit();
+                right.wait_or_exit();
             }
             Command::List { left, right } => {
-                let child = util::fork_fn_or_exit(|| left.run());
-                util::wait_or_exit(&[child.pid()]);
+                ProcessBuilder::new()
+                    .spawn_fn_or_exit(|| left.run())
+                    .wait_or_exit();
                 right.run();
             }
             Command::Back { cmd } => {
-                util::fork_fn_or_exit(|| cmd.run());
+                ProcessBuilder::new().spawn_fn_or_exit(|| cmd.run());
             }
         }
 

@@ -5,7 +5,9 @@ use ov6_user_lib::{
     error::Ov6Error,
     fs::{self, File},
     io::{Read as _, Write as _},
-    pipe, process, thread,
+    pipe,
+    process::{self, ProcessBuilder, Stdio},
+    thread,
 };
 use ov6_user_tests::message;
 
@@ -19,7 +21,7 @@ pub fn fork() {
 
     let mut n = 0;
     for _ in 0..N {
-        if process::fork_fn(|| process::exit(0)).is_err() {
+        if ProcessBuilder::new().spawn_fn(|| process::exit(0)).is_err() {
             break;
         }
         n += 1;
@@ -38,25 +40,26 @@ pub fn sbrk_basic() {
     const TOO_MUCH: usize = 1024 * 1024 * 1024;
 
     // does sbrk() return the sexpected failure value?
-    let status = process::fork_fn(|| {
-        let Ok(a) = process::grow_break(TOO_MUCH).map_err(|e| {
-            assert!(matches!(e, Ov6Error::OutOfMemory));
-            process::exit(0);
-        });
-        unsafe {
-            for n in (0..TOO_MUCH).step_by(4096) {
-                a.add(n).write(99);
+    let status = ProcessBuilder::new()
+        .spawn_fn(|| {
+            let Ok(a) = process::grow_break(TOO_MUCH).map_err(|e| {
+                assert!(matches!(e, Ov6Error::OutOfMemory));
+                process::exit(0);
+            });
+            unsafe {
+                for n in (0..TOO_MUCH).step_by(4096) {
+                    a.add(n).write(99);
+                }
             }
-        }
 
-        // we should not get here! either sbrk(TOOMUCH)
-        // should have failed, or (with lazy allocation)
-        // a pagefault should have killed this process.
-        unreachable!();
-    })
-    .unwrap()
-    .wait()
-    .unwrap();
+            // we should not get here! either sbrk(TOOMUCH)
+            // should have failed, or (with lazy allocation)
+            // a pagefault should have killed this process.
+            unreachable!();
+        })
+        .unwrap()
+        .wait()
+        .unwrap();
     assert!(status.success());
 
     // can one sbrk() less than a page?
@@ -129,14 +132,15 @@ pub fn kern_mem() {
     for i in (0..2_000_000).step_by(50_000) {
         let a = ptr::with_exposed_provenance_mut::<u8>(KERN_BASE + i);
 
-        let status = process::fork_fn(|| {
-            let v = unsafe { a.read() };
-            message!("oops could read {a:p} = {v}");
-            process::exit(0);
-        })
-        .unwrap()
-        .wait()
-        .unwrap();
+        let status = ProcessBuilder::new()
+            .spawn_fn(|| {
+                let v = unsafe { a.read() };
+                message!("oops could read {a:p} = {v}");
+                process::exit(0);
+            })
+            .unwrap()
+            .wait()
+            .unwrap();
         assert_eq!(status.code(), -1);
     }
 }
@@ -145,16 +149,17 @@ pub fn kern_mem() {
 pub fn max_va_plus() {
     let mut a = MAX_VA;
     loop {
-        let status = process::fork_fn(|| {
-            unsafe {
-                ptr::with_exposed_provenance_mut::<u8>(a).write(99);
-            }
-            message!("oops wrote {a}");
-            process::exit(1);
-        })
-        .unwrap()
-        .wait()
-        .unwrap();
+        let status = ProcessBuilder::new()
+            .spawn_fn(|| {
+                unsafe {
+                    ptr::with_exposed_provenance_mut::<u8>(a).write(99);
+                }
+                message!("oops wrote {a}");
+                process::exit(1);
+            })
+            .unwrap()
+            .wait()
+            .unwrap();
         assert_eq!(status.code(), -1);
 
         a <<= 1;
@@ -170,44 +175,48 @@ pub fn sbrk_fail() {
     const BIG: usize = 100 * 1024 * 1024;
 
     let (mut rx, mut tx) = pipe::pipe().unwrap();
-    let mut pids = [None; 10];
+    let mut children = [const { None }; 10];
 
-    for pid in &mut pids {
-        let Some(p) = process::fork().unwrap().as_parent() else {
-            // allocate a lot of memory
-            let _ = process::grow_break(BIG - process::current_break().addr());
-            tx.write(b"x").unwrap();
-            loop {
-                thread::sleep(Duration::from_secs(100));
-            }
-        };
-        *pid = Some(p);
+    for pid in &mut children {
+        let child = ProcessBuilder::new()
+            .stdout(Stdio::Fd(tx.try_clone().unwrap().into()))
+            .spawn_fn(|| {
+                // allocate a lot of memory
+                let _ = process::grow_break(BIG - process::current_break().addr());
+                tx.write(b"x").unwrap();
+                loop {
+                    thread::sleep(Duration::from_secs(100));
+                }
+            })
+            .unwrap();
+        *pid = Some(child);
         rx.read_exact(&mut [0]).unwrap();
     }
 
     // if those failed allocations freed up the pages they did allocate,
     // we'll be able to allocate here
     process::grow_break(PAGE_SIZE).unwrap();
-    for &pid in pids.iter().flatten() {
-        process::kill(pid).unwrap();
-        process::wait_any().unwrap();
+    for child in children.iter_mut().flatten() {
+        child.kill().unwrap();
+        child.wait().unwrap();
     }
 
     // test running fork with the above allocated page
-    let status = process::fork_fn(|| {
-        let a = process::current_break();
-        let _ = process::grow_break(10 * BIG);
-        let mut n = 0;
-        for i in (0..10 * BIG).step_by(PAGE_SIZE) {
-            n += unsafe { a.add(i).read() };
-        }
-        // print n so the compiler doesn't optimize away
-        // the for loop.
-        panic!("allocate a lot of memory succeeded {n}");
-    })
-    .unwrap()
-    .wait()
-    .unwrap();
+    let status = ProcessBuilder::new()
+        .spawn_fn(|| {
+            let a = process::current_break();
+            let _ = process::grow_break(10 * BIG);
+            let mut n = 0;
+            for i in (0..10 * BIG).step_by(PAGE_SIZE) {
+                n += unsafe { a.add(i).read() };
+            }
+            // print n so the compiler doesn't optimize away
+            // the for loop.
+            panic!("allocate a lot of memory succeeded {n}");
+        })
+        .unwrap()
+        .wait()
+        .unwrap();
     assert!(status.success() || status.code() == -1);
 }
 

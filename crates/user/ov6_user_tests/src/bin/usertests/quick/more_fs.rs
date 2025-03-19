@@ -8,7 +8,8 @@ use ov6_user_lib::{
     fs::{self, File},
     io::{Read as _, Write as _},
     os_str::OsStr,
-    process, thread,
+    process::{self, ProcessBuilder},
+    thread,
 };
 
 use crate::{BUF, README_PATH, ROOT_DIR_PATH, expect};
@@ -80,19 +81,20 @@ pub fn truncate3() {
 
     let mut buf = [0; 32];
 
-    let child = process::fork_fn(|| {
-        for _i in 0..100 {
-            let mut file = File::options().write(true).open(TRUNC_FILE_PATH).unwrap();
-            file.write_all(b"1234567890").unwrap();
-            drop(file);
-            let mut file = File::open(TRUNC_FILE_PATH).unwrap();
-            file.read(&mut buf).unwrap();
-            drop(file);
-        }
+    let mut child = ProcessBuilder::new()
+        .spawn_fn(|| {
+            for _i in 0..100 {
+                let mut file = File::options().write(true).open(TRUNC_FILE_PATH).unwrap();
+                file.write_all(b"1234567890").unwrap();
+                drop(file);
+                let mut file = File::open(TRUNC_FILE_PATH).unwrap();
+                file.read(&mut buf).unwrap();
+                drop(file);
+            }
 
-        process::exit(0);
-    })
-    .unwrap();
+            process::exit(0);
+        })
+        .unwrap();
 
     for _i in 0..150 {
         let mut file = File::create(TRUNC_FILE_PATH).unwrap();
@@ -123,14 +125,15 @@ pub fn truncate3() {
 pub fn inode_put_open() {
     fs::create_dir(OIDIR_PATH).unwrap();
 
-    let child = process::fork_fn(|| {
-        expect!(
-            File::options().read(true).write(true).open(OIDIR_PATH),
-            Err(Ov6Error::IsADirectory),
-        );
-        process::exit(0);
-    })
-    .unwrap();
+    let mut child = ProcessBuilder::new()
+        .spawn_fn(|| {
+            expect!(
+                File::options().read(true).write(true).open(OIDIR_PATH),
+                Err(Ov6Error::IsADirectory),
+            );
+            process::exit(0);
+        })
+        .unwrap();
 
     thread::sleep(Duration::from_millis(100));
     fs::remove_file(OIDIR_PATH).unwrap();
@@ -141,15 +144,16 @@ pub fn inode_put_open() {
 
 /// does `exit()` call `Inode::put(p->cwd)` in a transaction?
 pub fn inode_put_exit() {
-    let status = process::fork_fn(|| {
-        fs::create_dir(IPUTDIR_PATH).unwrap();
-        env::set_current_directory(IPUTDIR_PATH).unwrap();
-        fs::remove_file("../iputdir").unwrap();
-        process::exit(0);
-    })
-    .unwrap()
-    .wait()
-    .unwrap();
+    let status = ProcessBuilder::new()
+        .spawn_fn(|| {
+            fs::create_dir(IPUTDIR_PATH).unwrap();
+            env::set_current_directory(IPUTDIR_PATH).unwrap();
+            fs::remove_file("../iputdir").unwrap();
+            process::exit(0);
+        })
+        .unwrap()
+        .wait()
+        .unwrap();
     assert!(status.success());
 }
 
@@ -222,15 +226,16 @@ pub fn four_files() {
     let bytes = [b'0', b'1', b'2', b'3'];
     for (&name, &b) in names.iter().zip(&bytes) {
         let _ = fs::remove_file(name);
-        process::fork_fn(|| {
-            let mut file = File::create(name).unwrap();
-            buf.fill(b);
-            for _ in 0..N {
-                file.write_all(buf).unwrap();
-            }
-            process::exit(0);
-        })
-        .unwrap();
+        ProcessBuilder::new()
+            .spawn_fn(|| {
+                let mut file = File::create(name).unwrap();
+                buf.fill(b);
+                for _ in 0..N {
+                    file.write_all(buf).unwrap();
+                }
+                process::exit(0);
+            })
+            .unwrap();
     }
 
     for _ in 0..names.len() {
@@ -264,22 +269,23 @@ pub fn create_delete() {
     let mut name = [0; 2];
 
     for pi in 0..NCHILD {
-        process::fork_fn(|| {
-            name[0] = b'p' + u8::try_from(pi).unwrap();
-            for i in 0..N {
-                name[1] = b'0' + u8::try_from(i).unwrap();
-                let path = OsStr::from_bytes(&name);
-                let file = File::create(path).unwrap();
-                drop(file);
-                if i > 0 && (i % 2) == 0 {
-                    name[1] = b'0' + u8::try_from(i / 2).unwrap();
+        ProcessBuilder::new()
+            .spawn_fn(|| {
+                name[0] = b'p' + u8::try_from(pi).unwrap();
+                for i in 0..N {
+                    name[1] = b'0' + u8::try_from(i).unwrap();
                     let path = OsStr::from_bytes(&name);
-                    fs::remove_file(path).unwrap();
+                    let file = File::create(path).unwrap();
+                    drop(file);
+                    if i > 0 && (i % 2) == 0 {
+                        name[1] = b'0' + u8::try_from(i / 2).unwrap();
+                        let path = OsStr::from_bytes(&name);
+                        fs::remove_file(path).unwrap();
+                    }
                 }
-            }
-            process::exit(0);
-        })
-        .unwrap();
+                process::exit(0);
+            })
+            .unwrap();
     }
 
     for _ in 0..NCHILD {

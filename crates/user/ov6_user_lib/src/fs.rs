@@ -192,6 +192,18 @@ impl IntoRawFd for File {
     }
 }
 
+impl From<OwnedFd> for File {
+    fn from(fd: OwnedFd) -> Self {
+        Self { fd }
+    }
+}
+
+impl From<File> for OwnedFd {
+    fn from(file: File) -> Self {
+        file.fd
+    }
+}
+
 impl Write for File {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
         syscall::write(self.fd.as_raw_fd(), buf)

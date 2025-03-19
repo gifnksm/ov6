@@ -9,14 +9,14 @@ use self::ffi::SyscallExt as _;
 use crate::{
     error::Ov6Error,
     os::fd::{FromRawFd as _, OwnedFd},
-    process::{ExitStatus, ForkResult},
+    process::ExitStatus,
 };
 
 pub mod ffi;
 
-pub fn fork() -> Result<ForkResult, Ov6Error> {
+pub fn fork() -> Result<Option<ProcId>, Ov6Error> {
     let pid = syscall::Fork::call(())?;
-    Ok(pid.map_or(ForkResult::Child, |pid| ForkResult::Parent { child: pid }))
+    Ok(pid)
 }
 
 pub fn exit(status: i32) -> ! {

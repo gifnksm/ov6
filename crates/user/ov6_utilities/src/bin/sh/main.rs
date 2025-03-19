@@ -11,9 +11,11 @@ use ov6_user_lib::{
     fs::File,
     io::{self},
     os::fd::AsRawFd as _,
-    process,
+    process::{self, ProcessBuilder},
 };
 use ov6_utilities::{exit, message, try_or, try_or_exit};
+
+use self::util::{SpawnFnOrExit as _, WaitOrExit as _};
 
 mod command;
 mod parser;
@@ -63,7 +65,7 @@ fn main() {
             continue;
         }
 
-        let child = util::fork_fn_or_exit(|| {
+        let mut child = ProcessBuilder::new().spawn_fn_or_exit(|| {
             let cmd = try_or_exit!(
                 parser::parse_cmd(&mut cmd),
                 e => "syntax error: {e}",
@@ -73,7 +75,7 @@ fn main() {
             };
             cmd.run();
         });
-        util::wait_or_exit(&[child.pid()]);
+        child.wait_or_exit();
     }
     process::exit(0);
 }

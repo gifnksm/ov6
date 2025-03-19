@@ -11,10 +11,10 @@ use ov6_user_lib::{
     eprint,
     error::Ov6Error,
     fs::{self, File},
-    io::{Read as _, Write as _},
+    io::{self, Read as _, Write as _},
     os::{fd::AsRawFd as _, ov6::syscall},
     pipe,
-    process::{self, ProcId},
+    process::{self, ProcId, ProcessBuilder, Stdio},
     thread,
 };
 
@@ -26,21 +26,22 @@ pub fn pipe() {
 
     let buf = unsafe { (&raw mut BUF).as_mut() }.unwrap();
 
-    let (mut rx, mut tx) = pipe::pipe().unwrap();
-    if process::fork().unwrap().is_child() {
-        drop(rx);
-        let mut seq = 0;
-        for _n in 0..N {
-            for b in &mut buf[0..SIZE] {
-                *b = seq;
-                seq = seq.wrapping_add(1);
+    let mut child = ProcessBuilder::new()
+        .stdout(Stdio::Pipe)
+        .spawn_fn(|| {
+            let mut seq = 0;
+            for _n in 0..N {
+                for b in &mut buf[0..SIZE] {
+                    *b = seq;
+                    seq = seq.wrapping_add(1);
+                }
+                io::stdout().write_all(&buf[..SIZE]).unwrap();
             }
-            tx.write(&buf[..SIZE]).unwrap();
-        }
-        process::exit(0);
-    }
+            process::exit(0);
+        })
+        .unwrap();
 
-    drop(tx);
+    let mut rx = child.stdout.take().unwrap();
     let mut total = 0;
     let mut cc = 1;
     let mut seq = 0;
@@ -57,8 +58,7 @@ pub fn pipe() {
         cc = usize::min(cc * 2, buf.len());
     }
     assert_eq!(total, N * SIZE);
-    let (_, status) = process::wait_any().unwrap();
-    assert!(status.success());
+    assert!(child.wait().unwrap().success());
 }
 
 pub fn broken_pipe() {
@@ -82,14 +82,15 @@ pub fn pipe_bad_fd() {
 /// test if child is killed (status = -1)
 pub fn kill_status() {
     for _ in 0..100 {
-        let child = process::fork_fn(|| {
-            loop {
-                let _ = process::id();
-            }
-        })
-        .unwrap();
+        let mut child = ProcessBuilder::new()
+            .spawn_fn(|| {
+                loop {
+                    let _ = process::id();
+                }
+            })
+            .unwrap();
         thread::sleep(Duration::from_millis(100));
-        process::kill(child.pid()).unwrap();
+        child.kill().unwrap();
         let status = child.wait().unwrap();
         assert_eq!(status.code(), -1);
     }
@@ -104,53 +105,52 @@ pub fn kill_error() {
 
 /// meant to be run w/ at most two CPUs
 pub fn preempt() {
-    let buf = unsafe { (&raw mut BUF).as_mut() }.unwrap();
+    let mut child1 = ProcessBuilder::new()
+        .spawn_fn(|| {
+            loop {
+                hint::spin_loop();
+            }
+        })
+        .unwrap();
+    let mut child2 = ProcessBuilder::new()
+        .spawn_fn(|| {
+            loop {
+                hint::spin_loop();
+            }
+        })
+        .unwrap();
 
-    let child1 = process::fork_fn(|| {
-        loop {
-            hint::spin_loop();
-        }
-    })
-    .unwrap();
-    let child2 = process::fork_fn(|| {
-        loop {
-            hint::spin_loop();
-        }
-    })
-    .unwrap();
+    let mut child3 = ProcessBuilder::new()
+        .stdout(Stdio::Pipe)
+        .spawn_fn(|| {
+            io::stdout().write_all(b"x").unwrap();
+            loop {
+                hint::spin_loop();
+            }
+        })
+        .unwrap();
 
-    let (mut rx, mut tx) = pipe::pipe().unwrap();
-    let Some(pid3) = process::fork().unwrap().as_parent() else {
-        drop(rx);
-        tx.write_all(b"x").unwrap();
-        drop(tx);
-        loop {
-            hint::spin_loop();
-        }
-    };
-
-    drop(tx);
-    rx.read(buf).unwrap();
-    drop(rx);
+    child3.stdout.take().unwrap().read_exact(&mut [0]).unwrap();
     eprint!("kill... ");
-    process::kill(child1.pid()).unwrap();
-    process::kill(child2.pid()).unwrap();
-    process::kill(pid3).unwrap();
+    child1.kill().unwrap();
+    child2.kill().unwrap();
+    child3.kill().unwrap();
     eprint!("wait... ");
-    process::wait_any().unwrap();
-    process::wait_any().unwrap();
-    process::wait_any().unwrap();
+    child1.wait().unwrap();
+    child2.wait().unwrap();
+    child3.wait().unwrap();
 }
 
 /// try to find any races between exit and wait
 pub fn exit_wait() {
     for i in 0..100 {
-        let status = process::fork_fn(|| {
-            process::exit(i);
-        })
-        .unwrap()
-        .wait()
-        .unwrap();
+        let status = ProcessBuilder::new()
+            .spawn_fn(|| {
+                process::exit(i);
+            })
+            .unwrap()
+            .wait()
+            .unwrap();
         assert_eq!(status.code(), i);
     }
 }
@@ -162,27 +162,31 @@ pub fn reparent1() {
     let master_pid = process::id();
 
     for _i in 0..200 {
-        process::fork_fn(|| {
-            process::fork()
-                .inspect_err(|_| {
-                    process::kill(master_pid).unwrap();
-                })
-                .unwrap();
-            process::exit(0);
-        })
-        .unwrap()
-        .wait()
-        .unwrap();
+        ProcessBuilder::new()
+            .spawn_fn(|| {
+                ProcessBuilder::new()
+                    .spawn_fn(|| {
+                        process::exit(0);
+                    })
+                    .inspect_err(|_| {
+                        process::kill(master_pid).unwrap();
+                    })
+                    .unwrap();
+                process::exit(0);
+            })
+            .unwrap()
+            .wait()
+            .unwrap();
     }
 }
 
 /// what if two children `exit()` at the same time?
 pub fn two_children() {
     for _i in 0..1000 {
-        let _child1 = process::fork_fn(|| process::exit(0)).unwrap();
-        let _child2 = process::fork_fn(|| process::exit(0)).unwrap();
-        process::wait_any().unwrap();
-        process::wait_any().unwrap();
+        let mut child1 = ProcessBuilder::new().spawn_fn(|| process::exit(0)).unwrap();
+        let mut child2 = ProcessBuilder::new().spawn_fn(|| process::exit(0)).unwrap();
+        assert!(child1.wait().unwrap().success());
+        assert!(child2.wait().unwrap().success());
     }
 }
 
@@ -191,16 +195,18 @@ pub fn fork_fork() {
     const N: usize = 2;
 
     for _ in 0..N {
-        process::fork_fn(|| {
-            for _ in 0..200 {
-                process::fork_fn(|| process::exit(0))
-                    .unwrap()
-                    .wait()
-                    .unwrap();
-            }
-            process::exit(0);
-        })
-        .unwrap();
+        ProcessBuilder::new()
+            .spawn_fn(|| {
+                for _ in 0..200 {
+                    ProcessBuilder::new()
+                        .spawn_fn(|| process::exit(0))
+                        .unwrap()
+                        .wait()
+                        .unwrap();
+                }
+                process::exit(0);
+            })
+            .unwrap();
     }
 
     for _ in 0..N {
@@ -214,17 +220,18 @@ pub fn fork_fork_fork() {
 
     let _ = fs::remove_file(STOP_FORKING_PATH);
 
-    let child = process::fork_fn(|| {
-        loop {
-            if File::open(STOP_FORKING_PATH).is_ok() {
-                process::exit(0);
+    let mut child = ProcessBuilder::new()
+        .spawn_fn(|| {
+            loop {
+                if File::open(STOP_FORKING_PATH).is_ok() {
+                    process::exit(0);
+                }
+                if process::fork().is_err() {
+                    let _ = File::create(STOP_FORKING_PATH).unwrap();
+                }
             }
-            if process::fork().is_err() {
-                let _ = File::create(STOP_FORKING_PATH).unwrap();
-            }
-        }
-    })
-    .unwrap();
+        })
+        .unwrap();
     thread::sleep(Duration::from_secs(2));
     let _ = File::create(STOP_FORKING_PATH).unwrap();
     child.wait().unwrap();
@@ -238,38 +245,40 @@ pub fn fork_fork_fork() {
 /// it acquired.
 pub fn reparent2() {
     for _ in 0..800 {
-        let child = process::fork_fn(|| {
-            process::fork().unwrap();
-            process::fork().unwrap();
-            process::exit(0);
-        })
-        .unwrap();
+        let mut child = ProcessBuilder::new()
+            .spawn_fn(|| {
+                process::fork().unwrap();
+                process::fork().unwrap();
+                process::exit(0);
+            })
+            .unwrap();
         child.wait().unwrap();
     }
 }
 
 /// allocate all mem, free it, and allocate again
 pub fn mem() {
-    let status = process::fork_fn(|| unsafe {
-        struct Ptr(Option<NonNull<Ptr>>);
-        let layout = Layout::from_size_align(10001, 1).unwrap();
-        let mut m1: Option<NonNull<Ptr>> = None;
-        while let Ok(m2) = Global.allocate(layout) {
-            m2.cast().write(m1);
-            m1 = Some(m2.cast());
-        }
-        while let Some(p) = m1 {
-            let m2 = p.read().0;
-            Global.deallocate(p.cast(), layout);
-            m1 = m2;
-        }
-        let layout = Layout::from_size_align(1024, 1).unwrap();
-        let m1 = Global.allocate(layout).unwrap();
-        Global.deallocate(m1.cast(), layout);
-        process::exit(0);
-    })
-    .unwrap()
-    .wait()
-    .unwrap();
+    let status = ProcessBuilder::new()
+        .spawn_fn(|| unsafe {
+            struct Ptr(Option<NonNull<Ptr>>);
+            let layout = Layout::from_size_align(10001, 1).unwrap();
+            let mut m1: Option<NonNull<Ptr>> = None;
+            while let Ok(m2) = Global.allocate(layout) {
+                m2.cast().write(m1);
+                m1 = Some(m2.cast());
+            }
+            while let Some(p) = m1 {
+                let m2 = p.read().0;
+                Global.deallocate(p.cast(), layout);
+                m1 = m2;
+            }
+            let layout = Layout::from_size_align(1024, 1).unwrap();
+            let m1 = Global.allocate(layout).unwrap();
+            Global.deallocate(m1.cast(), layout);
+            process::exit(0);
+        })
+        .unwrap()
+        .wait()
+        .unwrap();
     assert!(status.success());
 }
