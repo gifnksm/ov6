@@ -120,7 +120,7 @@ impl Qemu {
         Ok(())
     }
 
-    pub async fn wait_terminate(mut self) -> Result<ExitStatus, anyhow::Error> {
+    pub async fn wait_terminate(mut self) -> Result<(ExitStatus, String), anyhow::Error> {
         drop(self.stdin_tx);
         self.stdin_handle
             .await
@@ -132,7 +132,8 @@ impl Qemu {
             .await
             .context("stderr handle join failed")??;
         let status = self.proc.wait().await?;
-        Ok(status)
+        let stdout = self.stdout_content.lock().unwrap().clone();
+        Ok((status, stdout))
     }
 }
 

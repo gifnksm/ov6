@@ -44,6 +44,7 @@ OV6_UTILS=\
 	ln\
 	ls\
 	mkdir\
+	pingpong\
 	reboot\
 	rm\
 	sh\

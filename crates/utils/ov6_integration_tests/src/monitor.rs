@@ -37,7 +37,11 @@ where
     Ok(output_start)
 }
 
-pub async fn run_test<F>(r: Runner, timeout: Duration, f: F) -> Result<ExitStatus, anyhow::Error>
+pub async fn run_test<F>(
+    r: Runner,
+    timeout: Duration,
+    f: F,
+) -> Result<(ExitStatus, String), anyhow::Error>
 where
     F: AsyncFnOnce(&Qemu, &Gdb) -> Result<(), anyhow::Error>,
 {
