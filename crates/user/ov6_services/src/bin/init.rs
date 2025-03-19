@@ -46,7 +46,7 @@ fn main() {
         loop {
             // this call to wait() returns if the shell exits,
             // or if a parentless process exits.
-            let Ok((wpid, _status)) = process::wait()
+            let Ok((wpid, _status)) = process::wait_any()
                 .map_err(|e| panic!("{}: wait returned an error: {e}", arg0.display()));
             if wpid != sh.pid() {
                 // it was a parentless process; do nothing

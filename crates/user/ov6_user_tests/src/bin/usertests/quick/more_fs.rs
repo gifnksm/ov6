@@ -180,7 +180,7 @@ pub fn shared_fd() {
     if res.is_child() {
         process::exit(0);
     }
-    let (_, status) = process::wait().unwrap();
+    let (_, status) = process::wait_any().unwrap();
     assert!(status.success());
     drop(file);
 
@@ -234,7 +234,7 @@ pub fn four_files() {
     }
 
     for _ in 0..names.len() {
-        let (_, status) = process::wait().unwrap();
+        let (_, status) = process::wait_any().unwrap();
         assert!(status.success());
     }
 
@@ -283,7 +283,7 @@ pub fn create_delete() {
     }
 
     for _ in 0..NCHILD {
-        let (_, status) = process::wait().unwrap();
+        let (_, status) = process::wait_any().unwrap();
         assert!(status.success());
     }
 
@@ -401,7 +401,7 @@ pub fn concreate() {
         if res.is_child() {
             process::exit(0);
         }
-        let (_, status) = process::wait().unwrap();
+        let (_, status) = process::wait_any().unwrap();
         assert!(status.success());
     }
 
@@ -442,7 +442,7 @@ pub fn concreate() {
         if res.is_child() {
             process::exit(0);
         }
-        process::wait().unwrap();
+        process::wait_any().unwrap();
     }
 }
 
@@ -472,7 +472,7 @@ pub fn link_unlink() {
     if res.is_child() {
         process::exit(0);
     }
-    let (_, status) = process::wait().unwrap();
+    let (_, status) = process::wait_any().unwrap();
     assert!(status.success());
 
     let _ = fs::remove_file("x");

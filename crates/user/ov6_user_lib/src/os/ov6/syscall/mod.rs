@@ -2,7 +2,7 @@ use core::{convert::Infallible, ptr, time::Duration};
 
 use dataview::PodMethods as _;
 pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
-use ov6_syscall::{UserMutRef, UserMutSlice, UserSlice, syscall};
+use ov6_syscall::{UserMutRef, UserMutSlice, UserSlice, WaitTarget, syscall};
 use ov6_types::{fs::RawFd, path::Path, process::ProcId};
 
 use self::ffi::SyscallExt as _;
@@ -24,9 +24,9 @@ pub fn exit(status: i32) -> ! {
     unreachable!()
 }
 
-pub fn wait() -> Result<(ProcId, ExitStatus), Ov6Error> {
+pub fn wait(target: WaitTarget) -> Result<(ProcId, ExitStatus), Ov6Error> {
     let mut status = 0;
-    let pid = syscall::Wait::call((UserMutRef::new(&mut status),))?;
+    let pid = syscall::Wait::call((target, UserMutRef::new(&mut status)))?;
     Ok((pid, ExitStatus::new(status)))
 }
 

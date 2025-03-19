@@ -36,10 +36,11 @@ impl SyscallExt for syscall::Wait {
     type Private<'a> = ProcPrivateData;
 
     fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((user_status,)) = Self::decode_arg(private.trapframe());
+        let (target, user_status) =
+            Self::decode_arg(private.trapframe()).map_err(KernelError::from)?;
         let mut user_status = user_status.validate(private.pagetable())?;
 
-        let (pid, status) = proc::ops::wait(p)?;
+        let (pid, status) = proc::ops::wait(p, target)?;
         private.pagetable_mut().copy_k2u(&mut user_status, &status);
         Ok(pid)
     }

@@ -4,6 +4,7 @@ use core::{convert::Infallible, fmt, marker::PhantomData, num::TryFromIntError, 
 
 use bitflags::bitflags;
 use dataview::Pod;
+use ov6_types::process::ProcId;
 use strum::FromRepr;
 
 pub mod error;
@@ -44,6 +45,12 @@ pub enum StatType {
     Dir = 1,
     File,
     Dev,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitTarget {
+    AnyProcess,
+    Process(ProcId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr)]
@@ -389,7 +396,7 @@ pub enum RegisterDecodeError {
     #[error("invalid open flags: {0:#x}")]
     InvalidOpenFlags(usize),
     #[error("invalid result designator: {0:#x}")]
-    InvalidResultDesignator(usize),
+    InvalidDesignator(usize),
     #[error("unexpected zero")]
     UnexpectedZero,
 }

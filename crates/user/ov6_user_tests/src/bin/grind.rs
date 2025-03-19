@@ -273,8 +273,8 @@ fn go(name: char) {
                 brx.read_exact(&mut buf[1..2]).unwrap();
                 brx.read_exact(&mut buf[2..3]).unwrap();
                 drop(brx);
-                let (_, st1) = process::wait().unwrap();
-                let (_, st2) = process::wait().unwrap();
+                let (_, st1) = process::wait_any().unwrap();
+                let (_, st2) = process::wait_any().unwrap();
                 assert!(st1.success());
                 assert!(st2.success());
                 assert_eq!(&buf, b"hi\n\0");
@@ -302,12 +302,12 @@ fn iter() {
     })
     .unwrap();
 
-    let (_pid, status) = process::wait().unwrap();
+    let (_pid, status) = process::wait_any().unwrap();
     if !status.success() {
         let _ = process::kill(child1.pid());
         let _ = process::kill(child2.pid());
     }
-    process::wait().unwrap();
+    process::wait_any().unwrap();
     process::exit(0);
 }
 

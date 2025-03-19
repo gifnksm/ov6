@@ -53,7 +53,7 @@ fn main() {
     drop(file);
 
     if idx != N - 1 {
-        process::wait().unwrap();
+        process::wait_any().unwrap();
     }
     process::exit(0);
 }

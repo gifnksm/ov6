@@ -1,6 +1,6 @@
 use core::{cmp, ptr};
 
-use ov6_syscall::{RegisterValue as _, ReturnType, syscall as sys};
+use ov6_syscall::{RegisterValue as _, ReturnType, WaitTarget, syscall as sys};
 use ov6_types::{os_str::OsStr, process::ProcId};
 
 use super::{PROC, ProcPrivateData, ProcPrivateDataGuard, ProcShared, WaitLock};
@@ -176,11 +176,11 @@ pub fn exit(p: &Proc, mut p_private: ProcPrivateDataGuard, status: i32) -> ! {
 /// Waits for a child process to exit and return its pid.
 ///
 /// Returns `Err` if this process has no children.
-pub fn wait(p: &Proc) -> Result<(ProcId, i32), KernelError> {
+pub fn wait(p: &Proc, target: WaitTarget) -> Result<(ProcId, i32), KernelError> {
     let mut wait_lock = wait_lock::lock();
 
     loop {
-        let mut have_kids = false;
+        let mut found = false;
         for pp in &PROC {
             if !pp.is_child_of(p, &mut wait_lock) {
                 continue;
@@ -189,17 +189,35 @@ pub fn wait(p: &Proc) -> Result<(ProcId, i32), KernelError> {
             // Make sure the child isn't still in `exit()` or `switch()``.
             let mut pp_shared = pp.shared.lock();
 
-            have_kids = true;
+            let find_more;
+            match target {
+                WaitTarget::AnyProcess => {
+                    found = true;
+                    find_more = true;
+                }
+                WaitTarget::Process(pid) => {
+                    if pid != pp_shared.pid() {
+                        continue;
+                    }
+                    found = true;
+                    find_more = false;
+                }
+            }
+
             if let ProcState::Zombie { exit_status } = pp_shared.state {
                 // Found one.
                 let pid = pp_shared.pid.unwrap();
                 pp.free(&mut pp_shared);
                 return Ok((pid, exit_status));
             }
+
+            if !find_more {
+                break;
+            }
         }
 
-        if !have_kids {
-            return Err(KernelError::NoChildProcess);
+        if !found {
+            return Err(KernelError::NoWaitTarget);
         }
 
         // Wait for a child to exit.

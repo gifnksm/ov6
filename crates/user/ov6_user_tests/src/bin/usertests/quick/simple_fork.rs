@@ -57,7 +57,7 @@ pub fn pipe() {
         cc = usize::min(cc * 2, buf.len());
     }
     assert_eq!(total, N * SIZE);
-    let (_, status) = process::wait().unwrap();
+    let (_, status) = process::wait_any().unwrap();
     assert!(status.success());
 }
 
@@ -137,9 +137,9 @@ pub fn preempt() {
     process::kill(child2.pid()).unwrap();
     process::kill(pid3).unwrap();
     eprint!("wait... ");
-    process::wait().unwrap();
-    process::wait().unwrap();
-    process::wait().unwrap();
+    process::wait_any().unwrap();
+    process::wait_any().unwrap();
+    process::wait_any().unwrap();
 }
 
 /// try to find any races between exit and wait
@@ -181,8 +181,8 @@ pub fn two_children() {
     for _i in 0..1000 {
         let _child1 = process::fork_fn(|| process::exit(0)).unwrap();
         let _child2 = process::fork_fn(|| process::exit(0)).unwrap();
-        process::wait().unwrap();
-        process::wait().unwrap();
+        process::wait_any().unwrap();
+        process::wait_any().unwrap();
     }
 }
 
@@ -204,7 +204,7 @@ pub fn fork_fork() {
     }
 
     for _ in 0..N {
-        let (_, status) = process::wait().unwrap();
+        let (_, status) = process::wait_any().unwrap();
         assert!(status.success());
     }
 }

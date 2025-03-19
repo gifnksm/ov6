@@ -55,7 +55,7 @@ pub fn too_many_open_files_in_system() {
             }
             continue;
         };
-        let (pid, status) = process::wait().unwrap();
+        let (pid, status) = process::wait_any().unwrap();
         assert_eq!(child, pid);
         assert!(status.success());
         break;

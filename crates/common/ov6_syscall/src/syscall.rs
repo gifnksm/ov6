@@ -3,7 +3,8 @@ use core::{convert::Infallible, time::Duration};
 use ov6_types::{fs::RawFd, process::ProcId};
 
 use crate::{
-    OpenFlags, Stat, Syscall, SyscallCode, UserMutRef, UserMutSlice, UserSlice, error::SyscallError,
+    OpenFlags, Stat, Syscall, SyscallCode, UserMutRef, UserMutSlice, UserSlice, WaitTarget,
+    error::SyscallError,
 };
 
 macro_rules! syscall {
@@ -31,7 +32,7 @@ macro_rules! syscall {
 
 syscall!(Fork => fn() -> Result<Option<ProcId>, SyscallError>);
 syscall!(Exit => fn(i32) -> Infallible);
-syscall!(Wait => fn(UserMutRef<i32>) -> Result<ProcId, SyscallError>);
+syscall!(Wait => fn(WaitTarget, UserMutRef<i32>) -> Result<ProcId, SyscallError>);
 syscall!(Pipe => fn(UserMutRef<[RawFd; 2]>) -> Result<(), SyscallError>);
 syscall!(Read => fn(RawFd, UserMutSlice<u8>) -> Result<usize, SyscallError>);
 syscall!(Kill => fn(ProcId) -> Result<(), SyscallError>);

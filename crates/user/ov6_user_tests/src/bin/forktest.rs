@@ -20,11 +20,11 @@ fn forktest() {
     assert_ne!(n, N, "fork claimed to work N times!");
 
     for _ in 0..n {
-        let (_pid, status) = process::wait().unwrap();
+        let (_pid, status) = process::wait_any().unwrap();
         assert!(status.success(), "child failed");
     }
 
-    assert!(process::wait().is_err(), "wait got too manye");
+    assert!(process::wait_any().is_err(), "wait got too manye");
 
     message!("{n} processes forked");
     message!("OK");

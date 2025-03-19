@@ -72,7 +72,7 @@ pub fn many_writes() {
     }
 
     for _ in 0..nchildren {
-        let (_, status) = process::wait().unwrap();
+        let (_, status) = process::wait_any().unwrap();
         assert!(status.success());
     }
 }

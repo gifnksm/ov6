@@ -1,11 +1,11 @@
 use core::convert::Infallible;
 
 use alloc_crate::vec::Vec;
-use ov6_syscall::UserSlice;
+use ov6_syscall::{UserSlice, WaitTarget};
 pub use ov6_types::process::ProcId;
 use ov6_types::{os_str::OsStr, path::Path};
 
-pub use crate::os::ov6::syscall::{exit, fork, kill, wait};
+pub use crate::os::ov6::syscall::{exit, fork, kill};
 use crate::{error::Ov6Error, os::ov6::syscall};
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,12 +89,7 @@ impl ForkFnHandle {
     }
 
     pub fn wait(self) -> Result<ExitStatus, Ov6Error> {
-        let (wpid, status) = wait()?;
-        assert_eq!(
-            self.pid, wpid,
-            "The waited process ID does not match the forked process ID"
-        );
-        Ok(status)
+        wait_pid(self.pid)
     }
 }
 
@@ -128,4 +123,17 @@ where
 
         syscall::exec(path.as_ref(), &argv)
     }
+}
+
+pub fn wait_any() -> Result<(ProcId, ExitStatus), Ov6Error> {
+    syscall::wait(WaitTarget::AnyProcess)
+}
+
+pub fn wait_pid(pid: ProcId) -> Result<ExitStatus, Ov6Error> {
+    let (wpid, status) = syscall::wait(WaitTarget::Process(pid))?;
+    assert_eq!(
+        pid, wpid,
+        "The waited process ID does not match the target process ID"
+    );
+    Ok(status)
 }

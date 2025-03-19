@@ -28,7 +28,7 @@ where
 
 pub(super) fn wait_or_exit(expected_pids: &[ProcId]) -> (ProcId, ExitStatus) {
     let (pid, status) = try_or_exit!(
-        process::wait(),
+        process::wait_any(),
         e => "wait child process failed: {e}"
     );
     ensure_or_exit!(

@@ -4,7 +4,7 @@ use ov6_types::{fs::RawFd, process::ProcId};
 
 use crate::{
     OpenFlags, Register, RegisterDecodeError, RegisterValue, UserMutRef, UserMutSlice, UserRef,
-    UserSlice, error::SyscallError,
+    UserSlice, WaitTarget, error::SyscallError,
 };
 
 impl<T, const N: usize> Register<T, N> {
@@ -238,6 +238,37 @@ impl RegisterValue for ProcId {
     }
 }
 
+impl RegisterValue for WaitTarget {
+    type DecodeError = RegisterDecodeError;
+    type Repr = Register<Self, 2>;
+
+    fn encode(self) -> Self::Repr {
+        match self {
+            Self::AnyProcess => {
+                let a0 = 0;
+                let a1 = 0;
+                Register::new([a0, a1])
+            }
+            Self::Process(pid) => {
+                let a0 = 1;
+                let [a1] = pid.encode().a;
+                Register::new([a0, a1])
+            }
+        }
+    }
+
+    fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
+        match repr.a {
+            [0, 0] => Ok(Self::AnyProcess),
+            [1, a1] => {
+                let v1 = Register::new([a1]).try_decode()?;
+                Ok(Self::Process(v1))
+            }
+            [a0, _] => Err(RegisterDecodeError::InvalidDesignator(a0)),
+        }
+    }
+}
+
 impl RegisterValue for RawFd {
     type DecodeError = Infallible;
     type Repr = Register<Self, 1>;
@@ -405,7 +436,7 @@ where
             let v1 = Register::new([a1]).try_decode()?;
             Ok(Err(v1))
         }
-        n => Err(RegisterDecodeError::InvalidResultDesignator(n)),
+        n => Err(RegisterDecodeError::InvalidDesignator(n)),
     }
 }
 
@@ -446,7 +477,7 @@ where
             let v1 = Register::new([a1]).try_decode()?;
             Ok(Err(v1))
         }
-        n => Err(RegisterDecodeError::InvalidResultDesignator(n)),
+        n => Err(RegisterDecodeError::InvalidDesignator(n)),
     }
 }
 
@@ -626,6 +657,7 @@ impl_value!([T](UserMutSlice<T>,), Infallible, 2, tuple1_encode, tuple1_decode);
 impl_value!([T: ?Sized] (RawFd, UserMutRef<T>), Infallible, 2, tuple_encode_11, tuple_decode_11);
 impl_value!([T: ?Sized] (RawFd, UserRef<T>), Infallible, 2, tuple_encode_11, tuple_decode_11);
 impl_value!([T] (UserSlice<T>, OpenFlags), RegisterDecodeError, 3, tuple_encode_21, tuple_decode_21);
+impl_value!([T: ?Sized](WaitTarget, UserMutRef<T>,), RegisterDecodeError, 3, tuple_encode_21, tuple_decode_21);
 impl_value!([T, U] (UserSlice<T>, UserSlice<U>), Infallible, 4, tuple_encode_22, tuple_decode_22);
 
 impl_value!([T] (RawFd, UserSlice<T>), Infallible, 3, tuple_encode_12, tuple_decode_12);

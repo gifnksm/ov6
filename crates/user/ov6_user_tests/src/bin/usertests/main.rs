@@ -140,7 +140,7 @@ fn count_free_pages() -> usize {
     }
 
     drop(rx);
-    process::wait().unwrap();
+    process::wait_any().unwrap();
 
     n
 }

@@ -15,7 +15,7 @@ pub(crate) enum KernelError {
     #[error("no free page found")]
     NoFreePage,
     #[error("no child process")]
-    NoChildProcess,
+    NoWaitTarget,
     #[error("process not found: {0}")]
     ProcessNotFound(ProcId),
     #[error("device not found: {0}")]
@@ -105,7 +105,7 @@ impl From<KernelError> for SyscallError {
             KernelError::NoFreePage => Self::OutOfMemory,
             KernelError::ProcessNotFound(_) => Self::ProcessNotFound,
             KernelError::DeviceNotFound(_) => Self::DeviceNotFound,
-            KernelError::NoChildProcess => Self::NoChildProcess,
+            KernelError::NoWaitTarget => Self::NoChildProcess,
             KernelError::TooLargeVirtualPageNumber(_)
             | KernelError::TooLargeVirtualAddress(_)
             | KernelError::VirtualAddressUnderflow

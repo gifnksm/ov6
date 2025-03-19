@@ -28,10 +28,10 @@ pub fn fork() {
     assert_ne!(n, N, "fork claimed to work {N} times!");
 
     for _ in 0..n {
-        process::wait().unwrap();
+        process::wait_any().unwrap();
     }
 
-    expect!(process::wait(), Err(Ov6Error::NoChildProcess));
+    expect!(process::wait_any(), Err(Ov6Error::NoChildProcess));
 }
 
 pub fn sbrk_basic() {
@@ -73,7 +73,7 @@ pub fn sbrk_basic() {
     if res.is_child() {
         process::exit(0);
     }
-    let (_, status) = process::wait().unwrap();
+    let (_, status) = process::wait_any().unwrap();
     assert!(status.success());
 }
 
@@ -190,7 +190,7 @@ pub fn sbrk_fail() {
     process::grow_break(PAGE_SIZE).unwrap();
     for &pid in pids.iter().flatten() {
         process::kill(pid).unwrap();
-        process::wait().unwrap();
+        process::wait_any().unwrap();
     }
 
     // test running fork with the above allocated page
