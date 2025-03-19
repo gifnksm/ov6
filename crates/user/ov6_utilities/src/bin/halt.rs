@@ -1,7 +1,7 @@
 #![no_std]
 
 use ov6_user_lib::{env, os::ov6::syscall};
-use ov6_utilities::{try_or_exit, usage_and_exit};
+use ov6_utilities::{OrExit as _, exit_err, usage_and_exit};
 
 fn main() {
     let mut args = env::args();
@@ -10,14 +10,9 @@ fn main() {
         usage_and_exit!("[code]");
     }
 
-    let code = try_or_exit!(
-        args.next().map(str::parse).transpose(),
-        e => "invalid code: {e}"
-    )
-    .unwrap_or(0);
+    let code = args.next().map_or(0, |s| {
+        s.parse().or_exit(|e| exit_err!(e, "invalid code '{s}'"))
+    });
 
-    try_or_exit!(
-        syscall::halt(code),
-        e => "halt failed: {e}"
-    );
+    syscall::halt(code).or_exit(|e| exit_err!(e, "halt failed"));
 }

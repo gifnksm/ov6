@@ -1,7 +1,7 @@
 #![no_std]
 
 use ov6_user_lib::{env, fs, process};
-use ov6_utilities::{try_or, usage_and_exit};
+use ov6_utilities::{message_err, usage_and_exit};
 
 fn main() {
     let args = env::args_os();
@@ -11,11 +11,9 @@ fn main() {
     }
 
     for arg in args {
-        try_or!(
-            fs::remove_file(arg),
-            break,
-            e => "{} failed to delete: {e}", arg.display(),
-        );
+        if let Err(e) = fs::remove_file(arg) {
+            message_err!(e, "cannot delete file '{}'", arg.display());
+        }
     }
 
     process::exit(0);

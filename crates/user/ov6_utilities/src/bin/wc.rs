@@ -1,21 +1,21 @@
 #![no_std]
 
+use core::fmt;
+
 use ov6_user_lib::{
     env,
     fs::File,
     io::{self, Read},
-    path::Path,
     println, process,
 };
-use ov6_utilities::try_or_exit;
+use ov6_utilities::{OrExit as _, exit_err, message_err};
 
-fn wc<R, P>(mut input: R, name: P)
+fn wc<R, P, Q>(mut input: R, out_name: P, err_name: Q)
 where
     R: Read,
-    P: AsRef<Path>,
+    P: fmt::Display,
+    Q: fmt::Display,
 {
-    let name = name.as_ref();
-
     let mut l = 0;
     let mut w = 0;
     let mut c = 0;
@@ -24,10 +24,9 @@ where
     let mut buf = [0; 512];
 
     loop {
-        let nread = try_or_exit!(
-            input.read(&mut buf),
-            e => "wc: read error: {e}",
-        );
+        let nread = input
+            .read(&mut buf)
+            .or_exit(|e| exit_err!(e, "read '{err_name}' error",));
         if nread == 0 {
             break;
         }
@@ -46,23 +45,25 @@ where
         }
     }
 
-    println!("{l} {w} {c} {name}", name = name.display());
+    println!("{l} {w} {c} {out_name}");
 }
 
 fn main() {
     let args = env::args_os();
 
     if args.len() == 0 {
-        wc(io::stdin(), "");
+        wc(io::stdin(), "", "standard input");
         process::exit(0);
     }
 
-    for path in args {
-        let file = try_or_exit!(
-            File::open(path),
-            e => "cannot open {}: {e}", path.display(),
-        );
-        wc(&file, path);
+    let files = args.flat_map(|path| {
+        File::open(path)
+            .inspect_err(|e| message_err!(e, "cannot open '{}'", path.display()))
+            .map(|file| (file, path))
+    });
+
+    for (file, path) in files {
+        wc(&file, path.display(), path.display());
     }
     process::exit(0);
 }

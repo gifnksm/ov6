@@ -7,7 +7,7 @@ use ov6_user_lib::{
     path::Path,
     println, process,
 };
-use ov6_utilities::try_or;
+use ov6_utilities::message_err;
 
 fn print_entry(name: &OsStr, meta: &Metadata) {
     let ty = match meta.ty() {
@@ -29,33 +29,33 @@ where
     P: AsRef<Path>,
 {
     let path = path.as_ref();
-    let meta = try_or!(
-        fs::metadata(path),
-        return,
-        e => "cannot stat {}: {e}", path.to_str().unwrap(),
-    );
+    let Ok(meta) =
+        fs::metadata(path).inspect_err(|e| message_err!(e, "cannot stat '{}'", path.display()))
+    else {
+        return;
+    };
 
     match meta.ty() {
         StatType::File | StatType::Dev => print_entry(OsStr::new(path.to_str().unwrap()), &meta),
         StatType::Dir => {
-            let entries = try_or!(
-                fs::read_dir(path),
-                return,
-                e => "cannot open {} as directory: {e}", path.to_str().unwrap(),
-            );
+            let Ok(entries) = fs::read_dir(path)
+                .inspect_err(|e| message_err!(e, "cannot open '{}' as directory", path.display()))
+            else {
+                return;
+            };
+            let entries = entries.flat_map(|ent| {
+                ent.inspect_err(|e| {
+                    message_err!(e, "cannot read directory '{}' entry", path.display());
+                })
+            });
             for ent in entries {
-                let ent = try_or!(
-                    ent,
-                    return,
-                    e => "cannot read directory entry: {e}",
-                );
                 let name = ent.name();
                 let file_path = path.join(name);
-                let meta = try_or!(
-                    fs::metadata(&file_path),
-                    continue,
-                    e => "cannot stat {}: {e}", file_path.display(),
-                );
+                let Ok(meta) = fs::metadata(&file_path)
+                    .inspect_err(|e| message_err!(e, "cannot stat '{}'", file_path.display()))
+                else {
+                    continue;
+                };
                 print_entry(name, &meta);
             }
         }

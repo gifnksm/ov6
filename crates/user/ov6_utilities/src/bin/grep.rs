@@ -6,7 +6,7 @@ use ov6_user_lib::{
     io::{self, Read},
     println,
 };
-use ov6_utilities::{try_or, try_or_exit, usage_and_exit};
+use ov6_utilities::{OrExit as _, exit_err, message_err, usage_and_exit};
 
 fn grep<R>(pattern: &str, mut input: R, buf: &mut [u8])
 where
@@ -27,10 +27,7 @@ where
         let mut consumed = 0;
         while let Some(i) = buf[consumed..filled].iter().position(|c| *c == b'\n') {
             let line = &buf[consumed..filled][..i];
-            let line = try_or_exit!(
-                str::from_utf8(line),
-                e => "parse line error: {e}",
-            );
+            let line = str::from_utf8(line).or_exit(|e| exit_err!(e, "parse line error"));
             if match_(pattern, line) {
                 println!("{}", line);
             }
@@ -59,12 +56,10 @@ fn main() {
         let stdin = io::stdin();
         grep(pattern, stdin, &mut buf);
     } else {
-        for arg in args {
-            let file = try_or!(
-                File::open(arg),
-                continue,
-                e => "cannot open {}: {e}", arg.display(),
-            );
+        let files = args.flat_map(|arg| {
+            File::open(arg).inspect_err(|e| message_err!(e, "cannot open '{}'", arg.display()))
+        });
+        for file in files {
             grep(pattern, file, &mut buf);
         }
     }

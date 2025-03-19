@@ -1,11 +1,8 @@
 #![no_std]
 
 use ov6_user_lib::os::ov6::syscall;
-use ov6_utilities::try_or_exit;
+use ov6_utilities::{OrExit as _, exit_err};
 
 fn main() {
-    try_or_exit!(
-        syscall::reboot(),
-        e => "reboot failed: {e}"
-    );
+    syscall::reboot().or_exit(|e| exit_err!(e, "reboot failed"));
 }

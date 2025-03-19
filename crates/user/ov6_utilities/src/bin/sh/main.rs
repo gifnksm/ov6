@@ -13,7 +13,7 @@ use ov6_user_lib::{
     os::fd::AsRawFd as _,
     process::{self, ProcessBuilder},
 };
-use ov6_utilities::{exit, message, try_or, try_or_exit};
+use ov6_utilities::{OrExit as _, exit_err, message, message_err};
 
 use self::util::{SpawnFnOrExit as _, WaitOrExit as _};
 
@@ -44,12 +44,9 @@ fn main() {
     // Read and run input commands.
     let mut buf = String::new();
     loop {
-        let mut cmd = match get_cmd(&mut buf) {
-            Ok(Some(cmd)) => cmd,
-            Ok(None) => break,
-            Err(e) => {
-                exit!("failed to read console: {e}");
-            }
+        let Some(mut cmd) = get_cmd(&mut buf).or_exit(|e| exit_err!(e, "cannot read console"))
+        else {
+            break;
         };
         let mut parts = cmd.split_whitespace();
         if parts.next() == Some("cd") {
@@ -58,18 +55,15 @@ fn main() {
                 message!("Usage: cd <dir>");
                 continue;
             };
-            try_or!(env::set_current_directory(dir),
-                continue,
-                e => "cannot cd {dir}: {e}",
-            );
+            if let Err(e) = env::set_current_directory(dir) {
+                message_err!(e, "cannot cd to '{dir}'");
+                continue;
+            }
             continue;
         }
 
         let mut child = ProcessBuilder::new().spawn_fn_or_exit(|| {
-            let cmd = try_or_exit!(
-                parser::parse_cmd(&mut cmd),
-                e => "syntax error: {e}",
-            );
+            let cmd = parser::parse_cmd(&mut cmd).or_exit(|e| exit_err!(e, "syntax error"));
             let Some(cmd) = cmd else {
                 process::exit(0);
             };

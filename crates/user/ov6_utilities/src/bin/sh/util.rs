@@ -7,7 +7,7 @@ use ov6_user_lib::{
     },
     process::{ChildWithIo, ExitStatus, ProcessBuilder},
 };
-use ov6_utilities::{message, try_or_exit};
+use ov6_utilities::{OrExit as _, exit_err, message};
 
 pub(super) trait SpawnFnOrExit {
     fn spawn_fn_or_exit<F>(&mut self, f: F) -> ChildWithIo
@@ -16,14 +16,13 @@ pub(super) trait SpawnFnOrExit {
 }
 
 impl SpawnFnOrExit for ProcessBuilder {
+    #[track_caller]
     fn spawn_fn_or_exit<F>(&mut self, f: F) -> ChildWithIo
     where
         F: FnOnce() -> Infallible,
     {
-        try_or_exit!(
-            self.spawn_fn(f),
-            e => "fork child process failed: {e}",
-        )
+        self.spawn_fn(f)
+            .or_exit(|e| exit_err!(e, "fork child process failed"))
     }
 }
 
@@ -33,10 +32,9 @@ pub(super) trait WaitOrExit {
 
 impl WaitOrExit for ChildWithIo {
     fn wait_or_exit(&mut self) -> ExitStatus {
-        let status = try_or_exit!(
-            self.wait(),
-            e => "wait child process failed: {e}",
-        );
+        let status = self
+            .wait()
+            .or_exit(|e| exit_err!(e, "wait child process failed"));
         if !status.success() {
             message!("command failed with status {}", status.code());
         }
@@ -45,8 +43,5 @@ impl WaitOrExit for ChildWithIo {
 }
 
 pub(super) unsafe fn close_or_exit(fd: RawFd, fd_name: &str) {
-    try_or_exit!(
-        unsafe { syscall::close(fd.as_raw_fd()) },
-        e => "close {fd_name} failed: {e}",
-    );
+    unsafe { syscall::close(fd.as_raw_fd()) }.or_exit(|e| exit_err!(e, "close {fd_name} failed"));
 }

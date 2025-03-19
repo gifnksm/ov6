@@ -7,7 +7,7 @@ use ov6_user_lib::{
     process::{self, ProcessBuilder, Stdio},
     sync::spin::Mutex,
 };
-use ov6_utilities::try_or_exit;
+use ov6_utilities::{OrExit as _, exit_err};
 
 use crate::util::{self, SpawnFnOrExit as _, WaitOrExit as _};
 
@@ -57,10 +57,8 @@ impl Command<'_> {
                     process::exit(0);
                 }
                 let argv = argv.iter().map(AsRef::as_ref).collect::<Vec<_>>();
-                try_or_exit!(
-                    process::exec(argv[0], &argv),
-                    e => "exec {} failed: {e}", argv[0],
-                );
+                process::exec(argv[0], &argv)
+                    .or_exit(|e| exit_err!(e, "exec '{}' failed", argv[0]));
             }
             Command::Redirect {
                 cmd,
@@ -79,10 +77,9 @@ impl Command<'_> {
                     RedirectMode::OutputAppend => options.read(true).write(true).create(true),
                 };
                 unsafe { util::close_or_exit(fd, fd_name) }
-                let _file = try_or_exit!(
-                    options.open(file.as_ref()),
-                    e => "open {} failed: {e}", file
-                );
+                let _file = options
+                    .open(file.as_ref())
+                    .or_exit(|e| exit_err!(e, "open '{file}' failed"));
                 cmd.run();
             }
             Command::Pipe { left, right } => {
