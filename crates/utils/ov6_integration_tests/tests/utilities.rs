@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use ov6_integration_tests::{monitor, runner, utils};
+use ov6_integration_tests::{helper, monitor, runner};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -78,7 +78,7 @@ async fn primes() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn find_current_dir() -> Result<(), anyhow::Error> {
     let r = runner!("find_current_dir").await?;
-    let file = utils::random_str(8);
+    let file = helper::random_str(8);
     let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(
             qemu,
@@ -99,8 +99,8 @@ async fn find_current_dir() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn find_subdir() -> Result<(), anyhow::Error> {
     let r = runner!("find_subdir").await?;
-    let dir = utils::random_str(8);
-    let file = utils::random_str(8);
+    let dir = helper::random_str(8);
+    let file = helper::random_str(8);
     let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(
             qemu,
@@ -127,11 +127,11 @@ async fn find_subdir() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn find_recursive() -> Result<(), anyhow::Error> {
     let r = runner!("find_recursive").await?;
-    let needle = utils::random_str(8);
+    let needle = helper::random_str(8);
     let dirs = [
-        utils::random_str(8),
-        utils::random_str(8),
-        utils::random_str(8),
+        helper::random_str(8),
+        helper::random_str(8),
+        helper::random_str(8),
     ];
     let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(

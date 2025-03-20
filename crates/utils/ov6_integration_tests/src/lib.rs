@@ -5,10 +5,10 @@ use tokio::process::Command;
 pub use self::{gdb::Gdb, qemu::Qemu, runner::Runner};
 
 mod gdb;
+pub mod helper;
 pub mod monitor;
 mod qemu;
 mod runner;
-pub mod utils;
 
 fn make_command(project_root: &Path) -> Command {
     let mut cmd = Command::new("make");
