@@ -38,6 +38,13 @@ impl fmt::Debug for BorrowedFd<'_> {
 }
 
 impl BorrowedFd<'_> {
+    /// Returns a `BororwFd` holding the given raw file descriptor.
+    ///
+    /// # Safety
+    ///
+    /// The resource pointed to by `fd` must remain open for the duration of the
+    /// returned `BorrowedFd`, and it must not have the value `-1`.
+    #[must_use]
     pub const unsafe fn borrow_raw(fd: RawFd) -> Self {
         Self {
             fd,
@@ -45,6 +52,8 @@ impl BorrowedFd<'_> {
         }
     }
 
+    /// Creates a new `OwnedFd` instance that shares the same underlying file
+    /// description as the existing `BorrowedFd` instance.
     pub fn try_clone_to_owned(&self) -> Result<OwnedFd, Ov6Error> {
         syscall::dup(self.fd)
     }

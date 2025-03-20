@@ -121,7 +121,7 @@ test: cargo-test-build cargo-miri-test-build .WAIT cargo-test .WAIT cargo-miri-t
 
 .PHONY: cargo-clippy
 cargo-clippy:
-	cargo hack clippy --workspace
+	cargo hack clippy --workspace --all-targets
 
 .PHONY: cargo-test
 cargo-test: cargo-test-build

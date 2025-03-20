@@ -1,4 +1,5 @@
 {
+    "rust-analyzer.check.invocationStrategy": "once",
     "rust-analyzer.check.overrideCommand": [
         "cargo",
         "hack",
