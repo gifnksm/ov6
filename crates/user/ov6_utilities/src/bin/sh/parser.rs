@@ -1,11 +1,12 @@
-use alloc::{borrow::Cow, format, string::String, sync::Arc, vec};
-use core::fmt;
+use alloc::{format, string::String, sync::Arc, vec};
+use core::{fmt, iter::Peekable};
 
 use ov6_user_lib::sync::spin::Mutex;
 
-use crate::command::{Command, RedirectFd, RedirectMode};
-
-const SYMBOLS: &[char] = &['<', '|', '>', '&', ';', '(', ')'];
+use crate::{
+    command::{Command, RedirectFd, RedirectMode},
+    tokenizer::{Punct, Token, Tokenizer},
+};
 
 macro_rules! try_opt {
     ($e:expr) => {
@@ -45,330 +46,121 @@ where
     }
 }
 
-fn first(s: &str) -> Option<char> {
-    s.chars().next()
+pub struct Parser<'a> {
+    tokens: Peekable<Tokenizer<'a>>,
 }
 
-fn skip(s: &mut &str, n: usize) {
-    let mut cs = s.chars();
-    for _ in 0..n {
-        if cs.next().is_none() {
-            break;
+impl<'a> Parser<'a> {
+    pub fn new(input: &'a str) -> Self {
+        Self {
+            tokens: Tokenizer::new(input).peekable(),
         }
     }
-    *s = cs.as_str();
-}
 
-fn trim_start(s: &mut &str) {
-    *s = s.trim_start();
-}
-
-fn peek_char(s: &mut &str, chars: &[char]) -> Option<char> {
-    trim_start(s);
-    first(s).filter(|ch| chars.contains(ch))
-}
-
-fn consume_char(s: &mut &str, chars: &[char]) -> Option<char> {
-    trim_start(s);
-    let rest = s.strip_prefix(chars)?;
-    let stripped = first(&s[..s.len() - rest.len()]).unwrap();
-    *s = rest;
-    Some(stripped)
-}
-
-fn consume_str<'s>(s: &mut &'s str) -> Token<'s> {
-    let start = *s;
-    let mut in_double_quotes = false;
-    let mut in_single_quotes = false;
-    let mut escaped = false;
-    let mut needs_allocation = false;
-
-    // Counting phase
-    while let Some(ch) = first(s) {
-        if escaped {
-            escaped = false;
-            needs_allocation = true;
-            skip(s, 1);
-            continue;
+    pub fn parse(&mut self) -> Result<Option<Command<'a>>, ParseError> {
+        let cmd = try_opt!(self.parse_line());
+        if self.tokens.peek().is_some() {
+            return Err("leftover tokens".into());
         }
-        if ch == '\\' && !in_single_quotes {
-            escaped = true;
-            needs_allocation = true;
-            skip(s, 1);
-            continue;
-        }
-        if ch == '\"' && !in_single_quotes {
-            in_double_quotes = !in_double_quotes;
-            needs_allocation = true;
-            skip(s, 1);
-            continue;
-        }
-        if ch == '\'' && !in_double_quotes {
-            in_single_quotes = !in_single_quotes;
-            needs_allocation = true;
-            skip(s, 1);
-            continue;
-        }
-        if !in_double_quotes && !in_single_quotes && (ch.is_whitespace() || SYMBOLS.contains(&ch)) {
-            break;
-        }
-        skip(s, 1);
+        Ok(Some(cmd))
     }
 
-    assert!(!escaped, "unterminated escape sequence");
-    assert!(!in_double_quotes, "unterminated double quote");
-    assert!(!in_single_quotes, "unterminated single quote");
-
-    let input = &start[..start.len() - s.len()];
-    trim_start(s);
-
-    if !needs_allocation {
-        return Token::Str(Cow::Borrowed(input));
+    fn parse_line(&mut self) -> Result<Option<Command<'a>>, ParseError> {
+        let mut cmd = try_opt!(self.parse_pipe());
+        while self.tokens.next_if(|t| *t == Punct::And).is_some() {
+            cmd = Command::Back { cmd: cmd.into() };
+        }
+        while self.tokens.next_if(|t| *t == Punct::Semicolon).is_some() {
+            cmd = Command::List {
+                left: cmd.into(),
+                right: try_opt!(self.parse_line()).into(),
+            };
+        }
+        Ok(Some(cmd))
     }
 
-    let mut result = String::with_capacity(start.len() - s.len());
-    let mut escaped = false;
-
-    // Constructing the actual string
-    for ch in input.chars() {
-        if escaped {
-            result.push(ch);
-            escaped = false;
-            continue;
+    fn parse_pipe(&mut self) -> Result<Option<Command<'a>>, ParseError> {
+        let mut cmd = try_opt!(self.parse_exec());
+        if self.tokens.next_if(|t| *t == Punct::Pipe).is_some() {
+            cmd = Command::Pipe {
+                left: cmd.into(),
+                right: try_opt!(self.parse_pipe()).into(),
+            };
         }
-        if ch == '\\' && !in_single_quotes {
-            escaped = true;
-            continue;
-        }
-        if ch == '\"' && !in_single_quotes {
-            in_double_quotes = !in_double_quotes;
-            continue;
-        }
-        if ch == '\'' && !in_double_quotes {
-            in_single_quotes = !in_single_quotes;
-            continue;
-        }
-        result.push(ch);
+        Ok(Some(cmd))
     }
 
-    Token::Str(Cow::Owned(result))
-}
-
-#[derive(Debug)]
-enum Token<'s> {
-    Str(Cow<'s, str>),
-    Punct(char),
-}
-
-fn consume_token<'s>(s: &mut &'s str) -> Option<Token<'s>> {
-    trim_start(s);
-    let token = match first(s)? {
-        ch @ ('|' | '(' | ')' | ';' | '&' | '<') => {
-            skip(s, 1);
-            Token::Punct(ch)
-        }
-        '>' => {
-            skip(s, 1);
-            if consume_char(s, &['>']).is_some() {
-                Token::Punct('+')
+    fn parse_redirs(&mut self, mut cmd: Command<'a>) -> Result<Option<Command<'a>>, ParseError> {
+        loop {
+            let (mode, fd) = if self.tokens.next_if(|t| *t == Punct::Lt).is_some() {
+                (RedirectMode::Input, RedirectFd::Stdin)
+            } else if self.tokens.next_if(|t| *t == Punct::Gt).is_some() {
+                (RedirectMode::OutputTrunc, RedirectFd::Stdout)
+            } else if self.tokens.next_if(|t| *t == Punct::GtGt).is_some() {
+                (RedirectMode::OutputAppend, RedirectFd::Stdout)
             } else {
-                Token::Punct('>')
-            }
+                break;
+            };
+            let Some(Token::Str(file)) = self.tokens.next() else {
+                return Err("missing file for redirection".into());
+            };
+            cmd = Command::Redirect {
+                cmd: cmd.into(),
+                file,
+                mode,
+                fd,
+            };
         }
-        _ => consume_str(s),
-    };
-    trim_start(s);
-    Some(token)
-}
-
-pub(super) fn parse_cmd<'a>(s: &mut &'a str) -> Result<Option<Command<'a>>, ParseError> {
-    let cmd = try_opt!(parse_line(s));
-    trim_start(s);
-    if !s.is_empty() {
-        return Err(format!("leftover: {s:?}").into());
+        Ok(Some(cmd))
     }
-    Ok(Some(cmd))
-}
 
-fn parse_line<'a>(s: &mut &'a str) -> Result<Option<Command<'a>>, ParseError> {
-    let mut cmd = try_opt!(parse_pipe(s));
-    while consume_char(s, &['&']).is_some() {
-        cmd = Command::Back { cmd: cmd.into() };
-    }
-    while consume_char(s, &[';']).is_some() {
-        cmd = Command::List {
-            left: cmd.into(),
-            right: try_opt!(parse_line(s)).into(),
-        };
-    }
-    Ok(Some(cmd))
-}
-
-fn parse_pipe<'a>(s: &mut &'a str) -> Result<Option<Command<'a>>, ParseError> {
-    let mut cmd = try_opt!(parse_exec(s));
-    if consume_char(s, &['|']).is_some() {
-        cmd = Command::Pipe {
-            left: cmd.into(),
-            right: try_opt!(parse_pipe(s)).into(),
-        };
-    }
-    Ok(Some(cmd))
-}
-
-fn parse_redirs<'a>(
-    mut cmd: Command<'a>,
-    s: &mut &'a str,
-) -> Result<Option<Command<'a>>, ParseError> {
-    while peek_char(s, &['<', '>']).is_some() {
-        let Some(Token::Punct(tok)) = consume_token(s) else {
-            unreachable!()
-        };
-        let Some(Token::Str(file)) = consume_token(s) else {
-            return Err("missing file for redirection".into());
-        };
-        cmd = match tok {
-            '<' => Command::Redirect {
-                cmd: cmd.into(),
-                file,
-                mode: RedirectMode::Input,
-                fd: RedirectFd::Stdin,
-            },
-            '>' => Command::Redirect {
-                cmd: cmd.into(),
-                file,
-                mode: RedirectMode::OutputTrunc,
-                fd: RedirectFd::Stdout,
-            },
-            '+' => Command::Redirect {
-                cmd: cmd.into(),
-                file,
-                mode: RedirectMode::OutputAppend,
-                fd: RedirectFd::Stdout,
-            },
-            _ => unreachable!(),
+    fn parse_block(&mut self) -> Result<Option<Command<'a>>, ParseError> {
+        self.tokens.next_if(|t| *t == Punct::LParen).unwrap();
+        let mut cmd = try_opt!(self.parse_line());
+        if self.tokens.next_if(|t| *t == Punct::RParen).is_none() {
+            return Err(r#"missing ")""#.into());
         }
-    }
-    Ok(Some(cmd))
-}
-
-fn parse_block<'a>(s: &mut &'a str) -> Result<Option<Command<'a>>, ParseError> {
-    consume_char(s, &['(']).unwrap();
-    let mut cmd = try_opt!(parse_line(s));
-    if consume_char(s, &[')']).is_none() {
-        return Err(r#"missing ")""#.into());
-    }
-    cmd = try_opt!(parse_redirs(cmd, s));
-    Ok(Some(cmd))
-}
-
-fn parse_exec<'a>(s: &mut &'a str) -> Result<Option<Command<'a>>, ParseError> {
-    if peek_char(s, &['(']).is_some() {
-        return parse_block(s);
+        cmd = try_opt!(self.parse_redirs(cmd));
+        Ok(Some(cmd))
     }
 
-    let argv = Arc::new(Mutex::new(vec![]));
-    let mut cmd = Command::Exec {
-        argv: Arc::clone(&argv),
-    };
+    fn parse_exec(&mut self) -> Result<Option<Command<'a>>, ParseError> {
+        if self.tokens.peek().is_some_and(|t| *t == Punct::LParen) {
+            return self.parse_block();
+        }
 
-    cmd = try_opt!(parse_redirs(cmd, s));
-    while peek_char(s, &['|', ')', '&', ';']).is_none() {
-        let Some(tok) = consume_token(s) else {
-            break;
+        let argv = Arc::new(Mutex::new(vec![]));
+        let mut cmd = Command::Exec {
+            argv: Arc::clone(&argv),
         };
-        let arg = match tok {
-            Token::Str(arg) => arg,
-            Token::Punct(p) => return Err(format!("unexpected character {p:?}").into()),
-        };
-        argv.lock().push(arg);
-        cmd = try_opt!(parse_redirs(cmd, s));
+
+        cmd = try_opt!(self.parse_redirs(cmd));
+        while self.tokens.peek().is_some_and(|t| {
+            *t != Punct::Pipe && *t != Punct::RParen && *t != Punct::And && *t != Punct::Semicolon
+        }) {
+            let Some(tok) = self.tokens.next() else {
+                break;
+            };
+            let arg = match tok {
+                Token::Str(arg) => arg,
+                Token::Punct(p) => return Err(format!("unexpected character {p:?}").into()),
+            };
+            argv.lock().push(arg);
+            cmd = try_opt!(self.parse_redirs(cmd));
+        }
+        if argv.lock().is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(cmd))
     }
-    if argv.lock().is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(cmd))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[track_caller]
-    fn expect_str(s: &mut &str, expected: &str) {
-        let token = consume_str(s);
-        let Token::Str(token) = token else {
-            panic!("unexpected: {token:?}");
-        };
-        assert_eq!(token, expected);
-    }
-
-    #[test]
-    fn test_consume_str() {
-        let mut s = "hello world";
-        expect_str(&mut s, "hello");
-        expect_str(&mut s, "world");
-
-        let mut s = r#""hello world""#;
-        expect_str(&mut s, "hello world");
-
-        let mut s = "'hello world'";
-        expect_str(&mut s, "hello world");
-
-        let mut s = r"hello\ world";
-        expect_str(&mut s, "hello world");
-    }
-
-    #[test]
-    fn test_consume_str_complex_cases() {
-        let mut s = r#"hello "world" 'test' \n \t \\"#;
-        expect_str(&mut s, "hello");
-        expect_str(&mut s, "world");
-        expect_str(&mut s, "test");
-        expect_str(&mut s, "n");
-        expect_str(&mut s, "t");
-        expect_str(&mut s, "\\");
-
-        let mut s = r#""hello \"world\"""#;
-        expect_str(&mut s, "hello \"world\"");
-
-        let mut s = r"'hello \'world\'''";
-        expect_str(&mut s, "hello \\world\'");
-
-        let mut s = r"hello\ world\!";
-        expect_str(&mut s, "hello world!");
-
-        let mut s = r#""hello\nworld""#;
-        expect_str(&mut s, "hellonworld");
-
-        let mut s = r"'hello\nworld'";
-        expect_str(&mut s, r"hello\nworld");
-    }
-
-    #[test]
-    #[should_panic = "unterminated escape sequence"]
-    fn test_consume_str_unterminated_escape() {
-        let mut s = "hello\\";
-        consume_str(&mut s);
-    }
-
-    #[test]
-    #[should_panic = "unterminated double quote"]
-    fn test_consume_str_unterminated_double_quotes() {
-        let mut s = "hello\"world";
-        consume_str(&mut s);
-    }
-
-    #[test]
-    #[should_panic = "unterminated single quote"]
-    fn test_consume_str_unterminated_single_quotes() {
-        let mut s = "hello\'world";
-        consume_str(&mut s);
-    }
-
     fn parse(input: &str) -> Result<Option<Command>, ParseError> {
-        let mut s = input;
-        let cmd = try_opt!(parse_cmd(&mut s));
-        assert!(s.is_empty());
+        let cmd = try_opt!(Parser::new(input).parse());
         Ok(Some(cmd))
     }
 

@@ -15,10 +15,14 @@ use ov6_user_lib::{
 };
 use ov6_utilities::{OrExit as _, exit_err, message, message_err};
 
-use self::util::{SpawnFnOrExit as _, WaitOrExit as _};
+use self::{
+    parser::Parser,
+    util::{SpawnFnOrExit as _, WaitOrExit as _},
+};
 
 mod command;
 mod parser;
+mod tokenizer;
 mod util;
 
 fn get_cmd(buf: &mut String) -> Result<Option<&str>, Ov6Error> {
@@ -44,8 +48,7 @@ fn main() {
     // Read and run input commands.
     let mut buf = String::new();
     loop {
-        let Some(mut cmd) = get_cmd(&mut buf).or_exit(|e| exit_err!(e, "cannot read console"))
-        else {
+        let Some(cmd) = get_cmd(&mut buf).or_exit(|e| exit_err!(e, "cannot read console")) else {
             break;
         };
         let mut parts = cmd.split_whitespace();
@@ -63,7 +66,9 @@ fn main() {
         }
 
         let mut child = ProcessBuilder::new().spawn_fn_or_exit(|| {
-            let cmd = parser::parse_cmd(&mut cmd).or_exit(|e| exit_err!(e, "syntax error"));
+            let cmd = Parser::new(cmd)
+                .parse()
+                .or_exit(|e| exit_err!(e, "syntax error"));
             let Some(cmd) = cmd else {
                 process::exit(0);
             };
