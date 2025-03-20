@@ -52,6 +52,7 @@ OV6_UTILS=\
 	sh\
 	sleep\
 	wc\
+	xargs\
 	zombie\
 
 OV6_USER_TESTS=\

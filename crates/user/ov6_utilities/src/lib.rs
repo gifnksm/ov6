@@ -13,6 +13,16 @@ macro_rules! message {
 }
 
 #[macro_export]
+macro_rules! exit {
+    ($($msg:tt)*) => {
+        {
+            $crate::message!($($msg)*);
+            ::ov6_user_lib::process::exit(1);
+        }
+    }
+}
+
+#[macro_export]
 macro_rules! message_err {
     ($e:expr, $($msg:tt)*) => {
         {

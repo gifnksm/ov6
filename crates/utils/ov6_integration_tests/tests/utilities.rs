@@ -16,7 +16,8 @@ async fn sleep_no_arguments() -> Result<(), anyhow::Error> {
     })
     .await?;
     assert!(exit_status.success());
-    assert!(stdout.contains("Usage: sleep"));
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert!(lines.iter().any(|s| s.starts_with("Usage: sleep")));
     Ok(())
 }
 
@@ -48,8 +49,9 @@ async fn pingpong() -> Result<(), anyhow::Error> {
     })
     .await?;
     assert!(exit_status.success());
-    assert!(stdout.contains("received ping"));
-    assert!(stdout.contains("received pong"));
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert!(lines.iter().any(|s| s.ends_with("received ping")));
+    assert!(lines.iter().any(|s| s.ends_with(&"received pong")));
     Ok(())
 }
 
@@ -68,8 +70,9 @@ async fn primes() -> Result<(), anyhow::Error> {
         97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181,
         191, 193, 197, 199, 211, 223, 227, 229, 233, 239, 241, 251, 257, 263, 269,
     ];
+    let lines = stdout.lines().collect::<Vec<_>>();
     for p in primes {
-        assert!(stdout.contains(&format!("\nprime {p}\n")));
+        assert!(lines.contains(&format!("prime {p}").as_str()));
     }
     Ok(())
 }
@@ -90,8 +93,9 @@ async fn find_current_dir() -> Result<(), anyhow::Error> {
     })
     .await?;
     assert!(exit_status.success());
-    assert!(stdout.contains(&format!("./{file}\n")));
-    assert!(!stdout.contains("README"));
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert!(lines.contains(&format!("./{file}").as_str()));
+    assert!(!lines.contains(&"README"));
     Ok(())
 }
 
@@ -118,8 +122,9 @@ async fn find_subdir() -> Result<(), anyhow::Error> {
     })
     .await?;
     assert!(exit_status.success());
-    assert!(stdout.contains(&format!("{dir}/{file}\n")));
-    assert!(!stdout.contains(&format!("./{dir}\n")));
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert!(lines.contains(&format!("{dir}/{file}").as_str()));
+    assert!(!lines.contains(&format!("./{dir}").as_str()));
     Ok(())
 }
 
@@ -153,8 +158,53 @@ async fn find_recursive() -> Result<(), anyhow::Error> {
     })
     .await?;
     assert!(exit_status.success());
-    assert!(stdout.contains(&format!("./{}/{}\n", dirs[0], needle)));
-    assert!(stdout.contains(&format!("./{}/{}/{}\n", dirs[0], dirs[1], needle)));
-    assert!(stdout.contains(&format!("./{}/{}\n", dirs[2], needle)));
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert!(lines.contains(&format!("./{}/{}", dirs[0], needle).as_str()));
+    assert!(lines.contains(&format!("./{}/{}/{}", dirs[0], dirs[1], needle).as_str()));
+    assert!(lines.contains(&format!("./{}/{}", dirs[2], needle).as_str()));
+    Ok(())
+}
+
+#[cfg_attr(miri, ignore)]
+#[tokio::test]
+async fn xargs() -> Result<(), anyhow::Error> {
+    let r = runner!("xargs").await?;
+    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+        monitor::run_commands(
+            qemu,
+            0,
+            [
+                "mkdir a",
+                "echo hello > a/b",
+                "mkdir c",
+                "echo hello > c/b",
+                "echo hello > b",
+                "find . b | xargs grep hello",
+                "halt",
+            ],
+        )
+        .await?;
+        Ok(())
+    })
+    .await?;
+    assert!(exit_status.success());
+    let n = stdout.lines().filter(|s| *s == "hello").count();
+    assert_eq!(n, 3);
+    Ok(())
+}
+
+#[cfg_attr(miri, ignore)]
+#[tokio::test]
+async fn xargs_multi_line_echo() -> Result<(), anyhow::Error> {
+    let r = runner!("xargs_multi_line_echo").await?;
+    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+        monitor::run_commands(qemu, 0, ["(echo 1 ; echo 2) | xargs -n 1 echo", "halt"]).await?;
+        Ok(())
+    })
+    .await?;
+    assert!(exit_status.success());
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert!(lines.contains(&"1"));
+    assert!(lines.contains(&"2"));
     Ok(())
 }

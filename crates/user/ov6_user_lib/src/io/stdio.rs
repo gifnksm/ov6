@@ -17,7 +17,10 @@ use crate::{
 #[track_caller]
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
-    stdout().write_fmt(args).unwrap();
+    match stdout().write_fmt(args) {
+        Ok(()) => {}
+        Err(fmt::Error) => panic!("Error writing to stdout"),
+    }
 }
 
 #[track_caller]

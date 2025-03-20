@@ -7,7 +7,7 @@ use ov6_user_lib::{
     println,
     process::{self},
 };
-use ov6_utilities::{OrExit as _, exit_err, message};
+use ov6_utilities::{OrExit as _, exit, exit_err};
 
 fn read_number(rx: &mut PipeReader) -> Option<u32> {
     let pid = process::id();
@@ -55,11 +55,10 @@ fn sieve(mut rx: PipeReader) -> ! {
             .or_exit(|e| exit_err!(e, "[{n}:{pid}] cannot join with child process"));
 
         if !exit_status.success() {
-            message!(
+            exit!(
                 "[{n}:{pid}] child process failed with {}",
                 exit_status.code()
             );
-            process::exit(1);
         }
         process::exit(0);
     }
@@ -88,7 +87,6 @@ fn main() {
         .wait()
         .or_exit(|e| exit_err!(e, "[_:{pid}] cannot wait child process"));
     if !exit_state.success() {
-        message!("[_:{pid}] child process failed with {}", exit_state.code());
-        process::exit(1);
+        exit!("[_:{pid}] child process failed with {}", exit_state.code());
     }
 }
