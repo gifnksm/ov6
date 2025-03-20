@@ -1,5 +1,5 @@
 [package]
-name = "ov6_fs_types"
+name = "safe_cast"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -10,10 +10,7 @@ license.workspace = true
 keywords.workspace = true
 publish.workspace = true
 
+[dependencies]
+
 [lints]
 workspace = true
-
-[dependencies]
-dataview.workspace = true
-ov6_types.workspace = true
-safe_cast = { version = "0.1.0", path = "../safe_cast" }

@@ -17,6 +17,7 @@ use dataview::Pod;
 use once_init::OnceInit;
 use ov6_fs_types::{self as repr, SuperBlock};
 pub use repr::{BlockNo, FS_BLOCK_SIZE, InodeNo, T_DEVICE, T_DIR, T_FILE};
+use safe_cast::SafeInto as _;
 
 pub use self::{
     inode::{Inode, LockedTxInode, TxInode},
@@ -56,7 +57,7 @@ impl DeviceNo {
     }
 
     pub fn as_index(self) -> usize {
-        usize::try_from(self.0).unwrap()
+        self.0.safe_into()
     }
 }
 

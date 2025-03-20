@@ -15,11 +15,13 @@ use crate::{
 };
 
 #[track_caller]
+#[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
     stdout().write_fmt(args).unwrap();
 }
 
 #[track_caller]
+#[doc(hidden)]
 pub fn _eprint(args: fmt::Arguments) {
     stderr().write_fmt(args).unwrap();
 }

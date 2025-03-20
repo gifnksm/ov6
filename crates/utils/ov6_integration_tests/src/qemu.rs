@@ -28,6 +28,7 @@ pub struct Qemu {
 impl Qemu {
     pub const BOOT_MSG: &str = "ov6 kernel is booting";
 
+    #[expect(clippy::missing_panics_doc)]
     pub fn new(
         runner_id: usize,
         project_root: &Path,
@@ -105,6 +106,7 @@ impl Qemu {
         *self.stdout_rx.borrow()
     }
 
+    #[expect(clippy::missing_panics_doc)]
     pub async fn wait_output<F>(&self, start: usize, mut cond: F) -> Result<(), anyhow::Error>
     where
         F: FnMut(&str) -> bool,
@@ -120,6 +122,7 @@ impl Qemu {
         Ok(())
     }
 
+    #[expect(clippy::missing_panics_doc)]
     pub async fn wait_terminate(mut self) -> Result<(ExitStatus, String), anyhow::Error> {
         drop(self.stdin_tx);
         self.stdin_handle

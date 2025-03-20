@@ -180,7 +180,7 @@ where
     /// (LRU) unreferenced cache and returns a reference to it.
     /// If all caches are referenced, panics.
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if all buffers are referenced.
     pub fn get(&self, index: usize) -> BlockRef<'_, Device, LruMutex, BlockMutex, A> {
@@ -379,7 +379,7 @@ where
 
     /// Writes the block to disk.
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if cached data is not valid.
     pub fn write(&mut self) -> Result<(), Device::Error> {

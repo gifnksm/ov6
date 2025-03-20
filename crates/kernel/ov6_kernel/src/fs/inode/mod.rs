@@ -99,10 +99,10 @@ pub struct TxInode<'tx, const READ_ONLY: bool> {
 }
 
 pub(super) struct InodeData {
-    pub(super) ty: i16,
+    pub(super) ty: u16,
     pub(super) major: DeviceNo,
-    pub(super) minor: i16,
-    pub(super) nlink: i16,
+    pub(super) minor: u16,
+    pub(super) nlink: u16,
     size: u32,
     addrs: [Option<BlockNo>; NUM_DIRECT_REFS + 1],
 }
@@ -113,7 +113,7 @@ impl InodeData {
         r.read_addrs(&mut addrs);
         Self {
             ty: r.ty,
-            major: DeviceNo::new(u32::try_from(r.major).unwrap()),
+            major: DeviceNo::new(u32::from(r.major)),
             minor: r.minor,
             nlink: r.nlink,
             size: r.size,
@@ -273,7 +273,7 @@ impl<'tx> TxInode<'tx, false> {
     ///
     /// Returns a n unlocked but allocated and referenced inode,
     /// or `Err()` if there is no free inode.
-    pub fn alloc(tx: &'tx Tx<false>, dev: DeviceNo, ty: i16) -> Result<Self, KernelError> {
+    pub fn alloc(tx: &'tx Tx<false>, dev: DeviceNo, ty: u16) -> Result<Self, KernelError> {
         let ino = alloc_ino(tx, dev, ty)?;
         Ok(Self::get(tx, dev, ino))
     }
@@ -349,11 +349,11 @@ impl<'tx, 'i, const READ_ONLY: bool> LockedTxInode<'tx, 'i, READ_ONLY> {
         self.ino
     }
 
-    pub fn ty(&self) -> i16 {
+    pub fn ty(&self) -> u16 {
         self.data().ty
     }
 
-    pub fn nlink(&self) -> i16 {
+    pub fn nlink(&self) -> u16 {
         self.data().nlink
     }
 
@@ -388,7 +388,7 @@ impl<'tx, 'i, const READ_ONLY: bool> LockedTxInode<'tx, 'i, READ_ONLY> {
 ///
 /// Marks it as allocated by giving it type `ty`.
 /// Returns an allocated inode number or `Err()` if there is no free inode.
-fn alloc_ino(tx: &Tx<false>, dev: DeviceNo, ty: i16) -> Result<InodeNo, KernelError> {
+fn alloc_ino(tx: &Tx<false>, dev: DeviceNo, ty: u16) -> Result<InodeNo, KernelError> {
     let sb = SUPER_BLOCK.get();
 
     for ino in 1..(sb.ninodes) {

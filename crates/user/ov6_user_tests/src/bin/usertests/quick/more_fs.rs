@@ -11,6 +11,7 @@ use ov6_user_lib::{
     process::{self, ProcessBuilder},
     thread,
 };
+use safe_cast::to_u8;
 
 use crate::{BUF, README_PATH, ROOT_DIR_PATH, expect};
 
@@ -579,8 +580,8 @@ pub fn big_file() {
 
     let _ = fs::remove_file(FILE_PATH);
     let mut file = File::create(FILE_PATH).unwrap();
-    for i in 0..N {
-        buf.fill(i.try_into().unwrap());
+    for i in 0..to_u8!(N) {
+        buf.fill(i);
         file.write(buf).unwrap();
     }
     drop(file);

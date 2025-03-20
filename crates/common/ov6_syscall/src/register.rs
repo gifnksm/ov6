@@ -1,6 +1,7 @@
 use core::{convert::Infallible, marker::PhantomData, num::NonZero, time::Duration};
 
 use ov6_types::{fs::RawFd, process::ProcId};
+use safe_cast::SafeInto as _;
 
 use crate::{
     OpenFlags, Register, RegisterDecodeError, RegisterValue, UserMutRef, UserMutSlice, UserRef,
@@ -147,8 +148,7 @@ macro_rules! impl_number {
                         ),
                     );
                 };
-                // this conversion must be success
-                let n: $base_ty = self.try_into().unwrap();
+                let n: $base_ty = self.safe_into();
                 n.encode().map_type()
             }
 
@@ -664,4 +664,4 @@ impl_value!([T] (RawFd, UserSlice<T>), Infallible, 3, tuple_encode_12, tuple_dec
 impl_value!([T] (RawFd, UserMutSlice<T>), Infallible, 3, tuple_encode_12, tuple_decode_12);
 impl_value!([T: ?Sized, U] (UserRef<T>, UserSlice<U>), Infallible, 3, tuple_encode_12, tuple_decode_12);
 
-impl_value!([T] (UserSlice<T>, u32, i16), RegisterDecodeError, 4, tuple_encode_211, tuple_decode_211);
+impl_value!([T] (UserSlice<T>, u32, u16), RegisterDecodeError, 4, tuple_encode_211, tuple_decode_211);

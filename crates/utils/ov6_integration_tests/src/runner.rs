@@ -25,6 +25,7 @@ pub struct Runner {
 }
 
 impl Runner {
+    #[expect(clippy::missing_panics_doc)]
     pub async fn new(
         pkg_name: &str,
         module_path: &str,

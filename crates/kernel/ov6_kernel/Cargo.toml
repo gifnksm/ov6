@@ -37,6 +37,7 @@ ov6_syscall.workspace = true
 ov6_types.workspace = true
 page_alloc.workspace = true
 riscv.workspace = true
+safe_cast = { version = "0.1.0", path = "../../common/safe_cast" }
 slab_allocator.workspace = true
 thiserror.workspace = true
 vcell.workspace = true

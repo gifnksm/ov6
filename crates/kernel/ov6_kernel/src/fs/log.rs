@@ -108,7 +108,7 @@ impl LogHeader {
 
     /// Writes in-memory block cache to log body.
     fn write_log_body(&mut self) {
-        for (i, br) in self.blocks.iter_mut().enumerate() {
+        for (i, br) in (0..).zip(&mut self.blocks) {
             let Ok(bg) = br.lock().read();
             let mut log_br = block_io::get(self.dev, self.sb.log_body_block(i).as_index());
             let mut log_bg = log_br.lock().set_data(bg.bytes());

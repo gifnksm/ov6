@@ -22,3 +22,4 @@ dataview.workspace = true
 ov6_fs_types.workspace = true
 ov6_kernel_params.workspace = true
 ov6_types.workspace = true
+safe_cast = { version = "0.1.0", path = "../../common/safe_cast" }

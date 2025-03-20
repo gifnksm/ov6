@@ -41,15 +41,27 @@ impl<const PAGE_SIZE: usize> HeapAllocator<PAGE_SIZE> {
     /// # Safety
     ///
     /// The caller must ensure that the given layout is valid.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    ///
+    /// * `layout.size()` is greater than `PAGE_SIZE`.
+    /// * `layout.align()` is greater than `PAGE_SIZE`.
+    /// * `PAGE_SIZE` is not a multiple of `layout.align()`.
+    /// * `PAGE_SIZE` is not a power of two.
     pub unsafe fn alloc(
         &mut self,
         page_alloc: &mut PageFrameAllocator<PAGE_SIZE>,
         layout: Layout,
     ) -> *mut u8 {
+        const {
+            assert!(PAGE_SIZE.is_power_of_two());
+        }
+
         assert!(layout.size() <= PAGE_SIZE);
         assert!(layout.align() <= PAGE_SIZE);
         assert_eq!(PAGE_SIZE % layout.align(), 0);
-        assert!(PAGE_SIZE.is_power_of_two());
 
         unsafe {
             let (bin_size, bin_idx) = bin(layout.size());
@@ -91,12 +103,22 @@ impl<const PAGE_SIZE: usize> HeapAllocator<PAGE_SIZE> {
     ///   and,
     /// * `layout` is the same layout that was used to allocate that block of
     ///   memory.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    ///
+    /// * `layout.size()` is greater than `PAGE_SIZE`.
+    /// * `layout.align()` is greater than `PAGE_SIZE`.
+    /// * `PAGE_SIZE` is not a multiple of `layout.align()`.
     unsafe fn dealloc(&mut self, ptr: *mut u8, layout: Layout) {
+        const {
+            assert!(PAGE_SIZE.is_power_of_two());
+        }
+
         assert!(layout.size() <= PAGE_SIZE);
         assert!(layout.align() <= PAGE_SIZE);
         assert_eq!(PAGE_SIZE % layout.align(), 0);
-        assert!(PAGE_SIZE.is_power_of_two());
-
         let (_bin_size, bin_idx) = bin(layout.size());
         let free_list = &mut self.free_list_heads[bin_idx];
         #[expect(clippy::cast_ptr_alignment)]

@@ -79,7 +79,7 @@ pub(crate) enum KernelError {
     #[error("no free inode data im-memory table entry")]
     NoFreeInodeDataInMemoryTableEntry,
     #[error("corraputed inode type: inode={0}, type={1}")]
-    CorruptedInodeType(InodeNo, i16),
+    CorruptedInodeType(InodeNo, u16),
     #[error("storage out of blocks")]
     StorageOutOfBlocks,
     #[error("storage out of inodes")]

@@ -157,10 +157,10 @@ impl File {
     pub fn metadata(&self) -> Result<Metadata, Ov6Error> {
         let stat = syscall::fstat(self.fd.as_raw_fd())?;
         Ok(Metadata {
-            dev: stat.dev.cast_unsigned(),
+            dev: stat.dev,
             ino: stat.ino,
             ty: StatType::from_repr(stat.ty).ok_or(Ov6Error::Unknown)?,
-            nlink: stat.nlink.cast_unsigned(),
+            nlink: stat.nlink,
             size: stat.size,
         })
     }
@@ -228,7 +228,7 @@ impl Read for &'_ File {
     }
 }
 
-pub fn mknod<P>(path: P, major: u32, minor: i16) -> Result<(), Ov6Error>
+pub fn mknod<P>(path: P, major: u32, minor: u16) -> Result<(), Ov6Error>
 where
     P: AsRef<Path>,
 {
@@ -250,10 +250,10 @@ where
     let fd = syscall::open(path.as_ref(), OpenFlags::READ_ONLY)?;
     let stat = syscall::fstat(fd.as_raw_fd())?;
     Ok(Metadata {
-        dev: stat.dev.cast_unsigned(),
+        dev: stat.dev,
         ino: stat.ino,
         ty: StatType::from_repr(stat.ty).ok_or(Ov6Error::Unknown)?,
-        nlink: stat.nlink.cast_unsigned(),
+        nlink: stat.nlink,
         size: stat.size,
     })
 }
@@ -278,7 +278,7 @@ where
 {
     let fd = syscall::open(path.as_ref(), OpenFlags::READ_ONLY)?;
     let st = syscall::fstat(fd.as_raw_fd())?;
-    if st.ty != StatType::Dir as i16 {
+    if st.ty != StatType::Dir as u16 {
         return Err(Ov6Error::NotADirectory);
     }
     Ok(ReadDir { fd })

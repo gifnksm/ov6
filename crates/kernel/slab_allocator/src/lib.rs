@@ -22,10 +22,19 @@ impl<T> SlabAllocator<T> {
     ///
     /// The given range of pointers must be valid and not overlap with other
     /// memory regions.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    ///
+    /// - The start or end address of the given range is not aligned to `T`.
+    /// - The size of the given range is not a multiple of the size of `T`.
     #[must_use]
     pub unsafe fn new(range: Range<*mut T>) -> Self {
-        assert!(size_of::<Run>() <= size_of::<T>());
-        assert!(align_of::<T>() % align_of::<Run>() == 0);
+        const {
+            assert!(size_of::<Run>() <= size_of::<T>());
+            assert!(align_of::<T>() % align_of::<Run>() == 0);
+        }
 
         assert_eq!(range.start.addr() % align_of::<T>(), 0);
         assert_eq!(range.end.addr() % align_of::<T>(), 0);
@@ -58,8 +67,16 @@ impl<T> SlabAllocator<T> {
     /// # Safety
     ///
     /// The given address must have been previously allocated by this
-    /// `SlabAlocater<T>`. The memory must not be accessed after it has been
+    /// `SlabAllocator<T>`. The memory must not be accessed after it has been
     /// freed. The memory must not be deallocated more than once.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    ///
+    /// - The given address is not within the range managed by this
+    ///   `SlabAllocator<T>`.
+    /// - The given address is not aligned to `T`.
     pub unsafe fn deallocate(&mut self, ptr: NonNull<T>) {
         assert!(self.range.contains(&ptr.as_ptr()));
         assert_eq!(ptr.addr().get() % align_of::<T>(), 0);

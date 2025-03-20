@@ -27,20 +27,20 @@ bitflags! {
 #[derive(Debug, Pod)]
 pub struct Stat {
     /// File system's disk device
-    pub dev: i32,
+    pub dev: u32,
     /// Inode number
     pub ino: u32,
     /// Type of file
-    pub ty: i16,
+    pub ty: u16,
     /// Number of links to file
-    pub nlink: i16,
+    pub nlink: u16,
     pub padding: [u8; 4],
     /// Size of file in bytes
     pub size: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromRepr)]
-#[repr(i16)]
+#[repr(u16)]
 pub enum StatType {
     Dir = 1,
     File,

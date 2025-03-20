@@ -2,6 +2,7 @@ use alloc::boxed::Box;
 use core::{array, mem, pin::Pin, ptr, sync::atomic::Ordering};
 
 use once_init::OnceInit;
+use safe_cast::{SafeInto as _, to_u16, to_u32};
 use vcell::VolatileCell;
 
 use crate::{
@@ -213,7 +214,7 @@ impl<const N: usize> Disk<N> {
         assert!(max as usize >= N);
 
         // set queue size.
-        self.write_reg(MmioRegister::QueueNum, N.try_into().unwrap());
+        self.write_reg(MmioRegister::QueueNum, to_u32!(N));
 
         // write physical addresses.
         self.write_reg(MmioRegister::QueueDescLow, addr_low(&*self.desc));
@@ -232,44 +233,46 @@ impl<const N: usize> Disk<N> {
     }
 
     /// Finds a free descriptor, marks it non-free, returns its index.
-    fn alloc_desc(&mut self) -> Option<usize> {
-        let idx = self.free.iter().position(|free| *free)?;
-        self.free[idx] = false;
+    fn alloc_desc(&mut self) -> Option<u16> {
+        let idx = (0..)
+            .zip(&self.free)
+            .find_map(|(i, free)| free.then_some(i))?;
+        self.free[usize::from(idx)] = false;
         Some(idx)
     }
 
     /// Marks a descriptor as free.
-    fn free_desc(&mut self, i: usize) {
-        assert!(i < NUM);
-        assert!(!self.free[i]);
-        self.desc[i] = VirtqDesc {
+    fn free_desc(&mut self, i: u16) {
+        assert!(i < to_u16!(NUM));
+        assert!(!self.free[usize::from(i)]);
+        self.desc[usize::from(i)] = VirtqDesc {
             addr: 0,
             len: 0,
             flags: VirtqDescFlags::empty(),
             next: 0,
         };
-        self.free[i] = true;
+        self.free[usize::from(i)] = true;
         self.desc_freed.notify();
     }
 
     // Frees a chain of descriptors.
-    fn free_chain(&mut self, mut i: usize) {
+    fn free_chain(&mut self, mut i: u16) {
         loop {
-            let desc = &self.desc[i];
+            let desc = &self.desc[usize::from(i)];
             let flag = desc.flags;
             let next = desc.next;
             self.free_desc(i);
             if !flag.contains(VirtqDescFlags::NEXT) {
                 break;
             }
-            i = next.into();
+            i = next;
         }
     }
 
     /// Allocates three descriptors (they need not be contiguous).
     ///
     /// Disk transfers always use three descriptors.
-    fn alloc3_desc(&mut self) -> Option<[usize; 3]> {
+    fn alloc3_desc(&mut self) -> Option<[u16; 3]> {
         let mut idx = [0; 3];
         for i in 0..3 {
             if let Some(x) = self.alloc_desc() {
@@ -284,12 +287,12 @@ impl<const N: usize> Disk<N> {
         Some(idx)
     }
 
-    fn send_request(&mut self, offset: usize, req: &Request, desc_idx: [usize; 3]) {
+    fn send_request(&mut self, offset: usize, req: &Request, desc_idx: [u16; 3]) {
         assert!(offset % BLK_SECTOR_SIZE == 0);
         let sector = (offset / BLK_SECTOR_SIZE) as u64;
         assert_eq!(req.len(), FS_BLOCK_SIZE);
 
-        let buf0 = &mut self.ops[desc_idx[0]];
+        let buf0 = &mut self.ops[usize::from(desc_idx[0])];
         *buf0 = VirtioBlkReq {
             ty: req.ty(),
             reserved: 0,
@@ -297,24 +300,24 @@ impl<const N: usize> Disk<N> {
         };
         let buf0_addr = ptr::from_mut(buf0).addr();
 
-        self.desc[desc_idx[0]] = VirtqDesc {
+        self.desc[usize::from(desc_idx[0])] = VirtqDesc {
             addr: buf0_addr as u64,
-            len: size_of::<VirtioBlkReq>().try_into().unwrap(),
+            len: to_u32!(size_of::<VirtioBlkReq>()),
             flags: VirtqDescFlags::NEXT,
-            next: desc_idx[1].try_into().unwrap(),
+            next: desc_idx[1],
         };
 
-        self.desc[desc_idx[1]] = VirtqDesc {
+        self.desc[usize::from(desc_idx[1])] = VirtqDesc {
             addr: req.as_ptr().addr() as u64,
-            len: FS_BLOCK_SIZE.try_into().unwrap(),
+            len: to_u32!(FS_BLOCK_SIZE),
             flags: req.flag() | VirtqDescFlags::NEXT,
-            next: desc_idx[2].try_into().unwrap(),
+            next: desc_idx[2],
         };
 
-        let info = &mut self.info[desc_idx[0]];
+        let info = &mut self.info[usize::from(desc_idx[0])];
         info.status.set(0xff); // device writes 0 on success
-        self.desc[desc_idx[2]] = VirtqDesc {
-            addr: info.status.as_ptr().addr() as u64,
+        self.desc[usize::from(desc_idx[2])] = VirtqDesc {
+            addr: info.status.as_ptr().addr().safe_into(),
             len: 1,
             flags: VirtqDescFlags::WRITE,
             next: 0,
@@ -325,7 +328,7 @@ impl<const N: usize> Disk<N> {
 
         // tell the device the first index in our chain of descriptors.
         let avail_idx = self.avail.idx.load(Ordering::Relaxed) as usize;
-        self.avail.ring[avail_idx % NUM] = desc_idx[0].try_into().unwrap();
+        self.avail.ring[avail_idx % NUM] = desc_idx[0];
 
         // tell the device another avail ring entry is available.
         self.avail.idx.fetch_add(1, Ordering::AcqRel);
@@ -360,8 +363,10 @@ fn read_or_write(offset: usize, req: &Request) {
 
     // send request and wait for `handle_interrupts()` to say request has finished.
     disk.send_request(offset, req, desc_idx);
-    while disk.info[desc_idx[0]].in_progress {
-        disk = disk.info[desc_idx[0]].completed.force_wait(disk);
+    while disk.info[usize::from(desc_idx[0])].in_progress {
+        disk = disk.info[usize::from(desc_idx[0])]
+            .completed
+            .force_wait(disk);
     }
 
     // deallocate descriptors.

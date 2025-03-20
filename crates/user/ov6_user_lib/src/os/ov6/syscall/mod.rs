@@ -75,7 +75,7 @@ pub fn open(path: &Path, flags: OpenFlags) -> Result<OwnedFd, Ov6Error> {
     unsafe { Ok(OwnedFd::from_raw_fd(fd)) }
 }
 
-pub fn mknod(path: &Path, major: u32, minor: i16) -> Result<(), Ov6Error> {
+pub fn mknod(path: &Path, major: u32, minor: u16) -> Result<(), Ov6Error> {
     syscall::Mknod::call((UserSlice::new(path.as_os_str().as_bytes()), major, minor))?;
     Ok(())
 }

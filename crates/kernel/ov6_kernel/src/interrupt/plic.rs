@@ -32,17 +32,15 @@ pub fn init_hart() {
 }
 
 /// Asks the PLIC what interrupt we should serve.
-pub fn claim() -> usize {
+pub fn claim() -> u32 {
     let hart = cpu::id();
-    let irq = unsafe { ptr::with_exposed_provenance_mut::<u32>(plic_sclaim(hart)).read_volatile() };
-    irq as usize
+    unsafe { ptr::with_exposed_provenance_mut::<u32>(plic_sclaim(hart)).read_volatile() }
 }
 
 /// Tells the PLIC we've served this IRQ.
-pub fn complete(irq: usize) {
+pub fn complete(irq: u32) {
     let hart = cpu::id();
     unsafe {
-        ptr::with_exposed_provenance_mut::<u32>(plic_sclaim(hart))
-            .write_volatile(irq.try_into().unwrap());
+        ptr::with_exposed_provenance_mut::<u32>(plic_sclaim(hart)).write_volatile(irq);
     }
 }

@@ -22,9 +22,9 @@ pub(super) fn stat_inode(inode: &Inode) -> Result<Stat, KernelError> {
         ty => return Err(KernelError::CorruptedInodeType(lip.ino(), ty)),
     };
     let st = Stat {
-        dev: lip.dev().value().cast_signed(),
+        dev: lip.dev().value(),
         ino: lip.ino().value(),
-        ty: ty as i16,
+        ty: ty as u16,
         nlink: lip.nlink(),
         padding: [0; 4],
         size: u64::from(lip.size()),

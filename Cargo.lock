@@ -233,6 +233,7 @@ version = "0.1.0"
 dependencies = [
  "dataview",
  "ov6_types",
+ "safe_cast",
 ]
 
 [[package]]
@@ -243,6 +244,7 @@ dependencies = [
  "ov6_fs_types",
  "ov6_kernel_params",
  "ov6_types",
+ "safe_cast",
 ]
 
 [[package]]
@@ -280,6 +282,7 @@ dependencies = [
  "ov6_types",
  "page_alloc",
  "riscv",
+ "safe_cast",
  "slab_allocator",
  "thiserror",
  "vcell",
@@ -303,6 +306,7 @@ dependencies = [
  "bitflags",
  "dataview",
  "ov6_types",
+ "safe_cast",
  "strum",
  "thiserror",
 ]
@@ -334,6 +338,7 @@ dependencies = [
  "ov6_fs_types",
  "ov6_kernel_params",
  "ov6_user_lib",
+ "safe_cast",
 ]
 
 [[package]]
@@ -476,6 +481,10 @@ name = "rustversion"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eded382c5f5f786b989652c49544c4877d9f015cc22e145a5ea8ea66c2921cd2"
+
+[[package]]
+name = "safe_cast"
+version = "0.1.0"
 
 [[package]]
 name = "signal-hook-registry"

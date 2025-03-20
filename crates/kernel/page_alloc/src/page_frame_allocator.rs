@@ -24,9 +24,18 @@ impl<const PAGE_SIZE: usize> PageFrameAllocator<PAGE_SIZE> {
     ///
     /// The given range of physical memory must be valid and not overlap with
     /// other memory regions.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    ///
+    /// - The start address of the heap is not greater than 0.
+    /// - The start or end address of the heap is not page-aligned.
     #[must_use]
     pub unsafe fn new(heap: Range<*mut u8>) -> Self {
-        assert!(size_of::<Run>() <= PAGE_SIZE);
+        const {
+            assert!(size_of::<Run>() <= PAGE_SIZE);
+        }
 
         assert!(heap.start.addr() > 0);
         assert_eq!(heap.start.addr() % PAGE_SIZE, 0);
@@ -70,6 +79,13 @@ impl<const PAGE_SIZE: usize> PageFrameAllocator<PAGE_SIZE> {
     /// The given page must have been previously allocated by this
     /// `PageAllocator`. The page must not be accessed after it has been
     /// freed. The page must not be freed more than once.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    ///
+    /// - The given page is not within the managed heap range.
+    /// - The given page is not page-aligned.
     pub unsafe fn free(&mut self, page: NonNull<u8>) {
         assert!(self.heap.contains(&page.as_ptr()));
         assert_eq!(page.addr().get() % PAGE_SIZE, 0);

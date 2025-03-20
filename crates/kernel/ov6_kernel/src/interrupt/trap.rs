@@ -13,6 +13,7 @@ use riscv::{
         stvec::{self, Stvec, TrapMode},
     },
 };
+use safe_cast::to_u32;
 
 use super::{kernel_vec, plic, timer, trampoline};
 use crate::{
@@ -286,9 +287,9 @@ fn handle_dev_interrupt(int: Interrupt) -> IntrKind {
             // irq indicates which device interrupted.
             let irq = plic::claim();
 
-            if irq == UART0_IRQ {
+            if irq == to_u32!(UART0_IRQ) {
                 uart::handle_interrupt();
-            } else if irq == VIRTIO0_IRQ {
+            } else if irq == to_u32!(VIRTIO0_IRQ) {
                 fs::virtio_disk::handle_interrupt();
             } else if irq > 0 {
                 println!("unexpected interrupt irq={irq}");

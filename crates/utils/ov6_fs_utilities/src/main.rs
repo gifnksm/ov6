@@ -19,6 +19,7 @@ use ov6_fs_types::{
 };
 use ov6_kernel_params::{FS_LOG_SIZE, FS_SIZE, NUM_FS_INODES};
 use ov6_types::os_str::OsStr;
+use safe_cast::{SafeFrom as _, to_u32, to_u64};
 
 const _: () = const {
     assert!(FS_BLOCK_SIZE % size_of::<Inode>() == 0);
@@ -57,7 +58,7 @@ fn main() -> io::Result<()> {
     let mut inode = Inode::zeroed();
     fs.read_inode(root_ino, &mut inode)?;
     let size = u32::from_le(inode.size);
-    let size = size.next_multiple_of(u32::try_from(FS_BLOCK_SIZE).unwrap());
+    let size = size.next_multiple_of(to_u32!(FS_BLOCK_SIZE));
     inode.size = size.to_le();
     fs.write_inode(root_ino, &inode)?;
 
@@ -84,7 +85,7 @@ struct FileSystem {
 
 impl FileSystem {
     fn new(image_file: &Path) -> io::Result<Self> {
-        let total_blocks = u32::try_from(FS_SIZE).unwrap();
+        let total_blocks = to_u32!(FS_SIZE);
         let mut fs = Self {
             img: File::options()
                 .read(true)
@@ -92,12 +93,12 @@ impl FileSystem {
                 .truncate(true)
                 .create(true)
                 .open(image_file)?,
-            num_bmap_blocks: u32::try_from(FS_SIZE / BITS_PER_BLOCK + 1).unwrap(),
-            num_inode_blocks: u32::try_from(NUM_FS_INODES / INODE_PER_BLOCK + 1).unwrap(),
-            num_log_blocks: u32::try_from(FS_LOG_SIZE).unwrap(),
+            num_bmap_blocks: to_u32!(FS_SIZE / BITS_PER_BLOCK + 1),
+            num_inode_blocks: to_u32!(NUM_FS_INODES / INODE_PER_BLOCK + 1),
+            num_log_blocks: to_u32!(FS_LOG_SIZE),
             num_meta_blocks: 0,
             num_blocks: 0,
-            num_inodes: u32::try_from(NUM_FS_INODES).unwrap(),
+            num_inodes: to_u32!(NUM_FS_INODES),
             next_free_inode: InodeNo::new(1),
             next_free_block: BlockNo::new(2),
             total_blocks,
@@ -191,7 +192,7 @@ impl FileSystem {
     fn write_bitmap(&mut self) -> io::Result<()> {
         let mut buf = [0_u8; FS_BLOCK_SIZE];
 
-        let used = usize::try_from(self.next_free_block.value()).unwrap();
+        let used = usize::safe_from(self.next_free_block.value());
         println!("balloc: first {used} blocks have been allocated");
         for i in 0..used {
             buf[i / 8] |= 1 << (i % 8);
@@ -208,7 +209,7 @@ impl FileSystem {
     {
         let data = data.as_bytes();
         assert_eq!(data.len(), FS_BLOCK_SIZE);
-        let offset = u64::from(bn.value()) * u64::try_from(FS_BLOCK_SIZE).unwrap();
+        let offset = u64::from(bn.value()) * to_u64!(FS_BLOCK_SIZE);
         self.img.seek(SeekFrom::Start(offset))?;
         self.img.write_all(data)?;
         Ok(())
@@ -220,7 +221,7 @@ impl FileSystem {
     {
         let data = data.as_bytes_mut();
         assert_eq!(data.len(), FS_BLOCK_SIZE);
-        let offset = u64::from(bn.value()) * u64::try_from(FS_BLOCK_SIZE).unwrap();
+        let offset = u64::from(bn.value()) * to_u64!(FS_BLOCK_SIZE);
         self.img.seek(SeekFrom::Start(offset))?;
         self.img.read_exact(data)?;
         Ok(())
@@ -248,13 +249,13 @@ impl FileSystem {
         Ok(())
     }
 
-    fn alloc_inode(&mut self, ty: i16) -> io::Result<InodeNo> {
+    fn alloc_inode(&mut self, ty: u16) -> io::Result<InodeNo> {
         let ino = self.next_free_inode;
         self.next_free_inode = InodeNo::new(self.next_free_inode.value() + 1);
 
         let inode = Inode {
             ty: ty.to_le(),
-            nlink: 1_i16.to_le(),
+            nlink: 1_u16.to_le(),
             size: 0_u32.to_le(),
             ..Inode::zeroed()
         };
@@ -276,7 +277,7 @@ impl FileSystem {
 
         let mut inode = Inode::zeroed();
         self.read_inode(ino, &mut inode)?;
-        let mut file_off = usize::try_from(u32::from_le(inode.size)).unwrap();
+        let mut file_off = usize::safe_from(u32::from_le(inode.size));
         // println!("append ino {ino} at off {file_off} {} sz", data.len());
 
         while !data.is_empty() {

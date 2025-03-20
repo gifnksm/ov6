@@ -69,9 +69,9 @@ pub fn create<'tx>(
     tx: &'tx Tx<'tx, false>,
     cwd: TxInode<'tx, false>,
     path: &Path,
-    ty: i16,
+    ty: u16,
     major: DeviceNo,
-    minor: i16,
+    minor: u16,
 ) -> Result<TxInode<'tx, false>, KernelError> {
     let (dir_path, file_name) = split_path(path).ok_or(KernelError::CreateRootDir)?;
     let mut dir_ip = path::resolve(tx, cwd, dir_path)?;

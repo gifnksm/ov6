@@ -1,3 +1,5 @@
+use safe_cast::{SafeInto as _, to_u32};
+
 use super::{
     BlockNo, DeviceNo, SUPER_BLOCK, Tx,
     repr::{self, BITS_PER_BLOCK},
@@ -14,22 +16,21 @@ fn block_zero(tx: &Tx<false>, dev: DeviceNo, block_no: BlockNo) {
 /// Returns None if out of disk space.
 pub fn alloc(tx: &Tx<false>, dev: DeviceNo) -> Result<BlockNo, KernelError> {
     let sb = SUPER_BLOCK.get();
-    let sb_size = sb.size as usize;
-    for bn0 in (0..sb_size).step_by(BITS_PER_BLOCK) {
+    for bn0 in (0..sb.size).step_by(BITS_PER_BLOCK) {
         let mut br = tx.get_block(dev, sb.bmap_block(bn0));
         let Ok(mut bg) = br.lock().read();
-        let Some(bni) = (0..BITS_PER_BLOCK)
-            .take_while(|bni| bn0 + *bni < sb_size)
-            .find(|bni| {
-                !bg.data::<repr::BmapBlock>().bit(*bni) // block is free (bit = 0)
+        let Some(bni) = (0..to_u32!(BITS_PER_BLOCK))
+            .take_while(|bni| bn0 + *bni < sb.size)
+            .find(|&bni| {
+                !bg.data::<repr::BmapBlock>().is_allocated(bni.safe_into()) // block is free (bit = 0)
             })
         else {
             continue;
         };
-        bg.data_mut::<repr::BmapBlock>().set_bit(bni); // mark block in use
+        bg.data_mut::<repr::BmapBlock>().allocate(bni.safe_into()); // mark block in use
         drop(bg);
 
-        let bn = BlockNo::new((bn0 + bni).try_into().unwrap());
+        let bn = BlockNo::new(bn0 + bni);
         block_zero(tx, dev, bn);
         return Ok(bn);
     }
@@ -40,9 +41,12 @@ pub fn alloc(tx: &Tx<false>, dev: DeviceNo) -> Result<BlockNo, KernelError> {
 /// Frees a disk block.
 pub fn free(tx: &Tx<false>, dev: DeviceNo, b: BlockNo) {
     let sb = SUPER_BLOCK.get();
-    let mut br = tx.get_block(dev, sb.bmap_block(b.as_index()));
+    let mut br = tx.get_block(dev, sb.bmap_block(b.value()));
     let Ok(mut bg) = br.lock().read();
     let bi = b.value() as usize % BITS_PER_BLOCK;
-    assert!(bg.data::<repr::BmapBlock>().bit(bi), "freeing free block");
-    bg.data_mut::<repr::BmapBlock>().clear_bit(bi);
+    assert!(
+        bg.data::<repr::BmapBlock>().is_allocated(bi),
+        "freeing free block"
+    );
+    bg.data_mut::<repr::BmapBlock>().free(bi);
 }

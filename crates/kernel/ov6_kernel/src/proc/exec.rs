@@ -3,6 +3,7 @@ use core::slice;
 use dataview::PodMethods as _;
 use ov6_syscall::{UserMutSlice, UserSlice};
 use ov6_types::path::Path;
+use safe_cast::{SafeFrom as _, SafeInto as _};
 
 use super::ProcPrivateData;
 use crate::{
@@ -90,7 +91,7 @@ pub fn exec(
 
     // Commit to the user image.
     private.update_pagetable(pt);
-    private.trapframe_mut().epc = elf.entry.try_into().unwrap(); // initial pogram counter = main
+    private.trapframe_mut().epc = elf.entry.safe_into(); // initial pogram counter = main
     private.trapframe_mut().sp = sp; // initial stack pointer
 
     Ok((argc, argv))
@@ -102,7 +103,7 @@ fn load_segments<const READ_ONLY: bool>(
     elf: &ElfHeader,
 ) -> Result<(), KernelError> {
     for i in 0..elf.phnum {
-        let off = usize::try_from(elf.phoff).unwrap() + usize::from(i) * size_of::<ProgramHeader>();
+        let off = usize::safe_from(elf.phoff) + usize::from(i) * size_of::<ProgramHeader>();
         let mut ph = ProgramHeader::zero();
         lip.read(ph.as_bytes_mut().into(), off)?;
         if ph.ty != ELF_PROG_LOAD {
@@ -115,11 +116,11 @@ fn load_segments<const READ_ONLY: bool>(
             return Err(KernelError::InvalidExecutable);
         }
 
-        let va_start = VirtAddr::new(usize::try_from(ph.vaddr).unwrap())?;
+        let va_start = VirtAddr::new(ph.vaddr.safe_into())?;
         if !va_start.is_page_aligned() {
             return Err(KernelError::InvalidExecutable);
         }
-        let va_end = va_start.byte_add(usize::try_from(ph.memsz).unwrap())?;
+        let va_end = va_start.byte_add(ph.memsz.safe_into())?;
 
         new_pt.grow_to(va_end.addr(), flags2perm(ph.flags))?;
 
@@ -127,8 +128,8 @@ fn load_segments<const READ_ONLY: bool>(
             new_pt,
             va_start,
             lip,
-            ph.off.try_into().unwrap(),
-            ph.filesz.try_into().unwrap(),
+            ph.off.safe_into(),
+            ph.filesz.safe_into(),
         )?;
     }
 

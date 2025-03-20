@@ -17,5 +17,6 @@ workspace = true
 bitflags.workspace = true
 dataview.workspace = true
 ov6_types.workspace = true
+safe_cast = { version = "0.1.0", path = "../safe_cast" }
 strum.workspace = true
 thiserror.workspace = true

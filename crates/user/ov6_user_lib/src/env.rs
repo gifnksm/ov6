@@ -27,6 +27,12 @@ fn argv() -> &'static [*const c_char] {
     unsafe { slice::from_raw_parts(argv, argc) }
 }
 
+/// Returns the first argument passed to the program (usually the program name).
+///
+/// # Panics
+///
+/// Panics if `argc` is less than 1, which should not happen as the program name
+/// is always the first argument.
 #[must_use]
 pub fn arg0() -> &'static OsStr {
     let arg0 = argv().first().expect("argc should be greater than 1");
