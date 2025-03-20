@@ -147,3 +147,19 @@ pub fn abort(code: u16) -> Result<Infallible, Ov6Error> {
     let _: Infallible = syscall::Abort::call((code,))?;
     unreachable!()
 }
+
+#[must_use]
+#[cfg(target_arch = "riscv64")]
+pub fn uptime() -> u64 {
+    let time: u64;
+    unsafe {
+        core::arch::asm!("csrr {}, time", out(reg) time);
+    }
+    time * 100
+}
+
+#[must_use]
+#[cfg(not(target_arch = "riscv64"))]
+pub fn uptime() -> u64 {
+    unimplemented!()
+}

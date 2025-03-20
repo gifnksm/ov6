@@ -51,6 +51,7 @@ OV6_UTILS=\
 	rm\
 	sh\
 	sleep\
+	uptime\
 	wc\
 	xargs\
 	zombie\

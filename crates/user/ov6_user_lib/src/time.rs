@@ -1,6 +1,8 @@
 use core::ops::{Add, Sub, SubAssign};
 pub use core::time::Duration;
 
+use crate::os::ov6::syscall;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Instant {
     nanos: u64,
@@ -8,19 +10,9 @@ pub struct Instant {
 
 impl Instant {
     #[must_use]
-    #[cfg(target_arch = "riscv64")]
     pub fn now() -> Self {
-        let time: u64;
-        unsafe {
-            core::arch::asm!("csrr {}, time", out(reg) time);
-        }
-        Self { nanos: time * 100 }
-    }
-
-    #[must_use]
-    #[cfg(not(target_arch = "riscv64"))]
-    pub fn now() -> Self {
-        unimplemented!()
+        let nanos = syscall::uptime();
+        Self { nanos }
     }
 
     #[must_use]
