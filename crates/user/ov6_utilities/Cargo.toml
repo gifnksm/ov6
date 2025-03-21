@@ -14,7 +14,9 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+derive_more.workspace = true
 ov6_user_lib.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 ov6_user_lib = {workspace = true, features = ["std"]}

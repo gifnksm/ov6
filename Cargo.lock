@@ -345,7 +345,9 @@ dependencies = [
 name = "ov6_utilities"
 version = "0.1.0"
 dependencies = [
+ "derive_more",
  "ov6_user_lib",
+ "thiserror",
 ]
 
 [[package]]
