@@ -1,18 +1,20 @@
-use alloc::{borrow::Cow, string::String};
-use core::{fmt, str::Chars};
+use alloc::{borrow::Cow, vec::Vec};
+use core::{fmt, slice};
 
-const SYMBOLS: &[char] = &['<', '|', '>', '&', ';', '(', ')'];
+use ov6_user_lib::os_str::{OsStr, OsString};
+
+const SYMBOLS: &[u8] = b"<|>&;()";
 
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::From)]
 pub enum Token<'s> {
-    Str(Cow<'s, str>),
+    Str(Cow<'s, OsStr>),
     Punct(Punct),
 }
 
 impl fmt::Display for Token<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Str(s) => fmt::Display::fmt(s, f),
+            Self::Str(s) => fmt::Display::fmt(&OsStr::new(s).display(), f),
             Self::Punct(p) => fmt::Display::fmt(p, f),
         }
     }
@@ -21,7 +23,7 @@ impl fmt::Display for Token<'_> {
 impl PartialEq<str> for Token<'_> {
     fn eq(&self, other: &str) -> bool {
         match self {
-            Token::Str(s) => s == other,
+            Token::Str(s) => OsStr::new(s) == other,
             Token::Punct(_) => false,
         }
     }
@@ -80,30 +82,33 @@ impl fmt::Display for Punct {
 
 #[derive(Debug, Clone)]
 struct PeekableChars<'a> {
-    chars: Chars<'a>,
+    chars: slice::Iter<'a, u8>,
 }
 
 impl Iterator for PeekableChars<'_> {
-    type Item = char;
+    type Item = u8;
 
-    fn next(&mut self) -> Option<char> {
-        self.chars.next()
+    fn next(&mut self) -> Option<u8> {
+        self.chars.next().copied()
     }
 }
 
 impl<'a> PeekableChars<'a> {
-    fn new(input: &'a str) -> Self {
+    fn new<S>(input: &'a S) -> Self
+    where
+        S: AsRef<[u8]> + ?Sized,
+    {
         Self {
-            chars: input.chars(),
+            chars: input.as_ref().iter(),
         }
     }
 
-    fn next_if<F>(&mut self, f: F) -> Option<char>
+    fn next_if<F>(&mut self, f: F) -> Option<u8>
     where
-        F: FnOnce(char) -> bool,
+        F: FnOnce(u8) -> bool,
     {
         let mut chars = self.chars.clone();
-        let c = chars.next()?;
+        let c = chars.next().copied()?;
         if !f(c) {
             return None;
         }
@@ -111,12 +116,12 @@ impl<'a> PeekableChars<'a> {
         Some(c)
     }
 
-    fn next_if_eq(&mut self, c: char) -> Option<char> {
+    fn next_if_eq(&mut self, c: u8) -> Option<u8> {
         self.next_if(|x| c == x)
     }
 
-    fn as_str(&self) -> &'a str {
-        self.chars.as_str()
+    fn as_slice(&self) -> &'a [u8] {
+        self.chars.as_slice()
     }
 }
 
@@ -135,14 +140,17 @@ pub struct Tokenizer<'a> {
 }
 
 impl<'a> Tokenizer<'a> {
-    pub fn new(input: &'a str) -> Self {
+    pub fn new<S>(input: &'a S) -> Self
+    where
+        S: AsRef<[u8]> + ?Sized,
+    {
         Self {
             chars: PeekableChars::new(input),
         }
     }
 
-    fn next_str(&mut self) -> Result<Option<Cow<'a, str>>, TokenizeError> {
-        let start = self.chars.as_str();
+    fn next_str(&mut self) -> Result<Option<Cow<'a, OsStr>>, TokenizeError> {
+        let start = self.chars.as_slice();
         if start.is_empty() {
             return Ok(None);
         }
@@ -153,7 +161,7 @@ impl<'a> Tokenizer<'a> {
         let mut needs_allocation = false;
 
         // Counting phase
-        while !self.chars.as_str().is_empty() {
+        while !self.chars.as_slice().is_empty() {
             if escaped {
                 escaped = false;
                 needs_allocation = true;
@@ -162,7 +170,7 @@ impl<'a> Tokenizer<'a> {
             }
             if self
                 .chars
-                .next_if(|c| !in_single_quotes && c == '\\')
+                .next_if(|c| !in_single_quotes && c == b'\\')
                 .is_some()
             {
                 escaped = true;
@@ -171,7 +179,7 @@ impl<'a> Tokenizer<'a> {
             }
             if self
                 .chars
-                .next_if(|c| !in_single_quotes && c == '\"')
+                .next_if(|c| !in_single_quotes && c == b'\"')
                 .is_some()
             {
                 in_double_quotes = !in_double_quotes;
@@ -180,7 +188,7 @@ impl<'a> Tokenizer<'a> {
             }
             if self
                 .chars
-                .next_if(|c| !in_double_quotes && c == '\'')
+                .next_if(|c| !in_double_quotes && c == b'\'')
                 .is_some()
             {
                 in_single_quotes = !in_single_quotes;
@@ -192,7 +200,7 @@ impl<'a> Tokenizer<'a> {
                 .next_if(|c| {
                     in_double_quotes
                         || in_single_quotes
-                        || (!c.is_whitespace() && !SYMBOLS.contains(&c))
+                        || (!c.is_ascii_whitespace() && !SYMBOLS.contains(&c))
                 })
                 .is_none()
             {
@@ -210,57 +218,57 @@ impl<'a> Tokenizer<'a> {
             return Err(TokenizeError::UnterminatedSingleQuote);
         }
 
-        let input_len = start.len() - self.chars.as_str().len();
+        let input_len = start.len() - self.chars.as_slice().len();
         let input = &start[..input_len];
 
         if !needs_allocation {
-            return Ok(Some(Cow::Borrowed(input)));
+            return Ok(Some(Cow::Borrowed(OsStr::from_bytes(input))));
         }
 
-        let mut result = String::with_capacity(input.len());
+        let mut result = Vec::with_capacity(input.len());
         let mut escaped = false;
 
         // Constructing the actual string
-        for ch in input.chars() {
+        for ch in input.iter().copied() {
             if escaped {
                 result.push(ch);
                 escaped = false;
                 continue;
             }
-            if ch == '\\' && !in_single_quotes {
+            if ch == b'\\' && !in_single_quotes {
                 escaped = true;
                 continue;
             }
-            if ch == '\"' && !in_single_quotes {
+            if ch == b'\"' && !in_single_quotes {
                 in_double_quotes = !in_double_quotes;
                 continue;
             }
-            if ch == '\'' && !in_double_quotes {
+            if ch == b'\'' && !in_double_quotes {
                 in_single_quotes = !in_single_quotes;
                 continue;
             }
             result.push(ch);
         }
 
-        Ok(Some(Cow::Owned(result)))
+        Ok(Some(Cow::Owned(OsString::from_vec(result))))
     }
 
     fn next_token(&mut self) -> Result<Option<Token<'a>>, TokenizeError> {
-        while self.chars.next_if(char::is_whitespace).is_some() {}
-        let token: Token<'_> = if self.chars.next_if(|c| c == '|').is_some() {
+        while self.chars.next_if(|c| c.is_ascii_whitespace()).is_some() {}
+        let token: Token<'_> = if self.chars.next_if(|c| c == b'|').is_some() {
             Punct::Pipe.into()
-        } else if self.chars.next_if_eq('(').is_some() {
+        } else if self.chars.next_if_eq(b'(').is_some() {
             Punct::LParen.into()
-        } else if self.chars.next_if_eq(')').is_some() {
+        } else if self.chars.next_if_eq(b')').is_some() {
             Punct::RParen.into()
-        } else if self.chars.next_if_eq(';').is_some() {
+        } else if self.chars.next_if_eq(b';').is_some() {
             Punct::Semicolon.into()
-        } else if self.chars.next_if_eq('&').is_some() {
+        } else if self.chars.next_if_eq(b'&').is_some() {
             Punct::And.into()
-        } else if self.chars.next_if_eq('<').is_some() {
+        } else if self.chars.next_if_eq(b'<').is_some() {
             Punct::Lt.into()
-        } else if self.chars.next_if_eq('>').is_some() {
-            if self.chars.next_if_eq('>').is_some() {
+        } else if self.chars.next_if_eq(b'>').is_some() {
+            if self.chars.next_if_eq(b'>').is_some() {
                 Punct::GtGt.into()
             } else {
                 Punct::Gt.into()
@@ -287,7 +295,7 @@ mod tests {
     #[track_caller]
     fn assert_next_is_str(s: &mut Tokenizer, expected: &str) {
         let token = s.next().unwrap().unwrap();
-        assert_eq!(token, Token::Str(expected.into()));
+        assert_eq!(token, Token::Str(OsStr::new(expected).into()));
     }
 
     #[track_caller]

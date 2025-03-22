@@ -1,7 +1,7 @@
 use alloc::{borrow::Cow, vec, vec::Vec};
 use core::iter::Peekable;
 
-use ov6_user_lib::os_str::{OsStr, OsString};
+use ov6_user_lib::os_str::OsStr;
 
 use crate::{
     command::{Command, OutputMode, Redirect},
@@ -152,7 +152,7 @@ impl<'a> Parser<'a> {
         })? {
             let arg: Cow<OsStr> = match tok {
                 Token::Str(Cow::Borrowed(arg)) => OsStr::new(arg).into(),
-                Token::Str(Cow::Owned(arg)) => OsString::from(arg).into(),
+                Token::Str(Cow::Owned(arg)) => arg.into(),
                 Token::Punct(p) => return Err(ParseError::UnexpectedPunct(p)),
             };
             argv.push(arg);
@@ -188,10 +188,10 @@ mod tests {
         expected_stdin: Option<&str>,
         expected_stdout: Option<(&str, OutputMode)>,
     ) {
-        assert_eq!(redirect.stdin.as_deref(), expected_stdin);
+        assert_eq!(redirect.stdin.as_deref(), expected_stdin.map(OsStr::new));
         assert_eq!(
             redirect.stdout.as_ref().map(|(s, m)| (s.as_ref(), *m)),
-            expected_stdout
+            expected_stdout.map(|(s, m)| (OsStr::new(s), m))
         );
     }
 

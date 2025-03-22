@@ -4,8 +4,8 @@ use ov6_user_lib::os_str::OsStr;
 
 #[derive(Debug, Default)]
 pub(super) struct Redirect<'a> {
-    pub(super) stdin: Option<Cow<'a, str>>,
-    pub(super) stdout: Option<(Cow<'a, str>, OutputMode)>,
+    pub(super) stdin: Option<Cow<'a, OsStr>>,
+    pub(super) stdout: Option<(Cow<'a, OsStr>, OutputMode)>,
 }
 
 impl Redirect<'_> {

@@ -1,10 +1,11 @@
-use alloc::{borrow::Cow, string::String, vec::Vec};
+use alloc::{borrow::Cow, vec::Vec};
 use core::convert::Infallible;
 
 use ov6_user_lib::{
     error::Ov6Error,
     fs::File,
     os_str::{OsStr, OsString},
+    path::Path,
     process::{self, ChildWithIo, ExitStatus, ProcessBuilder, Stdio},
 };
 use ov6_utilities::{message, message_err};
@@ -26,8 +27,8 @@ impl ToCode for ExitStatus {
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum RunError {
-    #[error("cannot open '{file}': {err}")]
-    OpenFile { file: String, err: Ov6Error },
+    #[error("cannot open '{}': {}", file.display(), err)]
+    OpenFile { file: OsString, err: Ov6Error },
     #[error("cannot fork child process: {err}")]
     Fork { err: Ov6Error },
     #[error("cannot exec '{}': {}", arg0.display(), err)]
@@ -49,7 +50,7 @@ impl Redirect<'_> {
     fn open(self) -> Result<ProcessBuilder, RunError> {
         let mut builder = ProcessBuilder::new();
         if let Some(file) = self.stdin {
-            let stdin = File::open(file.as_ref()).map_err(|err| RunError::OpenFile {
+            let stdin = File::open(Path::new(&file)).map_err(|err| RunError::OpenFile {
                 file: file.into_owned(),
                 err,
             })?;
@@ -62,7 +63,7 @@ impl Redirect<'_> {
                 OutputMode::Append => options.read(true).write(true).create(true),
             };
             let stdout = options
-                .open(file.as_ref())
+                .open(Path::new(&file))
                 .map_err(|err| RunError::OpenFile {
                     file: file.into_owned(),
                     err,
