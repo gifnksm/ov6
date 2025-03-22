@@ -1,16 +1,2 @@
-*~
-_*
-*.o
-*.d
-*.asm
-*.sym
-*.img
-vectors.S
-bootblock
-entryother
-initcode
-initcode.out
-kernelmemfs
-user/usys.S
 .gdbinit
 target/

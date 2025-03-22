@@ -104,15 +104,15 @@ $(foreach exe,$(OV6_USER_TESTS),$(eval $$(RX)/$(exe): $$(RX)/ov6_user_tests.stam
 %/:
 	mkdir -p $@
 
-fs.img: README $(FS_CONTENTS)
+$R/fs.img: README $(FS_CONTENTS)
 	cargo run --bin mkfs -- $@ README $(FS_CONTENTS)
 
 .PHONY: all
-all: $R/kernel fs.img
+all: $R/kernel $R/fs.img
 
 .PHONY: clean
 clean:
-	rm -f fs.img .gdbinit
+	rm -f .gdbinit
 	cargo clean
 
 .PHONY: check
@@ -130,7 +130,7 @@ cargo-test: cargo-test-build
 	cargo nextest run --workspace
 
 .PHONY: cargo-test-build
-cargo-test-build: $R/kernel fs.img
+cargo-test-build: $R/kernel $R/fs.img
 	cargo nextest run --workspace --no-run
 
 .PHONY: cargo-miri-test
@@ -161,7 +161,7 @@ CPUS := 3
 endif
 
 QEMU_KERNEL=$R/kernel
-QEMU_FS=fs.img
+QEMU_FS=$R/fs.img
 
 QEMU_OPTS = -machine virt -bios none -kernel $(QEMU_KERNEL) -m 128M -smp $(CPUS) -nographic
 QEMU_OPTS += -global virtio-mmio.force-legacy=false

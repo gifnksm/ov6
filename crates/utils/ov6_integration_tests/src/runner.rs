@@ -110,7 +110,7 @@ fn setup_workspace(
         .join(DEFAULT_MAKE_PROFILE);
 
     let kernel_src = artifacts_dir.join("kernel");
-    let fs_src = project_root.join("fs.img");
+    let fs_src = artifacts_dir.join("fs.img");
 
     let kernel_dst = workspace_dir.join("kernel");
     let fs_dst = workspace_dir.join("fs.img");
