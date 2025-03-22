@@ -15,6 +15,7 @@ workspace = true
 
 [dependencies]
 derive_more.workspace = true
+once_init.workspace = true
 ov6_user_lib = { workspace = true, features = ["lang_items"] }
 thiserror.workspace = true
 
