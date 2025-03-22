@@ -11,19 +11,16 @@ use ov6_user_lib::{
     fs::File,
     io::{self},
     os::fd::AsRawFd as _,
-    process::{self, ProcessBuilder},
+    process::{self},
 };
 use ov6_utilities::{OrExit as _, exit_err, message, message_err};
 
-use self::{
-    parser::Parser,
-    util::{SpawnFnOrExit as _, WaitOrExit as _},
-};
+use self::parser::Parser;
 
 mod command;
 mod parser;
+mod run;
 mod tokenizer;
-mod util;
 
 fn get_cmd(buf: &mut String) -> Result<Option<&str>, Ov6Error> {
     eprint!("$ ");
@@ -49,8 +46,9 @@ fn main() {
     let mut buf = String::new();
     loop {
         let Some(cmd) = get_cmd(&mut buf).or_exit(|e| exit_err!(e, "cannot read console")) else {
-            break;
+            process::exit(0);
         };
+
         let mut parts = cmd.split_whitespace();
         if parts.next() == Some("cd") {
             // chdir must be called by the parent, not the child.
@@ -65,16 +63,11 @@ fn main() {
             continue;
         }
 
-        let mut child = ProcessBuilder::new().spawn_fn_or_exit(|| {
-            let cmd = Parser::new(cmd)
-                .parse()
-                .or_exit(|e| exit_err!(e, "syntax error"));
-            let Some(cmd) = cmd else {
-                process::exit(0);
-            };
-            cmd.run();
-        });
-        child.wait_or_exit();
+        let Ok(list) = Parser::new(cmd).parse().inspect_err(|e| {
+            message_err!(e, "syntax error");
+        }) else {
+            continue;
+        };
+        run::run_list(list);
     }
-    process::exit(0);
 }

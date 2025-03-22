@@ -1,11 +1,3 @@
 {
-    "rust-analyzer.check.invocationStrategy": "once",
-    "rust-analyzer.check.overrideCommand": [
-        "cargo",
-        "hack",
-        "clippy",
-        "--message-format=json-diagnostic-rendered-ansi",
-        "--keep-going",
-        "--all-targets",
-    ]
+    "rust-analyzer.check.workspace": false
 }

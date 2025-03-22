@@ -24,12 +24,18 @@ macro_rules! exit {
 
 #[macro_export]
 macro_rules! message_err {
+    ($e:expr) => {
+        {
+            let prog = ::ov6_user_lib::env::arg0().display();
+            ::ov6_user_lib::eprintln!("{prog}: {e}", e = $e);
+        }
+    };
     ($e:expr, $($msg:tt)*) => {
         {
             let prog = ::ov6_user_lib::env::arg0().display();
             ::ov6_user_lib::eprintln!("{prog}: {msg}: {e}", msg = ::core::format_args!($($msg)*), e = $e);
         }
-    }
+    };
 }
 
 #[macro_export]
