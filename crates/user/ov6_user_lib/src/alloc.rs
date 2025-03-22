@@ -49,7 +49,7 @@ fn malloc(nbytes: usize, free_list: &mut *mut Header) -> Result<*mut u8, Ov6Erro
                 return Ok(p.add(1).cast());
             }
 
-            if p == *free_list {
+            if ptr::eq(p, *free_list) {
                 // wrapped around free list
                 p = expand_heap(nunits, free_list)?;
             }
@@ -76,7 +76,7 @@ unsafe fn free(ap: *mut u8, free_list: &mut *mut Header) {
             p = (*p).next;
         }
 
-        if bp.add((*bp).size) == (*p).next {
+        if ptr::eq(bp.add((*bp).size), (*p).next) {
             // join to upper neighbor
             (*bp).size += (*(*p).next).size;
             (*bp).next = (*(*p).next).next;
@@ -84,7 +84,7 @@ unsafe fn free(ap: *mut u8, free_list: &mut *mut Header) {
             (*bp).next = (*p).next;
         }
 
-        if p.add((*p).size) == bp {
+        if ptr::eq(p.add((*p).size), bp) {
             // join to lower neighbor
             (*p).size += (*bp).size;
             (*p).next = (*bp).next;
