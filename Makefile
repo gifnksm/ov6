@@ -37,6 +37,7 @@ OV6_UTILS=\
 	abort\
 	cat\
 	echo\
+	false\
 	find\
 	grep\
 	halt\
@@ -51,6 +52,7 @@ OV6_UTILS=\
 	rm\
 	sh\
 	sleep\
+	true\
 	uptime\
 	wc\
 	xargs\
