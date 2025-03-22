@@ -7,9 +7,15 @@ use crate::os_str::{self, OsStr};
 #[cfg(feature = "alloc")]
 mod path_buf;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Path {
     inner: OsStr,
+}
+
+impl fmt::Debug for Path {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.as_os_str().fmt(f)
+    }
 }
 
 impl Path {

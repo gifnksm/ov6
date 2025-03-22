@@ -8,15 +8,22 @@ use core::{
     borrow::Borrow,
     cmp,
     convert::Infallible,
+    fmt,
     ops::{Deref, DerefMut, Index, IndexMut, RangeFull},
     str::{FromStr, Utf8Error},
 };
 
 use super::OsStr;
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OsString {
     inner: Vec<u8>,
+}
+
+impl fmt::Debug for OsString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.as_os_str().fmt(f)
+    }
 }
 
 impl OsString {

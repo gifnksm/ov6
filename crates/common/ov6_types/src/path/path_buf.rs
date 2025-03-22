@@ -7,6 +7,7 @@ use core::{
     borrow::Borrow,
     cmp,
     convert::Infallible,
+    fmt,
     ops::{Deref, DerefMut},
     str::FromStr,
 };
@@ -14,9 +15,15 @@ use core::{
 use super::Path;
 use crate::os_str::{OsStr, OsString};
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PathBuf {
     inner: OsString,
+}
+
+impl fmt::Debug for PathBuf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.as_os_str().fmt(f)
+    }
 }
 
 impl PathBuf {

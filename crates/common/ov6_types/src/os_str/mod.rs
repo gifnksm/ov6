@@ -9,9 +9,15 @@ pub use self::os_string::OsString;
 #[cfg(feature = "alloc")]
 mod os_string;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OsStr {
     inner: [u8],
+}
+
+impl fmt::Debug for OsStr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.utf8_chunks().debug().fmt(f)
+    }
 }
 
 impl OsStr {
