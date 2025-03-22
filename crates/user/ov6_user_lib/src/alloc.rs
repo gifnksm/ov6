@@ -114,10 +114,11 @@ fn expand_heap(mut nunits: usize, free_list: &mut *mut Header) -> Result<*mut He
     }
 }
 
+#[cfg(all(feature = "lang_items", not(feature = "test")))]
 #[global_allocator]
 static GLOBAL: Allocator = Allocator;
 
-struct Allocator;
+pub struct Allocator;
 
 unsafe impl GlobalAlloc for Allocator {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {

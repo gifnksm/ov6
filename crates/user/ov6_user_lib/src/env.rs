@@ -11,7 +11,7 @@ use crate::{error::Ov6Error, os::ov6::syscall};
 pub(crate) static ARGC: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static ARGV: AtomicPtr<*const c_char> = AtomicPtr::new(core::ptr::null_mut());
 
-#[cfg(all(not(feature = "std"), not(test)))]
+#[cfg(all(feature = "lang_items", not(feature = "test")))]
 pub(crate) fn set_args(argc: usize, argv: *const *const c_char) {
     ARGC.store(argc, Ordering::Relaxed);
     ARGV.store(argv.cast_mut(), Ordering::Relaxed);

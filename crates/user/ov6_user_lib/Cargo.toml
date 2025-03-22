@@ -24,4 +24,8 @@ thiserror.workspace = true
 
 [features]
 default = []
-std = []
+lang_items = []
+test = []
+
+[dev-dependencies]
+ov6_user_lib = { path = ".", features = ["test"] }

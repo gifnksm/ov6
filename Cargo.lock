@@ -328,6 +328,7 @@ dependencies = [
  "ov6_fs_types",
  "ov6_syscall",
  "ov6_types",
+ "ov6_user_lib",
  "thiserror",
 ]
 

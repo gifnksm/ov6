@@ -123,7 +123,12 @@ test: cargo-test-build cargo-miri-test-build .WAIT cargo-test .WAIT cargo-miri-t
 
 .PHONY: cargo-clippy
 cargo-clippy:
-	cargo hack clippy --workspace --all-targets
+	# cannot use --all-targets here
+	cargo hack clippy --workspace --lib
+	cargo hack clippy --workspace --bins
+	cargo hack clippy --workspace --tests --exclude ov6_kernel
+	cargo hack clippy --workspace --benches --exclude ov6_kernel
+	cargo hack clippy --workspace --examples
 
 .PHONY: cargo-test
 cargo-test: cargo-test-build

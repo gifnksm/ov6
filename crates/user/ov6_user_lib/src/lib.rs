@@ -12,7 +12,6 @@ pub use ov6_types::{os_str, path};
 #[macro_use]
 mod macros;
 
-#[cfg(all(not(feature = "std"), not(test)))]
 pub mod alloc;
 pub mod env;
 pub mod error;
@@ -25,7 +24,7 @@ pub mod sync;
 pub mod thread;
 pub mod time;
 
-#[cfg(all(not(feature = "std"), not(test)))]
+#[cfg(all(feature = "lang_items", not(feature = "test")))]
 #[lang = "start"]
 fn lang_start<T>(main: fn() -> T, argc: isize, argv: *const *const u8, _: u8) -> isize {
     assert!(argc >= 0, "argc should be greater than or equal to 0");
@@ -34,7 +33,7 @@ fn lang_start<T>(main: fn() -> T, argc: isize, argv: *const *const u8, _: u8) ->
     process::exit(0);
 }
 
-#[cfg(all(not(feature = "std"), not(test)))]
+#[cfg(all(feature = "lang_items", not(feature = "test")))]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     eprintln!("panic: {info}");

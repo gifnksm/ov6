@@ -17,7 +17,7 @@ bench = false
 
 [dependencies]
 ov6_syscall.workspace = true
-ov6_user_lib.workspace = true
+ov6_user_lib = { workspace = true, features = ["lang_items"] }
 
 [lints]
 workspace = true

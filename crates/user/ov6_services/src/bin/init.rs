@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 
 use ov6_user_lib::{
     env, eprintln,
@@ -6,7 +6,6 @@ use ov6_user_lib::{
     fs::{self, File},
     process::{self, ProcessBuilder},
 };
-// use ov6_utilities::{message, try_or_panic};
 
 const CONSOLE: u32 = 1;
 
