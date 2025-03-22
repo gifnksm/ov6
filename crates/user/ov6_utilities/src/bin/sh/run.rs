@@ -104,6 +104,21 @@ pub(super) fn run(cmd: Command<'_>) -> Result<ExitStatus, RunError> {
             }
             wait(right?, cmd.background)
         }
+        CommandKind::LogicalAnd { left, right } => {
+            let left_status = run(left)?;
+            if !left_status.success() {
+                return Ok(left_status);
+            }
+            run(right)
+        }
+        CommandKind::LogicalOr { left, right } => {
+            match run(left) {
+                Ok(status) if status.success() => return Ok(status),
+                Ok(_status) => {}
+                Err(e) => message_err!(e),
+            }
+            run(right)
+        }
     }
 }
 

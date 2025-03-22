@@ -8,6 +8,15 @@ use crate::{
     tokenizer::{Punct, Token, TokenizeError, Tokenizer},
 };
 
+static EXEC_TERMINATOR: &[Punct] = &[
+    Punct::Pipe,
+    Punct::AndAnd,
+    Punct::OrOr,
+    Punct::RParen,
+    Punct::And,
+    Punct::Semicolon,
+];
+
 macro_rules! try_opt {
     ($e:expr) => {
         match $e {
@@ -98,6 +107,12 @@ impl<'a> Parser<'a> {
         if self.tokens.next_if(|t| *t == Punct::Pipe)?.is_some() {
             cmd = Command::pipe(cmd, try_opt!(self.parse_pipe()));
         }
+        if self.tokens.next_if(|t| *t == Punct::AndAnd)?.is_some() {
+            cmd = Command::logical_and(cmd, try_opt!(self.parse_pipe()));
+        }
+        if self.tokens.next_if(|t| *t == Punct::OrOr)?.is_some() {
+            cmd = Command::logical_or(cmd, try_opt!(self.parse_pipe()));
+        }
         Ok(Some(cmd))
     }
 
@@ -147,9 +162,10 @@ impl<'a> Parser<'a> {
         let mut redirect = Redirect::new();
 
         self.parse_redirs(&mut redirect)?;
-        while let Some(tok) = self.tokens.next_if(|t| {
-            *t != Punct::Pipe && *t != Punct::RParen && *t != Punct::And && *t != Punct::Semicolon
-        })? {
+        while let Some(tok) = self
+            .tokens
+            .next_if(|t| t.as_punct().is_none_or(|p| !EXEC_TERMINATOR.contains(&p)))?
+        {
             let arg: Cow<OsStr> = match tok {
                 Token::Str(Cow::Borrowed(arg)) => OsStr::new(arg).into(),
                 Token::Str(Cow::Owned(arg)) => arg.into(),

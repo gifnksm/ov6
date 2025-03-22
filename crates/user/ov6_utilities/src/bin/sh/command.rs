@@ -28,6 +28,14 @@ pub(super) enum CommandKind<'a> {
         left: Command<'a>,
         right: Command<'a>,
     },
+    LogicalAnd {
+        left: Command<'a>,
+        right: Command<'a>,
+    },
+    LogicalOr {
+        left: Command<'a>,
+        right: Command<'a>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,5 +68,13 @@ impl<'a> Command<'a> {
 
     pub(super) fn pipe(left: Self, right: Self) -> Self {
         Self::new(CommandKind::Pipe { left, right })
+    }
+
+    pub(super) fn logical_and(left: Self, right: Self) -> Self {
+        Self::new(CommandKind::LogicalAnd { left, right })
+    }
+
+    pub(super) fn logical_or(left: Self, right: Self) -> Self {
+        Self::new(CommandKind::LogicalOr { left, right })
     }
 }

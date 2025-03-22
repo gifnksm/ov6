@@ -208,3 +208,47 @@ async fn xargs_multi_line_echo() -> Result<(), anyhow::Error> {
     assert!(lines.contains(&"2"));
     Ok(())
 }
+
+#[cfg_attr(miri, ignore)]
+#[tokio::test]
+async fn sh_and() -> Result<(), anyhow::Error> {
+    let r = runner!("sh_and").await?;
+    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+        monitor::run_commands(
+            qemu,
+            0,
+            ["(echo a; true) && (echo b; false) && (echo c)", "halt"],
+        )
+        .await?;
+        Ok(())
+    })
+    .await?;
+    assert!(exit_status.success());
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert!(lines.contains(&"a"));
+    assert!(lines.contains(&"b"));
+    assert!(!lines.contains(&"c"));
+    Ok(())
+}
+
+#[cfg_attr(miri, ignore)]
+#[tokio::test]
+async fn sh_or() -> Result<(), anyhow::Error> {
+    let r = runner!("sh_or").await?;
+    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+        monitor::run_commands(
+            qemu,
+            0,
+            ["(echo a; false) || (echo b; true) || (echo c)", "halt"],
+        )
+        .await?;
+        Ok(())
+    })
+    .await?;
+    assert!(exit_status.success());
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert!(lines.contains(&"a"));
+    assert!(lines.contains(&"b"));
+    assert!(!lines.contains(&"c"));
+    Ok(())
+}

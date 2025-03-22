@@ -39,6 +39,13 @@ impl PartialEq<Punct> for Token<'_> {
 }
 
 impl Token<'_> {
+    pub fn as_punct(&self) -> Option<Punct> {
+        let Self::Punct(p) = self else {
+            return None;
+        };
+        Some(*p)
+    }
+
     pub fn into_owned(self) -> Token<'static> {
         match self {
             Self::Str(s) => Token::Str(s.into_owned().into()),
@@ -50,6 +57,8 @@ impl Token<'_> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Punct {
     Pipe,
+    AndAnd,
+    OrOr,
     LParen,
     RParen,
     Semicolon,
@@ -67,6 +76,8 @@ impl Punct {
             Self::RParen => ")",
             Self::Semicolon => ";",
             Self::And => "&",
+            Self::AndAnd => "&&",
+            Self::OrOr => "||",
             Self::Lt => "<",
             Self::Gt => ">",
             Self::GtGt => ">>",
@@ -255,8 +266,12 @@ impl<'a> Tokenizer<'a> {
 
     fn next_token(&mut self) -> Result<Option<Token<'a>>, TokenizeError> {
         while self.chars.next_if(|c| c.is_ascii_whitespace()).is_some() {}
-        let token: Token<'_> = if self.chars.next_if(|c| c == b'|').is_some() {
-            Punct::Pipe.into()
+        let token: Token<'_> = if self.chars.next_if_eq(b'|').is_some() {
+            if self.chars.next_if_eq(b'|').is_some() {
+                Punct::OrOr.into()
+            } else {
+                Punct::Pipe.into()
+            }
         } else if self.chars.next_if_eq(b'(').is_some() {
             Punct::LParen.into()
         } else if self.chars.next_if_eq(b')').is_some() {
@@ -264,7 +279,11 @@ impl<'a> Tokenizer<'a> {
         } else if self.chars.next_if_eq(b';').is_some() {
             Punct::Semicolon.into()
         } else if self.chars.next_if_eq(b'&').is_some() {
-            Punct::And.into()
+            if self.chars.next_if_eq(b'&').is_some() {
+                Punct::AndAnd.into()
+            } else {
+                Punct::And.into()
+            }
         } else if self.chars.next_if_eq(b'<').is_some() {
             Punct::Lt.into()
         } else if self.chars.next_if_eq(b'>').is_some() {
@@ -423,8 +442,7 @@ mod tests {
         let mut s = Tokenizer::new("cat file.txt && echo done");
         assert_next_is_str(&mut s, "cat");
         assert_next_is_str(&mut s, "file.txt");
-        assert_next_is_punct(&mut s, Punct::And);
-        assert_next_is_punct(&mut s, Punct::And);
+        assert_next_is_punct(&mut s, Punct::AndAnd);
         assert_next_is_str(&mut s, "echo");
         assert_next_is_str(&mut s, "done");
         assert!(s.next().is_none());
