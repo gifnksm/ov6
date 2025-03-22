@@ -1,15 +1,18 @@
-use alloc::{string::String, vec::Vec};
+use alloc::{borrow::Cow, string::String, vec::Vec};
 use core::convert::Infallible;
 
 use ov6_user_lib::{
     error::Ov6Error,
     fs::File,
-    os_str::OsString,
+    os_str::{OsStr, OsString},
     process::{self, ChildWithIo, ExitStatus, ProcessBuilder, Stdio},
 };
 use ov6_utilities::{message, message_err};
 
-use crate::command::{Command, CommandKind, OutputMode, Redirect};
+use crate::{
+    builtin,
+    command::{Command, CommandKind, OutputMode, Redirect},
+};
 
 pub(super) trait ToCode {
     fn to_code(&self) -> i32;
@@ -78,16 +81,10 @@ pub(super) fn run(cmd: Command<'_>) -> Result<ExitStatus, RunError> {
             wait(child, cmd.background)
         }
         CommandKind::Exec { argv, redirect } => {
-            let builder = redirect.open()?;
-            let child = spawn_fn(builder, || {
-                let _: Infallible =
-                    process::exec(&argv[0], &argv).map_err(|err| RunError::Exec {
-                        arg0: argv[0].clone().into_owned(),
-                        err,
-                    })?;
-                unreachable!()
-            })?;
-            wait(child, cmd.background)
+            if let Some(status) = builtin::run_builtin(&argv, cmd.background)? {
+                return Ok(status);
+            }
+            run_external(&argv, redirect, cmd.background)
         }
         CommandKind::Pipe { left, right } => {
             let mut left_builder = ProcessBuilder::new();
@@ -123,7 +120,7 @@ pub(super) fn run_list(list: Vec<Command<'_>>) -> ExitStatus {
     status
 }
 
-fn spawn_fn<F>(mut builder: ProcessBuilder, f: F) -> Result<ChildWithIo, RunError>
+pub(super) fn spawn_fn<F>(mut builder: ProcessBuilder, f: F) -> Result<ChildWithIo, RunError>
 where
     F: FnOnce() -> Result<ExitStatus, RunError>,
 {
@@ -141,7 +138,7 @@ where
         .map_err(|err| RunError::Fork { err })
 }
 
-fn wait(mut child: ChildWithIo, background: bool) -> Result<ExitStatus, RunError> {
+pub(super) fn wait(mut child: ChildWithIo, background: bool) -> Result<ExitStatus, RunError> {
     if background {
         return Ok(ExitStatus::new(0));
     }
@@ -151,4 +148,20 @@ fn wait(mut child: ChildWithIo, background: bool) -> Result<ExitStatus, RunError
         message!("command exited with status {}", status.code());
     }
     Ok(status)
+}
+
+fn run_external(
+    argv: &[Cow<'_, OsStr>],
+    redirect: Redirect<'_>,
+    background: bool,
+) -> Result<ExitStatus, RunError> {
+    let builder = redirect.open()?;
+    let child = spawn_fn(builder, || {
+        let _: Infallible = process::exec(&argv[0], argv).map_err(|err| RunError::Exec {
+            arg0: argv[0].clone().into_owned(),
+            err,
+        })?;
+        unreachable!()
+    })?;
+    wait(child, background)
 }

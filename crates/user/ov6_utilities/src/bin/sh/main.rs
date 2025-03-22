@@ -6,17 +6,18 @@ use alloc::string::String;
 use core::mem;
 
 use ov6_user_lib::{
-    env, eprint,
+    eprint,
     error::Ov6Error,
     fs::File,
     io::{self},
     os::fd::AsRawFd as _,
     process::{self},
 };
-use ov6_utilities::{OrExit as _, exit_err, message, message_err};
+use ov6_utilities::{OrExit as _, exit_err, message_err};
 
 use self::parser::Parser;
 
+mod builtin;
 mod command;
 mod parser;
 mod run;
@@ -48,21 +49,6 @@ fn main() {
         let Some(cmd) = get_cmd(&mut buf).or_exit(|e| exit_err!(e, "cannot read console")) else {
             process::exit(0);
         };
-
-        let mut parts = cmd.split_whitespace();
-        if parts.next() == Some("cd") {
-            // chdir must be called by the parent, not the child.
-            let (Some(dir), None) = (parts.next(), parts.next()) else {
-                message!("Usage: cd <dir>");
-                continue;
-            };
-            if let Err(e) = env::set_current_directory(dir) {
-                message_err!(e, "cannot cd to '{dir}'");
-                continue;
-            }
-            continue;
-        }
-
         let Ok(list) = Parser::new(cmd).parse().inspect_err(|e| {
             message_err!(e, "syntax error");
         }) else {
