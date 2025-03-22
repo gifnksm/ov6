@@ -115,6 +115,8 @@ fn setup_workspace(
     let kernel_dst = workspace_dir.join("kernel");
     let fs_dst = workspace_dir.join("fs.img");
 
+    let _ = fs::remove_file(&kernel_dst);
+    let _ = fs::remove_file(&fs_dst);
     fs::copy(&kernel_src, &kernel_dst).context("copy kernel failed")?;
     fs::copy(&fs_src, &fs_dst).context("copy fs.img failed")?;
 
