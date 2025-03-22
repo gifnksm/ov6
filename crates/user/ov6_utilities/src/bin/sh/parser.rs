@@ -67,6 +67,14 @@ impl<'a> PeekTokenizer<'a> {
             })
             .transpose()
     }
+
+    #[expect(clippy::needless_pass_by_value)]
+    fn next_if_eq<T>(&mut self, t: T) -> Result<Option<Token<'a>>, TokenizeError>
+    where
+        Token<'a>: PartialEq<T>,
+    {
+        self.next_if(|tt| *tt == t)
+    }
 }
 
 pub struct Parser<'a> {
@@ -91,11 +99,11 @@ impl<'a> Parser<'a> {
     fn parse_line(&mut self) -> Result<Vec<Command<'a>>, ParseError> {
         let mut list = vec![];
         while let Some(mut cmd) = self.parse_pipe()? {
-            if self.tokens.next_if(|t| *t == Punct::And)?.is_some() {
+            if self.tokens.next_if_eq(Punct::And)?.is_some() {
                 cmd.background = true;
             }
             list.push(cmd);
-            if self.tokens.next_if(|t| *t == Punct::Semicolon)?.is_none() {
+            if self.tokens.next_if_eq(Punct::Semicolon)?.is_none() {
                 break;
             }
         }
@@ -104,13 +112,13 @@ impl<'a> Parser<'a> {
 
     fn parse_pipe(&mut self) -> Result<Option<Command<'a>>, ParseError> {
         let mut cmd = try_opt!(self.parse_exec());
-        if self.tokens.next_if(|t| *t == Punct::Pipe)?.is_some() {
+        if self.tokens.next_if_eq(Punct::Pipe)?.is_some() {
             cmd = Command::pipe(cmd, try_opt!(self.parse_pipe()));
         }
-        if self.tokens.next_if(|t| *t == Punct::AndAnd)?.is_some() {
+        if self.tokens.next_if_eq(Punct::AndAnd)?.is_some() {
             cmd = Command::logical_and(cmd, try_opt!(self.parse_pipe()));
         }
-        if self.tokens.next_if(|t| *t == Punct::OrOr)?.is_some() {
+        if self.tokens.next_if_eq(Punct::OrOr)?.is_some() {
             cmd = Command::logical_or(cmd, try_opt!(self.parse_pipe()));
         }
         Ok(Some(cmd))
@@ -122,11 +130,11 @@ impl<'a> Parser<'a> {
                 Stdin,
                 Stdout(OutputMode),
             }
-            let mode = if self.tokens.next_if(|t| *t == Punct::Lt)?.is_some() {
+            let mode = if self.tokens.next_if_eq(Punct::Lt)?.is_some() {
                 Redir::Stdin
-            } else if self.tokens.next_if(|t| *t == Punct::Gt)?.is_some() {
+            } else if self.tokens.next_if_eq(Punct::Gt)?.is_some() {
                 Redir::Stdout(OutputMode::Truncate)
-            } else if self.tokens.next_if(|t| *t == Punct::GtGt)?.is_some() {
+            } else if self.tokens.next_if_eq(Punct::GtGt)?.is_some() {
                 Redir::Stdout(OutputMode::Append)
             } else {
                 break;
@@ -145,7 +153,7 @@ impl<'a> Parser<'a> {
     fn parse_subshell(&mut self) -> Result<Option<Command<'a>>, ParseError> {
         // LParen is consumed by caller
         let cmd = self.parse_line()?;
-        if self.tokens.next_if(|t| *t == Punct::RParen)?.is_none() {
+        if self.tokens.next_if_eq(Punct::RParen)?.is_none() {
             return Err(ParseError::MissingPunct(Punct::RParen));
         }
         let mut redirect = Redirect::new();
@@ -154,7 +162,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_exec(&mut self) -> Result<Option<Command<'a>>, ParseError> {
-        if self.tokens.next_if(|t| *t == Punct::LParen)?.is_some() {
+        if self.tokens.next_if_eq(Punct::LParen)?.is_some() {
             return self.parse_subshell();
         }
 
