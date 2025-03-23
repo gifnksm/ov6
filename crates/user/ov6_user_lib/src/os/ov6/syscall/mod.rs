@@ -163,3 +163,7 @@ pub fn uptime() -> u64 {
 pub fn uptime() -> u64 {
     unimplemented!()
 }
+
+pub fn trace(mask: u64) {
+    syscall::Trace::call((mask,));
+}

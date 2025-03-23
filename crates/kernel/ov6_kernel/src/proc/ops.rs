@@ -93,6 +93,7 @@ pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Result<ProcId, Ker
         }
     }
     np_private.cwd.clone_from(&p_private.cwd);
+    np_private.trace_mask = p_private.trace_mask;
     np_shared.name = parent_name;
 
     let pid = np_shared.pid.unwrap();

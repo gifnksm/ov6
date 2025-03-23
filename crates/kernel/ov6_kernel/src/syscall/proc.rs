@@ -140,3 +140,17 @@ impl SyscallExt for syscall::Sleep {
         Ok(())
     }
 }
+
+impl SyscallExt for syscall::Trace {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
+    type Private<'a> = ProcPrivateData;
+
+    fn call(
+        _p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        (trace_mask,): Self::KernelArg,
+    ) -> Self::KernelReturn {
+        private.set_trace_mask(trace_mask);
+    }
+}

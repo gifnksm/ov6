@@ -1,4 +1,4 @@
-use core::convert::Infallible;
+use core::{convert::Infallible, fmt};
 
 use ov6_syscall::{
     Register, RegisterDecodeError, RegisterValue, Syscall, SyscallCode, error::SyscallError,
@@ -123,19 +123,28 @@ impl ReturnValue {
     }
 }
 
-trait GetTrapFrame {
+trait GenericPrivate {
     fn get_trapframe(&self) -> &TrapFrame;
+    fn get_trace_mask(&self) -> u64;
 }
 
-impl GetTrapFrame for Option<ProcPrivateDataGuard<'_>> {
+impl GenericPrivate for Option<ProcPrivateDataGuard<'_>> {
     fn get_trapframe(&self) -> &TrapFrame {
         self.as_ref().unwrap().trapframe()
     }
+
+    fn get_trace_mask(&self) -> u64 {
+        self.as_ref().unwrap().trace_mask()
+    }
 }
 
-impl GetTrapFrame for ProcPrivateData {
+impl GenericPrivate for ProcPrivateData {
     fn get_trapframe(&self) -> &TrapFrame {
         self.trapframe()
+    }
+
+    fn get_trace_mask(&self) -> u64 {
+        self.trace_mask()
     }
 }
 
@@ -155,10 +164,27 @@ impl<T> IntoReturn<Result<T, SyscallError>> for RegisterDecodeError {
     }
 }
 
+fn trace<A, R>(p: &Proc, code: SyscallCode, arg: Option<&A>, ret: Option<&R>)
+where
+    A: fmt::Debug,
+    R: fmt::Debug,
+{
+    let shared = p.shared().lock();
+    let name = shared.name().display();
+    let pid = shared.pid();
+    let arg = arg
+        .as_ref()
+        .map_or(&"invalid" as &dyn fmt::Debug, |arg| arg as &dyn fmt::Debug);
+    let ret = ret
+        .as_ref()
+        .map_or(&"!" as &dyn fmt::Debug, |ret| ret as &dyn fmt::Debug);
+    println!("{name}({pid}): syscall {code} {arg:?} -> {ret:?}");
+}
+
 trait SyscallExt: Syscall {
-    type Private<'a>: GetTrapFrame;
-    type KernelArg: RegisterValue;
-    type KernelReturn: RegisterValue;
+    type Private<'a>: GenericPrivate;
+    type KernelArg: RegisterValue + fmt::Debug;
+    type KernelReturn: RegisterValue + fmt::Debug;
 
     fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> ReturnValue
     where
@@ -167,11 +193,26 @@ trait SyscallExt: Syscall {
             IntoReturn<Self::KernelReturn>,
         <Self::KernelReturn as RegisterValue>::Repr: Into<ReturnValue>,
     {
+        let trace_mask = private.get_trace_mask();
+        if Self::CODE == SyscallCode::Exit && (trace_mask & (1 << SyscallCode::Exit as usize)) != 0
+        {
+            let arg = <Self::KernelArg as RegisterValue>::Repr::decode_arg(private.get_trapframe());
+            let ret = None::<Self::KernelReturn>;
+            trace(p, Self::CODE, arg.as_ref().ok(), ret.as_ref());
+        }
+
         let arg = <Self::KernelArg as RegisterValue>::Repr::decode_arg(private.get_trapframe());
         let ret = match arg {
             Ok(arg) => Self::call(p, private, arg),
             Err(e) => e.into_return(),
         };
+
+        let trace_mask = private.get_trace_mask();
+        if trace_mask & (1 << Self::CODE as usize) != 0 {
+            let arg = <Self::KernelArg as RegisterValue>::Repr::decode_arg(private.get_trapframe());
+            trace(p, Self::CODE, arg.as_ref().ok(), Some(&ret));
+        }
+
         ret.encode().into()
     }
 
@@ -218,6 +259,7 @@ pub fn syscall(p: &'static Proc, private_opt: &mut Option<ProcPrivateDataGuard>)
         SyscallCode::Reboot => syscall::Reboot::handle(p, private),
         SyscallCode::Halt => syscall::Halt::handle(p, private),
         SyscallCode::Abort => syscall::Abort::handle(p, private),
+        SyscallCode::Trace => syscall::Trace::handle(p, private),
     };
 
     let private = private_opt.as_mut().unwrap();

@@ -146,6 +146,8 @@ pub struct ProcPrivateData {
     ofile: [Option<File>; NOFILE],
     /// Current directory
     cwd: Option<Inode>,
+    /// System call trace mask
+    trace_mask: u64,
 }
 
 impl ProcPrivateData {
@@ -209,6 +211,14 @@ impl ProcPrivateData {
 
     pub fn update_cwd(&mut self, cwd: Inode) -> Inode {
         self.cwd.replace(cwd).unwrap()
+    }
+
+    pub fn trace_mask(&self) -> u64 {
+        self.trace_mask
+    }
+
+    pub fn set_trace_mask(&mut self, mask: u64) {
+        self.trace_mask = mask;
     }
 }
 
@@ -407,6 +417,7 @@ impl Proc {
                 trapframe,
                 ofile: [const { None }; NOFILE],
                 cwd: None,
+                trace_mask: 0,
             };
 
             // Set up new context to start executing at forkret,

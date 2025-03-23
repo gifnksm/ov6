@@ -195,3 +195,4 @@ syscall!(Sleep);
 syscall!(Reboot);
 syscall!(Halt);
 syscall!(Abort);
+syscall!(Trace);

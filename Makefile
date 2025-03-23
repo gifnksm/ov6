@@ -52,6 +52,7 @@ OV6_UTILS=\
 	rm\
 	sh\
 	sleep\
+	trace\
 	true\
 	uptime\
 	wc\

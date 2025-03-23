@@ -1,11 +1,11 @@
 #![no_std]
 
-use core::{convert::Infallible, fmt, marker::PhantomData, num::TryFromIntError, ptr};
+use core::{any, convert::Infallible, fmt, marker::PhantomData, num::TryFromIntError, ptr};
 
 use bitflags::bitflags;
 use dataview::Pod;
 use ov6_types::process::ProcId;
-use strum::FromRepr;
+use strum::{Display, EnumString, FromRepr};
 
 pub mod error;
 mod register;
@@ -53,8 +53,10 @@ pub enum WaitTarget {
     Process(ProcId),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr, EnumString, Display)]
 #[repr(usize)]
+#[strum(serialize_all = "snake_case")]
+#[strum(ascii_case_insensitive)]
 pub enum SyscallCode {
     Fork = 1,
     Exit,
@@ -79,6 +81,7 @@ pub enum SyscallCode {
     Reboot,
     Halt,
     Abort,
+    Trace,
 }
 
 pub trait Syscall {
@@ -87,13 +90,21 @@ pub trait Syscall {
     type Return: RegisterValue;
 }
 
-#[derive(Debug)]
 pub struct UserRef<T>
 where
     T: ?Sized + 'static,
 {
     addr: usize,
     _phantom: PhantomData<&'static T>,
+}
+
+impl<T> fmt::Debug for UserRef<T>
+where
+    T: ?Sized,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:#x} as &{}", self.addr, any::type_name::<T>())
+    }
 }
 
 impl<T> UserRef<T>
@@ -133,13 +144,21 @@ where
     }
 }
 
-#[derive(Debug)]
 pub struct UserMutRef<T>
 where
     T: ?Sized + 'static,
 {
     addr: usize,
     _phantom: PhantomData<&'static mut T>,
+}
+
+impl<T> fmt::Debug for UserMutRef<T>
+where
+    T: ?Sized,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:#x} as &mut {}", self.addr, any::type_name::<T>())
+    }
 }
 
 impl<T> UserMutRef<T>
@@ -179,7 +198,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct UserSlice<T> {
     addr: usize,
@@ -188,6 +207,18 @@ pub struct UserSlice<T> {
 }
 
 unsafe impl<T> Pod for UserSlice<T> where T: Pod {}
+
+impl<T> fmt::Debug for UserSlice<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:#x} as &[{}; {}]",
+            self.addr,
+            any::type_name::<T>(),
+            self.len
+        )
+    }
+}
 
 impl<T> UserSlice<T> {
     #[must_use]
@@ -273,7 +304,7 @@ impl<T> UserSlice<T> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 #[repr(C)]
 pub struct UserMutSlice<T> {
     addr: usize,
@@ -282,6 +313,18 @@ pub struct UserMutSlice<T> {
 }
 
 unsafe impl<T> Pod for UserMutSlice<T> where T: Pod {}
+
+impl<T> fmt::Debug for UserMutSlice<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:#x} as &mut [{}; {}]",
+            self.addr,
+            any::type_name::<T>(),
+            self.len
+        )
+    }
+}
 
 impl<T> UserMutSlice<T> {
     #[must_use]

@@ -287,6 +287,7 @@ fn sys_exec(
     exec::exec(p, private, path, &uargv, arg_data_size)
 }
 
+#[derive(Debug)]
 pub(super) enum ExecReturn {
     Ok((usize, usize)),
     Err(SyscallError),

@@ -46,4 +46,5 @@ syscall! {
     struct Reboot(fn() -> Result<Infallible, SyscallError>);
     struct Halt(fn(u16) -> Result<Infallible, SyscallError>);
     struct Abort(fn(u16) -> Result<Infallible, SyscallError>);
+    struct Trace(fn(u64) -> ());
 }
