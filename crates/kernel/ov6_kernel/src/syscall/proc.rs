@@ -1,4 +1,6 @@
-use ov6_syscall::syscall;
+use core::convert::Infallible;
+
+use ov6_syscall::{Register, RegisterValue, syscall};
 
 use super::SyscallExt;
 use crate::{
@@ -10,34 +12,57 @@ use crate::{
 };
 
 impl SyscallExt for syscall::Fork {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok(()) = Self::decode_arg(private.trapframe());
+    fn call(p: &'static Proc, private: &mut Self::Private<'_>, (): Self::Arg) -> Self::Return {
         let pid = proc::ops::fork(p, private)?;
         Ok(Some(pid))
     }
 }
 
+#[derive(Debug)]
+pub(super) struct ExitArg(i32);
+
+impl RegisterValue for ExitArg {
+    type DecodeError = Infallible;
+    type Repr = Register<Self, 1>;
+
+    fn encode(self) -> Self::Repr {
+        unreachable!()
+    }
+
+    fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
+        Ok(i32::try_decode(Register::new(repr.a)).map_or(Self(-1), Self))
+    }
+}
+
 impl SyscallExt for syscall::Exit {
+    type KernelArg = ExitArg;
+    type KernelReturn = Self::Return;
     type Private<'a> = Option<ProcPrivateDataGuard<'a>>;
 
-    fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
+    fn call(
+        p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        ExitArg(status): Self::KernelArg,
+    ) -> Self::Return {
         let private = private.take().unwrap();
-        let status = match Self::decode_arg(private.trapframe()) {
-            Ok((status,)) => status,
-            Err(_e) => -1,
-        };
         proc::ops::exit(p, private, status);
     }
 }
 
 impl SyscallExt for syscall::Wait {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let (target, user_status) =
-            Self::decode_arg(private.trapframe()).map_err(KernelError::from)?;
+    fn call(
+        p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        (target, user_status): Self::Arg,
+    ) -> Self::Return {
         let mut user_status = user_status.validate(private.pagetable())?;
 
         let (pid, status) = proc::ops::wait(p, target)?;
@@ -47,29 +72,40 @@ impl SyscallExt for syscall::Wait {
 }
 
 impl SyscallExt for syscall::Kill {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let (pid,) = Self::decode_arg(private.trapframe()).map_err(KernelError::from)?;
+    fn call(
+        _p: &'static Proc,
+        _private: &mut Self::Private<'_>,
+        (pid,): Self::Arg,
+    ) -> Self::Return {
         proc::ops::kill(pid)?;
         Ok(())
     }
 }
 
 impl SyscallExt for syscall::Getpid {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok(()) = Self::decode_arg(private.trapframe());
+    fn call(p: &'static Proc, _private: &mut Self::Private<'_>, (): Self::Arg) -> Self::Return {
         p.shared().lock().pid()
     }
 }
 
 impl SyscallExt for syscall::Sbrk {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((increment,)) = Self::decode_arg(private.trapframe());
+    fn call(
+        _p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        (increment,): Self::Arg,
+    ) -> Self::Return {
         let addr = private.size();
         proc::ops::resize_by(private, increment)?;
         Ok(addr)
@@ -77,11 +113,15 @@ impl SyscallExt for syscall::Sbrk {
 }
 
 impl SyscallExt for syscall::Sleep {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let (dur,) = Self::decode_arg(private.trapframe()).map_err(KernelError::from)?;
-
+    fn call(
+        _p: &'static Proc,
+        _private: &mut Self::Private<'_>,
+        (dur,): Self::Arg,
+    ) -> Self::Return {
         let sleep_ticks = (dur.as_nanos().div_ceil(u128::from(NANOS_PER_TICKS)))
             .try_into()
             .unwrap_or(u64::MAX);

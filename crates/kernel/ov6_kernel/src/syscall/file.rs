@@ -1,6 +1,8 @@
-use core::mem;
+use core::{convert::Infallible, mem};
 
-use ov6_syscall::{OpenFlags, UserSlice, syscall};
+use ov6_syscall::{
+    OpenFlags, Register, RegisterValue, Syscall, UserSlice, error::SyscallError, syscall,
+};
 use ov6_types::{os_str::OsStr, path::Path};
 
 use super::SyscallExt;
@@ -32,10 +34,11 @@ fn fetch_path<'a>(
 }
 
 impl SyscallExt for syscall::Dup {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((fd,)) = Self::decode_arg(private.trapframe());
+    fn call(_p: &'static Proc, private: &mut Self::Private<'_>, (fd,): Self::Arg) -> Self::Return {
         let file = private.ofile(fd)?;
         let file = file.clone();
         let fd = private.add_ofile(file)?;
@@ -44,10 +47,15 @@ impl SyscallExt for syscall::Dup {
 }
 
 impl SyscallExt for syscall::Read {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((fd, data)) = Self::decode_arg(private.trapframe());
+    fn call(
+        _p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        (fd, data): Self::Arg,
+    ) -> Self::Return {
         let mut data = data.validate(private.pagetable())?;
         let file = private.ofile(fd)?;
         let n = file.clone().read(private.pagetable_mut(), &mut data)?;
@@ -56,10 +64,15 @@ impl SyscallExt for syscall::Read {
 }
 
 impl SyscallExt for syscall::Write {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((fd, data)) = Self::decode_arg(private.trapframe());
+    fn call(
+        _p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        (fd, data): Self::Arg,
+    ) -> Self::Return {
         let data = data.validate(private.pagetable())?;
         let file = private.ofile(fd)?;
         let n = file.clone().write(private.pagetable(), &data)?;
@@ -68,20 +81,26 @@ impl SyscallExt for syscall::Write {
 }
 
 impl SyscallExt for syscall::Close {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((fd,)) = Self::decode_arg(private.trapframe());
+    fn call(_p: &'static Proc, private: &mut Self::Private<'_>, (fd,): Self::Arg) -> Self::Return {
         let _file = private.unset_ofile(fd)?;
         Ok(())
     }
 }
 
 impl SyscallExt for syscall::Fstat {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((fd, user_stat)) = Self::decode_arg(private.trapframe());
+    fn call(
+        _p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        (fd, user_stat): Self::Arg,
+    ) -> Self::Return {
         let mut user_stat = user_stat.validate(private.pagetable_mut())?;
         let file = private.ofile(fd)?;
         let stat = file.clone().stat()?;
@@ -91,11 +110,15 @@ impl SyscallExt for syscall::Fstat {
 }
 
 impl SyscallExt for syscall::Link {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((user_old, user_new)) = Self::decode_arg(private.trapframe());
-
+    fn call(
+        _p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        (user_old, user_new): Self::Arg,
+    ) -> Self::Return {
         let mut old = [0; MAX_PATH];
         let mut new = [0; MAX_PATH];
         let old = fetch_path(private, user_old, &mut old)?;
@@ -109,10 +132,15 @@ impl SyscallExt for syscall::Link {
 }
 
 impl SyscallExt for syscall::Unlink {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((user_path,)) = Self::decode_arg(private.trapframe());
+    fn call(
+        _p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        (user_path,): Self::Arg,
+    ) -> Self::Return {
         let mut path = [0; MAX_PATH];
         let path = fetch_path(private, user_path, &mut path)?;
 
@@ -124,10 +152,15 @@ impl SyscallExt for syscall::Unlink {
 }
 
 impl SyscallExt for syscall::Open {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let (user_path, mode) = Self::decode_arg(private.trapframe()).map_err(KernelError::from)?;
+    fn call(
+        _p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        (user_path, mode): Self::Arg,
+    ) -> Self::Return {
         let mut path = [0; MAX_PATH];
         let path = fetch_path(private, user_path, &mut path)?;
 
@@ -166,10 +199,15 @@ impl SyscallExt for syscall::Open {
 }
 
 impl SyscallExt for syscall::Mkdir {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((user_path,)) = Self::decode_arg(private.trapframe());
+    fn call(
+        _p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        (user_path,): Self::Arg,
+    ) -> Self::Return {
         let mut path = [0; MAX_PATH];
         let path = fetch_path(private, user_path, &mut path)?;
 
@@ -182,11 +220,15 @@ impl SyscallExt for syscall::Mkdir {
 }
 
 impl SyscallExt for syscall::Mknod {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let (user_path, major, minor) =
-            Self::decode_arg(private.trapframe()).map_err(KernelError::from)?;
+    fn call(
+        _p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        (user_path, major, minor): Self::Arg,
+    ) -> Self::Return {
         let mut path = [0; MAX_PATH];
         let path = fetch_path(private, user_path, &mut path)?;
 
@@ -199,10 +241,15 @@ impl SyscallExt for syscall::Mknod {
 }
 
 impl SyscallExt for syscall::Chdir {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((user_path,)) = Self::decode_arg(private.trapframe());
+    fn call(
+        _p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        (user_path,): Self::Arg,
+    ) -> Self::Return {
         let mut path = [0; MAX_PATH];
         let path = fetch_path(private, user_path, &mut path)?;
 
@@ -219,11 +266,11 @@ impl SyscallExt for syscall::Chdir {
     }
 }
 
-pub fn sys_exec(
+fn sys_exec(
     p: &'static Proc,
     private: &mut ProcPrivateData,
+    (user_path, uargv): <syscall::Exec as Syscall>::Arg,
 ) -> Result<(usize, usize), KernelError> {
-    let Ok((user_path, uargv)) = super::decode_arg::<syscall::Exec>(private.trapframe());
     let mut path = [0; MAX_PATH];
     let path = fetch_path(private, user_path, &mut path)?;
     let uargv = uargv.validate(private.pagetable())?;
@@ -240,11 +287,57 @@ pub fn sys_exec(
     exec::exec(p, private, path, &uargv, arg_data_size)
 }
 
-impl SyscallExt for syscall::Pipe {
+pub(super) enum ExecReturn {
+    Ok((usize, usize)),
+    Err(SyscallError),
+}
+
+impl RegisterValue for ExecReturn {
+    type DecodeError = Infallible;
+    type Repr = Register<Self, 2>;
+
+    fn encode(self) -> Self::Repr {
+        match self {
+            Self::Ok(a) => Register::new(a.into()),
+            Self::Err(e) => {
+                let [a0, a1] = <syscall::Exec as Syscall>::Return::Err(e).encode().a;
+                Register::new([a0, a1])
+            }
+        }
+    }
+
+    fn try_decode(_repr: Self::Repr) -> Result<Self, Self::DecodeError> {
+        unreachable!()
+    }
+}
+
+impl SyscallExt for syscall::Exec {
+    type KernelArg = Self::Arg;
+    type KernelReturn = ExecReturn;
     type Private<'a> = ProcPrivateData;
 
-    fn handle(_p: &'static Proc, private: &mut Self::Private<'_>) -> Self::Return {
-        let Ok((fd_array,)) = Self::decode_arg(private.trapframe());
+    fn call(
+        p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        arg: Self::Arg,
+    ) -> Self::KernelReturn {
+        match sys_exec(p, private, arg) {
+            Ok(ret) => ExecReturn::Ok(ret),
+            Err(e) => ExecReturn::Err(e.into()),
+        }
+    }
+}
+
+impl SyscallExt for syscall::Pipe {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
+    type Private<'a> = ProcPrivateData;
+
+    fn call(
+        _p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        (fd_array,): Self::Arg,
+    ) -> Self::Return {
         let mut fd_array = fd_array.validate(private.pagetable())?;
 
         let (rf, wf) = File::new_pipe()?;
