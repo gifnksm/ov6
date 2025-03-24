@@ -90,6 +90,8 @@ pub enum Ov6Error {
     ReadExactEof,
     #[error("failed to write whole buffer")]
     WriteAllEof,
+    #[error("failed to write the buffered data")]
+    WriteZero,
     #[error("unknown error")]
     Unknown,
 }

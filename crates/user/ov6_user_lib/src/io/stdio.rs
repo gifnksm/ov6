@@ -3,10 +3,10 @@ use core::fmt::{self, Write as _};
 use alloc_crate::string::String;
 use once_init::OnceInit;
 
-use super::{BufRead, BufReader, Read, Write};
+use super::{BufRead, BufReader, BufWriter, Read, Write};
 use crate::{
     error::Ov6Error,
-    io::DEFAULT_BUF_SIZE,
+    io::{DEFAULT_BUF_SIZE, LineWriter},
     os::{
         fd::{AsFd, AsRawFd, BorrowedFd, RawFd},
         ov6::syscall,
@@ -29,9 +29,44 @@ pub fn _eprint(args: fmt::Arguments) {
     stderr().write_fmt(args).unwrap();
 }
 
+pub(crate) fn cleanup() {
+    let stdout = STDOUT.try_get();
+    if let Ok(stdout) = stdout {
+        if let Some(mut lock) = stdout.try_lock() {
+            *lock = LineWriter::with_capacity(0, StdoutRaw {});
+        }
+    }
+}
+
 pub const STDIN_FD: RawFd = RawFd::new(0);
 pub const STDOUT_FD: RawFd = RawFd::new(1);
 pub const STDERR_FD: RawFd = RawFd::new(2);
+
+static STDOUT: OnceInit<Mutex<LineWriter<StdoutRaw>>> = OnceInit::new();
+
+struct StdoutRaw {}
+
+impl Write for StdoutRaw {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
+        syscall::write(STDOUT_FD, buf)
+    }
+
+    fn flush(&mut self) -> Result<(), Ov6Error> {
+        Ok(())
+    }
+}
+
+struct StderrRaw {}
+
+impl Write for StderrRaw {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
+        syscall::write(STDERR_FD, buf)
+    }
+
+    fn flush(&mut self) -> Result<(), Ov6Error> {
+        Ok(())
+    }
+}
 
 struct StdinRaw {}
 
@@ -43,12 +78,25 @@ impl Read for StdinRaw {
 
 #[must_use]
 pub fn stdout() -> Stdout {
-    Stdout {}
+    let _ = STDOUT.try_init_with(|| Mutex::new(LineWriter::new(StdoutRaw {})));
+    let instance = loop {
+        if let Ok(instance) = STDOUT.try_get() {
+            break instance;
+        }
+    };
+    Stdout { inner: instance }
 }
 
 #[must_use]
 pub fn stderr() -> Stderr {
-    Stderr {}
+    static INSTANCE: OnceInit<Mutex<BufWriter<StderrRaw>>> = OnceInit::new();
+    let _ = INSTANCE.try_init_with(|| Mutex::new(BufWriter::new(StderrRaw {})));
+    let instance = loop {
+        if let Ok(instance) = INSTANCE.try_get() {
+            break instance;
+        }
+    };
+    Stderr { inner: instance }
 }
 
 pub fn stdin() -> Stdin {
@@ -63,7 +111,13 @@ pub fn stdin() -> Stdin {
     Stdin { inner: instance }
 }
 
-pub struct Stdout {}
+pub struct Stdout {
+    inner: &'static Mutex<LineWriter<StdoutRaw>>,
+}
+
+pub struct StdoutLock<'lock> {
+    inner: MutexGuard<'lock, LineWriter<StdoutRaw>>,
+}
 
 impl AsFd for Stdout {
     fn as_fd(&self) -> BorrowedFd<'_> {
@@ -77,19 +131,7 @@ impl AsRawFd for Stdout {
     }
 }
 
-impl Write for Stdout {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
-        syscall::write(STDOUT_FD, buf)
-    }
-}
-
-impl Write for &'_ Stdout {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
-        syscall::write(STDOUT_FD, buf)
-    }
-}
-
-impl fmt::Write for Stdout {
+impl fmt::Write for StderrLock<'_> {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         if Write::write(self, s.as_bytes()).is_err() {
             return Err(fmt::Error);
@@ -98,7 +140,13 @@ impl fmt::Write for Stdout {
     }
 }
 
-pub struct Stderr {}
+pub struct Stderr {
+    inner: &'static Mutex<BufWriter<StderrRaw>>,
+}
+
+pub struct StderrLock<'lock> {
+    inner: MutexGuard<'lock, BufWriter<StderrRaw>>,
+}
 
 impl AsFd for Stderr {
     fn as_fd(&self) -> BorrowedFd<'_> {
@@ -112,15 +160,87 @@ impl AsRawFd for Stderr {
     }
 }
 
-impl Write for Stderr {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
-        syscall::write(STDERR_FD, buf)
+impl Stdout {
+    #[must_use]
+    pub fn lock(&self) -> StdoutLock<'_> {
+        StdoutLock {
+            inner: self.inner.lock(),
+        }
     }
 }
 
-impl Write for &'_ Stderr {
+impl Write for Stdout {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
-        syscall::write(STDERR_FD, buf)
+        self.inner.lock().write(buf)
+    }
+
+    fn flush(&mut self) -> Result<(), Ov6Error> {
+        self.inner.lock().flush()
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> Result<(), Ov6Error> {
+        self.inner.lock().write_all(buf)
+    }
+}
+
+impl fmt::Write for Stdout {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        if Write::write(self, s.as_bytes()).is_err() {
+            return Err(fmt::Error);
+        }
+        Ok(())
+    }
+}
+
+impl Write for StdoutLock<'_> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
+        self.inner.write(buf)
+    }
+
+    fn flush(&mut self) -> Result<(), Ov6Error> {
+        self.inner.flush()
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> Result<(), Ov6Error> {
+        self.inner.write_all(buf)
+    }
+}
+
+impl fmt::Write for StdoutLock<'_> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        if Write::write(self, s.as_bytes()).is_err() {
+            return Err(fmt::Error);
+        }
+        Ok(())
+    }
+}
+
+impl Stderr {
+    #[must_use]
+    pub fn lock(&self) -> StderrLock<'_> {
+        StderrLock {
+            inner: self.inner.lock(),
+        }
+    }
+}
+
+impl Write for Stderr {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
+        let mut inner = self.inner.lock();
+        let n = inner.write(buf)?;
+        inner.flush()?;
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> Result<(), Ov6Error> {
+        self.inner.lock().flush()
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> Result<(), Ov6Error> {
+        let mut inner = self.inner.lock();
+        inner.write_all(buf)?;
+        inner.flush()?;
+        Ok(())
     }
 }
 
@@ -129,6 +249,24 @@ impl fmt::Write for Stderr {
         if Write::write(self, s.as_bytes()).is_err() {
             return Err(fmt::Error);
         }
+        Ok(())
+    }
+}
+
+impl Write for StderrLock<'_> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
+        let n = self.inner.write(buf)?;
+        self.inner.flush()?;
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> Result<(), Ov6Error> {
+        self.inner.flush()
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> Result<(), Ov6Error> {
+        self.inner.write_all(buf)?;
+        self.inner.flush()?;
         Ok(())
     }
 }

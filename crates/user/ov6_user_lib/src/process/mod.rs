@@ -177,6 +177,7 @@ pub fn kill(pid: ProcId) -> Result<(), Ov6Error> {
 
 /// Exits the current process with the specified status code.
 pub fn exit(status: i32) -> ! {
+    crate::rt::cleanup();
     syscall::exit(status)
 }
 

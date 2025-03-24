@@ -30,6 +30,13 @@ where
         self.buf.capacity()
     }
 
+    pub fn into_inner(self) -> R
+    where
+        R: Sized,
+    {
+        self.inner
+    }
+
     fn discard_buffer(&mut self) {
         self.buf.discard_buffer();
     }

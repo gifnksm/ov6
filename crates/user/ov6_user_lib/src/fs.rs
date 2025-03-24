@@ -208,11 +208,19 @@ impl Write for File {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
         syscall::write(self.fd.as_raw_fd(), buf)
     }
+
+    fn flush(&mut self) -> Result<(), Ov6Error> {
+        Ok(())
+    }
 }
 
 impl Write for &'_ File {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
         syscall::write(self.fd.as_raw_fd(), buf)
+    }
+
+    fn flush(&mut self) -> Result<(), Ov6Error> {
+        Ok(())
     }
 }
 

@@ -12,6 +12,10 @@ const DEFAULT_BUF_SIZE: usize = 1024;
 mod buffered;
 mod stdio;
 
+pub(crate) fn cleanup() {
+    stdio::cleanup();
+}
+
 pub trait Read {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Ov6Error>;
 
@@ -96,6 +100,7 @@ where
 
 pub trait Write {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error>;
+    fn flush(&mut self) -> Result<(), Ov6Error>;
 
     fn write_all(&mut self, mut buf: &[u8]) -> Result<(), Ov6Error> {
         while !buf.is_empty() {
@@ -108,6 +113,13 @@ pub trait Write {
             buf = &buf[n..];
         }
         Ok(())
+    }
+
+    fn by_ref(&mut self) -> &mut Self
+    where
+        Self: Sized,
+    {
+        self
     }
 }
 

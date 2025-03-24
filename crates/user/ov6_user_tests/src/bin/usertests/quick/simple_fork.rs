@@ -124,6 +124,7 @@ pub fn preempt() {
         .stdout(Stdio::Pipe)
         .spawn_fn(|| {
             io::stdout().write_all(b"x").unwrap();
+            io::stdout().flush().unwrap();
             loop {
                 hint::spin_loop();
             }

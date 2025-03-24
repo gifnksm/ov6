@@ -114,4 +114,8 @@ impl Write for PipeWriter {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
         syscall::write(self.0.as_raw_fd(), buf)
     }
+
+    fn flush(&mut self) -> Result<(), Ov6Error> {
+        Ok(())
+    }
 }

@@ -20,6 +20,7 @@ pub mod io;
 pub mod os;
 pub mod pipe;
 pub mod process;
+mod rt;
 pub mod sync;
 pub mod thread;
 pub mod time;
