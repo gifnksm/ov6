@@ -24,7 +24,7 @@
 //! PHYS_TOP    -- end RAM used by the kernel
 //! ```
 //!
-//! [hw/riscv/virt.c]: https://github.com/qemu/qemu/blob/9.2.0/hw/riscv/virt.c
+//! [hw/riscv/virt.c]: https://github.com/qemu/qemu/blob/v9.2.2/hw/riscv/virt.c
 
 use core::arch::global_asm;
 
