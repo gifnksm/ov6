@@ -196,3 +196,4 @@ syscall!(Reboot);
 syscall!(Halt);
 syscall!(Abort);
 syscall!(Trace);
+syscall!(DumpKernelPageTable);

@@ -7,7 +7,7 @@ use riscv::{asm, register::satp};
 use super::{
     layout::{self, KSTACK_PAGES},
     page::{self, PageFrameAllocator},
-    page_table::PageTable,
+    page_table::{self, PageTable},
 };
 use crate::{
     error::KernelError,
@@ -125,4 +125,9 @@ fn map_proc_stacks(kpgtbl: &mut PageTable) {
             kpgtbl.map_page(vpn, ppn, PtEntryFlags::RW).unwrap();
         }
     }
+}
+
+pub(crate) fn dump() {
+    let kpgtbl = KERNEL_PAGE_TABLE.get();
+    page_table::dump_pagetable(&kpgtbl.0);
 }

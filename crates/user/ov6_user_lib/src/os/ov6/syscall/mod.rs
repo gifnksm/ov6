@@ -167,3 +167,7 @@ pub fn uptime() -> u64 {
 pub fn trace(mask: u64) {
     syscall::Trace::call((mask,));
 }
+
+pub fn dump_kernel_page_table() {
+    syscall::DumpKernelPageTable::call(());
+}

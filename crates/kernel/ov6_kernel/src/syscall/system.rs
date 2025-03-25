@@ -3,6 +3,7 @@ use ov6_syscall::syscall;
 use super::SyscallExt;
 use crate::{
     device::test::{self, Finisher},
+    memory::vm_kernel,
     proc::ProcPrivateData,
 };
 
@@ -48,5 +49,19 @@ impl SyscallExt for syscall::Abort {
     ) -> Self::Return {
         crate::println!("ov6 - abort requested");
         test::finish(Finisher::Fail(code));
+    }
+}
+
+impl SyscallExt for syscall::DumpKernelPageTable {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
+    type Private<'a> = ProcPrivateData;
+
+    fn call(
+        _p: &'static crate::proc::Proc,
+        _private: &mut Self::Private<'_>,
+        (): Self::KernelArg,
+    ) -> Self::KernelReturn {
+        vm_kernel::dump();
     }
 }

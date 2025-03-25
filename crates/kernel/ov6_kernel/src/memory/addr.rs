@@ -123,6 +123,12 @@ macro_rules! impl_fmt {
                 fmt::UpperHex::fmt(&self.0, f)
             }
         }
+        impl fmt::Pointer for $ty {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                let ptr = ptr::without_provenance::<u8>(self.0);
+                fmt::Pointer::fmt(&ptr, f)
+            }
+        }
     };
 }
 
@@ -149,6 +155,7 @@ impl_fmt!(PhysAddr);
 impl VirtPageNum {
     pub const MAX: Self = Self(1 << (9 * 3 - 1));
     pub const MIN: Self = Self(0);
+    pub const ZERO: Self = Self(0);
 }
 
 impl VirtAddr {

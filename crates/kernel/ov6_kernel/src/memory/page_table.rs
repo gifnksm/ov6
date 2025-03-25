@@ -1,11 +1,11 @@
 use alloc::boxed::Box;
-use core::{alloc::AllocError, ops::Range, ptr};
+use core::{alloc::AllocError, fmt, ops::Range, ptr};
 
 use bitflags::bitflags;
 use dataview::Pod;
 
 use super::{PhysAddr, PhysPageNum, VirtAddr, addr::VirtPageNum, page::PageFrameAllocator};
-use crate::{error::KernelError, memory::PAGE_SIZE};
+use crate::{error::KernelError, memory::PAGE_SIZE, println};
 
 #[repr(transparent)]
 #[derive(Pod)]
@@ -411,4 +411,108 @@ impl PtEntry {
     pub(super) fn clear(&mut self) {
         self.0 = 0;
     }
+}
+
+pub(crate) fn dump_pagetable(pt: &PageTable) {
+    println!("page table {:p}", pt);
+
+    let level = 2;
+    dump_pagetable_level(pt, level, VirtPageNum::ZERO);
+}
+
+fn dump_pagetable_level(pt: &PageTable, level: usize, base_vpn: VirtPageNum) {
+    let mut state = None;
+    for (i, pte) in pt.0.iter().enumerate() {
+        if !pte.is_valid() {
+            if let Some((start_i, start_pte, end_i, end_ptr)) = state.take() {
+                print_pte(level, base_vpn, start_i, start_pte, end_i, end_ptr);
+            }
+            continue;
+        }
+
+        if pte.is_non_leaf() {
+            if let Some((start_i, start_pte, end_i, end_ptr)) = state.take() {
+                print_pte(level, base_vpn, start_i, start_pte, end_i, end_ptr);
+            }
+
+            let vpn = VirtPageNum::new(base_vpn.value() | (i << (9 * level))).unwrap();
+            let va = vpn.virt_addr();
+            let pa = pte.phys_addr();
+            println!(
+                "{prefix} [{i:3}] {va:#p} @ {pa:#p}",
+                prefix = format_args!("{:.<1$}", "", (2 - level) * 2),
+            );
+            dump_pagetable_level(pte.get_page_table().unwrap(), level - 1, vpn);
+            continue;
+        }
+
+        match &mut state {
+            Some((start_i, start_pte, end_i, end_pte)) => {
+                if start_pte.flags() == pte.flags()
+                    && end_pte.phys_page_num().value() + 1 == pte.phys_page_num().value()
+                {
+                    *end_i = i;
+                    *end_pte = pte;
+                    continue;
+                }
+                print_pte(level, base_vpn, *start_i, start_pte, *end_i, end_pte);
+                state = None;
+            }
+            None => {
+                state = Some((i, pte, i, pte));
+            }
+        }
+    }
+    if let Some((start_i, start_pte, end_i, end_ptr)) = state.take() {
+        print_pte(level, base_vpn, start_i, start_pte, end_i, end_ptr);
+    }
+}
+
+fn print_pte(
+    level: usize,
+    base_vpn: VirtPageNum,
+    start_i: usize,
+    start_pte: &PtEntry,
+    end_i: usize,
+    end_pte: &PtEntry,
+) {
+    struct Flags(PtEntryFlags);
+    impl fmt::Debug for Flags {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let mut all_flags = PtEntryFlags::all();
+            all_flags.remove(PtEntryFlags::V);
+            for (name, flag) in all_flags.iter_names() {
+                if self.0.contains(flag) {
+                    for ch in name.chars() {
+                        write!(f, "{}", ch.to_ascii_lowercase())?;
+                    }
+                } else {
+                    write!(f, "-")?;
+                }
+            }
+            Ok(())
+        }
+    }
+
+    let start_vpn = VirtPageNum::new(base_vpn.value() | (start_i << (9 * level))).unwrap();
+    let start_va = start_vpn.virt_addr();
+    let start_pa = start_pte.phys_addr();
+
+    let end_i = end_i + 1;
+    let end_vpn = VirtPageNum::new(base_vpn.value() | (end_i << (9 * level))).unwrap();
+    let end_va = end_vpn.virt_addr();
+    let end_pa = end_pte
+        .phys_addr()
+        .map_addr(|addr| addr + (PAGE_SIZE << (9 * level)));
+
+    assert_eq!(start_pte.flags(), end_pte.flags());
+
+    println!(
+        "{prefix} [{index}] {va} => {pa} {flags:?}",
+        prefix = format_args!("{:.<1$}", "", (2 - level) * 2),
+        index = format_args!("{:3}..{:3}", start_i, end_i),
+        va = format_args!("{start_va:#p}..{end_va:#p}"),
+        pa = format_args!("{start_pa:#p}..{end_pa:#p}"),
+        flags = Flags(start_pte.flags()),
+    );
 }

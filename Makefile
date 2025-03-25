@@ -62,6 +62,7 @@ OV6_UTILS=\
 OV6_USER_TESTS=\
 	forktest\
 	grind\
+	kpgtbl\
 	stressfs\
 	usertests\
 
