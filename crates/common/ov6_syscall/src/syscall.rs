@@ -48,4 +48,5 @@ syscall! {
     struct Abort(fn(u16) -> Result<Infallible, SyscallError>);
     struct Trace(fn(u64) -> ());
     struct DumpKernelPageTable(fn() -> ());
+    struct DumpUserPageTable(fn() -> ());
 }

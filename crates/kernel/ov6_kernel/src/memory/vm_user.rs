@@ -9,7 +9,7 @@ use super::{
     addr::{AddressChunks, GenericMutSlice, GenericSlice, Validated},
     layout::{TRAMPOLINE, TRAPFRAME},
     page::{self, PageFrameAllocator},
-    page_table::{PageTable, PtEntryFlags},
+    page_table::{self, PageTable, PtEntryFlags},
 };
 use crate::{
     error::KernelError,
@@ -318,6 +318,10 @@ impl UserPageTable {
             src_bytes = &src_bytes[n..];
             total_copied += n;
         }
+    }
+
+    pub fn dump(&self) {
+        page_table::dump_pagetable(&self.pt);
     }
 }
 

@@ -154,3 +154,17 @@ impl SyscallExt for syscall::Trace {
         private.set_trace_mask(trace_mask);
     }
 }
+
+impl SyscallExt for syscall::DumpUserPageTable {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
+    type Private<'a> = ProcPrivateData;
+
+    fn call(
+        _p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        (): Self::KernelArg,
+    ) -> Self::KernelReturn {
+        private.pagetable().dump();
+    }
+}

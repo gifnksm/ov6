@@ -64,6 +64,7 @@ OV6_USER_TESTS=\
 	grind\
 	kpgtbl\
 	stressfs\
+	upgtbl\
 	usertests\
 
 OV6_FS_UTILS=\

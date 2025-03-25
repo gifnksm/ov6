@@ -171,3 +171,7 @@ pub fn trace(mask: u64) {
 pub fn dump_kernel_page_table() {
     syscall::DumpKernelPageTable::call(());
 }
+
+pub fn dump_user_page_table() {
+    syscall::DumpUserPageTable::call(());
+}

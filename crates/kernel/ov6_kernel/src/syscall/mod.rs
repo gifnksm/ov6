@@ -261,6 +261,7 @@ pub fn syscall(p: &'static Proc, private_opt: &mut Option<ProcPrivateDataGuard>)
         SyscallCode::Abort => syscall::Abort::handle(p, private),
         SyscallCode::Trace => syscall::Trace::handle(p, private),
         SyscallCode::DumpKernelPageTable => syscall::DumpKernelPageTable::handle(p, private),
+        SyscallCode::DumpUserPageTable => syscall::DumpUserPageTable::handle(p, private),
     };
 
     let private = private_opt.as_mut().unwrap();

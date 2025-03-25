@@ -197,3 +197,4 @@ syscall!(Halt);
 syscall!(Abort);
 syscall!(Trace);
 syscall!(DumpKernelPageTable);
+syscall!(DumpUserPageTable);

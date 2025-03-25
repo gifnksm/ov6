@@ -83,6 +83,7 @@ pub enum SyscallCode {
     Abort,
     Trace,
     DumpKernelPageTable,
+    DumpUserPageTable,
 }
 
 pub trait Syscall {
