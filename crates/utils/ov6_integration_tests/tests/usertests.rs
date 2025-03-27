@@ -180,7 +180,7 @@ mod slow_proc {
 
     #[cfg_attr(miri, ignore)]
     #[tokio::test]
-    async fn out_of_inodes() -> Result<(), anyhow::Error> {
+    async fn execout() -> Result<(), anyhow::Error> {
         let r = runner!("execout").await?;
         let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
             monitor::run_commands(qemu, 0, ["usertests -t slow_proc::execout"]).await?;
