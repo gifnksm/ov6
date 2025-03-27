@@ -1,7 +1,12 @@
-pub use self::addr::{PageRound, PhysAddr, PhysPageNum, VirtAddr};
+pub use self::addr::{PageRound, PhysAddr, VirtAddr};
 
 /// Bytes per page
 pub const PAGE_SIZE: usize = 4096;
+
+pub const fn level_page_size(level: usize) -> usize {
+    assert!(level <= 2);
+    PAGE_SIZE << (level * 9)
+}
 
 /// Bits of offset within a page
 pub const PAGE_SHIFT: usize = 12;

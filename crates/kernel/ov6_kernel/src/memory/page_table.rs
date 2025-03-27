@@ -1,11 +1,21 @@
 use alloc::boxed::Box;
-use core::{alloc::AllocError, fmt, ops::Range, ptr};
+use core::{
+    alloc::AllocError,
+    fmt,
+    ops::{Range, RangeInclusive},
+    ptr, slice,
+};
 
 use bitflags::bitflags;
 use dataview::Pod;
+use riscv::register::satp::{self, Satp};
 
-use super::{PhysAddr, PhysPageNum, VirtAddr, addr::VirtPageNum, page::PageFrameAllocator};
-use crate::{error::KernelError, memory::PAGE_SIZE, println};
+use super::{PhysAddr, VirtAddr, addr::PhysPageNum, page::PageFrameAllocator};
+use crate::{
+    error::KernelError,
+    memory::{self, PAGE_SHIFT, PAGE_SIZE, PageRound as _, level_page_size},
+    println,
+};
 
 #[repr(transparent)]
 #[derive(Pod)]
@@ -31,21 +41,117 @@ impl PageTable {
     ///     12..=20 -- 9 bits of level-0 index.
     ///      0..=11 -- 12 bits byte offset with the page.
     /// ```
-    fn entry_index(level: usize, vpn: VirtPageNum) -> usize {
+    fn entry_index(level: usize, va: VirtAddr) -> usize {
         assert!(level <= 2);
-        let shift = 9 * level;
-        (vpn.value() >> shift) & 0x1ff
+        let shift = 9 * level + PAGE_SHIFT;
+        (va.addr() >> shift) & 0x1ff
     }
 
     /// Returns the physical address containing this page table
-    pub(super) fn phys_addr(&self) -> PhysAddr {
+    fn phys_addr(&self) -> PhysAddr {
         PhysAddr::new(ptr::from_ref(self).addr())
     }
 
     /// Returns the physical page number of the physical page containing this
     /// page table
-    pub(super) fn phys_page_num(&self) -> PhysPageNum {
+    fn phys_page_num(&self) -> PhysPageNum {
         self.phys_addr().phys_page_num()
+    }
+
+    pub(super) fn satp(&self) -> Satp {
+        let mut satp = Satp::from_bits(0);
+        satp.set_mode(satp::Mode::Sv39);
+        satp.set_ppn(self.phys_page_num().value());
+        satp
+    }
+
+    fn validate_inclusive(
+        &self,
+        level: usize,
+        va: RangeInclusive<usize>,
+        flags: PtEntryFlags,
+    ) -> Result<(), KernelError> {
+        assert!(level <= 2);
+        let shift = 9 * level + PAGE_SHIFT;
+        let i_start = va.start() >> shift;
+        let i_end = va.end() >> shift;
+        assert!(i_start <= i_end && i_end <= self.0.len());
+
+        for i in i_start..=i_end {
+            let pte = &self.0[i];
+            if !pte.is_valid() {
+                return Err(KernelError::VirtualPageNotMapped(
+                    VirtAddr::new(*va.start()).unwrap(),
+                ));
+            }
+
+            if pte.is_leaf() {
+                if !pte.flags().contains(flags) {
+                    return Err(KernelError::InaccessiblePage(
+                        VirtAddr::new(*va.start()).unwrap(),
+                    ));
+                }
+                return Ok(());
+            }
+
+            assert!(pte.is_non_leaf());
+
+            let table_start_addr = if i == i_start {
+                va.start() & !(0x1ff << shift)
+            } else {
+                i << shift
+            };
+            let table_end_addr = if i == i_end {
+                va.end() & !(0x1ff << shift)
+            } else {
+                ((i + 1) << shift) - 1
+            };
+
+            pte.get_page_table().unwrap().validate_inclusive(
+                level - 1,
+                table_start_addr..=table_end_addr,
+                flags,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Validates that the virtual address range `va` at the specified `level`
+    /// is mapped with the required `flags`.
+    ///
+    /// This function ensures that all pages within the given range are mapped
+    /// and accessible with the specified permissions. If any page in the range
+    /// is not mapped or does not meet the required permissions, an error is
+    /// returned.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if all pages in the range are valid and meet the required
+    ///   permissions.
+    /// - `Err(KernelError)` if any page in the range is invalid or does not
+    ///   meet the required permissions.
+    ///
+    /// # Panics
+    ///
+    /// - Panics if `va.start > va.end`.
+    ///
+    /// # Notes
+    ///
+    /// - If the range is empty (`va.start == va.end`), the function returns
+    ///   `Ok(())` immediately.
+    pub(super) fn validate(
+        &self,
+        va: Range<VirtAddr>,
+        flags: PtEntryFlags,
+    ) -> Result<(), KernelError> {
+        assert!(va.start <= va.end);
+        if va.start == va.end {
+            return Ok(());
+        }
+
+        let start = va.start.addr();
+        let end = va.end.addr() - 1;
+        self.validate_inclusive(2, start..=end, flags)
     }
 
     /// Creates PTE for virtual page `vpn` that refer to
@@ -53,46 +159,47 @@ impl PageTable {
     ///
     /// Returns `Ok(())` on success, `Err()` if `walk()` couldn't
     /// allocate a needed page-table page.
-    pub fn map_page(
+    fn map_page(
         &mut self,
-        vpn: VirtPageNum,
-        ppn: PhysPageNum,
+        va: VirtAddr,
+        pa: PhysAddr,
         perm: PtEntryFlags,
     ) -> Result<(), KernelError> {
         assert!(perm.intersects(PtEntryFlags::RWX), "perm={perm:?}");
 
-        self.update_level0_entry(vpn, true, |pte| {
+        self.update_level0_entry(va, true, |pte| {
             assert!(
                 !pte.is_valid(),
-                "remap on the already mapped address: va={vpn:?}"
+                "remap on the already mapped address: va={va:?}"
             );
-            pte.set_phys_page_num(ppn, perm | PtEntryFlags::V);
+            pte.set_phys_page_num(pa.phys_page_num(), perm | PtEntryFlags::V);
         })
     }
 
-    /// Creates PTEs for virtual addresses starting at `vpn` that refer to
-    /// physical addresses starting at `ppn`.
+    /// Creates PTEs for virtual addresses starting at `va` that refer to
+    /// physical addresses starting at `pa`.
     ///
     /// `size` MUST be page-aligned.
     ///
     /// Returns `Ok(())` on success, `Err()` if `walk()` couldn't
     /// allocate a needed page-table page.
-    pub fn map_pages(
+    pub fn map_addrs(
         &mut self,
-        vpn: VirtPageNum,
-        npages: usize,
-        ppn: PhysPageNum,
+        mut va: VirtAddr,
+        mut pa: PhysAddr,
+        size: usize,
         perm: PtEntryFlags,
     ) -> Result<(), KernelError> {
-        assert_ne!(npages, 0, "npages={npages:#x}");
+        assert!(va.is_page_aligned());
+        assert!(pa.is_page_aligned());
+        assert!(size.is_multiple_of(PAGE_SIZE));
+        assert!(perm.intersects(PtEntryFlags::RWX), "perm={perm:?}");
 
-        let mut vpn = vpn;
-        let mut ppn = ppn;
-        let last = vpn.checked_add(npages)?;
-        while vpn < last {
-            self.map_page(vpn, ppn, perm)?;
-            vpn = vpn.checked_add(1).unwrap();
-            ppn = ppn.checked_add(1).unwrap();
+        let last = va.byte_add(size)?;
+        while va < last {
+            self.map_page(va, pa, perm)?;
+            va = va.byte_add(PAGE_SIZE).unwrap();
+            pa = pa.byte_add(PAGE_SIZE).unwrap();
         }
         Ok(())
     }
@@ -100,48 +207,67 @@ impl PageTable {
     /// Unmaps the page of memory at virtual page `vpn`.
     ///
     /// Returns the physical address of the page that was unmapped.
-    pub(super) fn unmap_page(&mut self, vpn: VirtPageNum) -> Result<PhysAddr, KernelError> {
-        self.update_level0_entry(vpn, false, |pte| {
-            assert!(pte.is_valid());
-            assert!(pte.is_leaf(), "{:?}", pte.flags());
-            let pa = pte.phys_addr();
-            pte.clear();
-            pa
-        })
+    fn unmap_page(&mut self, va: VirtAddr) -> Result<(usize, PhysAddr), KernelError> {
+        let (level, pte) = self.find_leaf_entry_mut(va)?;
+        let pa = pte.phys_addr();
+        pte.clear();
+        Ok((level, pa))
     }
 
     /// Unmaps the pages of memory starting at virtual page `vpn` and
     /// covering `npages` pages.
-    pub(super) fn unmap_pages(
+    pub(super) fn unmap_addrs(
         &mut self,
-        vpn: VirtPageNum,
-        npages: usize,
+        va: VirtAddr,
+        size: usize,
     ) -> Result<UnmapPages, KernelError> {
-        let start = vpn;
-        let end = vpn.checked_add(npages)?;
+        let start = va;
+        let end = va.byte_add(size)?;
         Ok(UnmapPages {
             pt: self,
-            vpns: start..end,
+            va_range: start..end,
         })
     }
 
     /// Returns the leaf PTE in the page tables that corredponds to virtual
-    /// page `vpn`.
-    pub(super) fn find_leaf_entry(&self, vpn: VirtPageNum) -> Result<&PtEntry, KernelError> {
+    /// page `va`.
+    pub(super) fn find_leaf_entry(&self, va: VirtAddr) -> Result<(usize, &PtEntry), KernelError> {
         let mut pt = self;
-        for level in (1..=2).rev() {
-            let index = Self::entry_index(level, vpn);
-            pt = pt.0[index]
-                .get_page_table()
-                .ok_or(KernelError::VirtualPageNotMapped(vpn))?;
+        for level in (0..=2).rev() {
+            let index = Self::entry_index(level, va);
+            let pte = &pt.0[index];
+            if !pte.is_valid() {
+                return Err(KernelError::VirtualPageNotMapped(va));
+            }
+            if pte.is_leaf() {
+                return Ok((level, pte));
+            }
+            assert!(pte.is_non_leaf());
+            pt = pte.get_page_table().unwrap();
         }
+        panic!("invalid page table");
+    }
 
-        let index = Self::entry_index(0, vpn);
-        let pte = &pt.0[index];
-        if !pte.is_leaf() {
-            return Err(KernelError::VirtualPageNotMapped(vpn));
+    /// Returns the leaf PTE in the page tables that corredponds to virtual
+    /// page `va`.
+    pub(super) fn find_leaf_entry_mut(
+        &mut self,
+        va: VirtAddr,
+    ) -> Result<(usize, &mut PtEntry), KernelError> {
+        let mut pt = self;
+        for level in (0..=2).rev() {
+            let index = Self::entry_index(level, va);
+            let pte = &mut pt.0[index];
+            if !pte.is_valid() {
+                return Err(KernelError::VirtualPageNotMapped(va));
+            }
+            if pte.is_leaf() {
+                return Ok((level, pte));
+            }
+            assert!(pte.is_non_leaf());
+            pt = pte.get_page_table_mut().unwrap();
         }
-        Ok(pte)
+        panic!("invalid page table");
     }
 
     /// Updates the level-0 PTE in the page tables that corredponds to virtual
@@ -151,9 +277,9 @@ impl PageTable {
     /// if needed.
     ///
     /// Updated PTE must be leaf PTE or invalid.
-    pub(super) fn update_level0_entry<T, F>(
+    fn update_level0_entry<T, F>(
         &mut self,
-        vpn: VirtPageNum,
+        va: VirtAddr,
         insert_new_table: bool,
         f: F,
     ) -> Result<T, KernelError>
@@ -162,10 +288,10 @@ impl PageTable {
     {
         let mut pt = self;
         for level in (1..=2).rev() {
-            let index = Self::entry_index(level, vpn);
+            let index = Self::entry_index(level, va);
             if !pt.0[index].is_valid() {
                 if !insert_new_table {
-                    return Err(KernelError::VirtualPageNotMapped(vpn));
+                    return Err(KernelError::VirtualPageNotMapped(va));
                 }
                 let new_pt = Self::try_allocate()?;
                 pt.0[index].set_page_table(new_pt);
@@ -173,7 +299,7 @@ impl PageTable {
             pt = pt.0[index].get_page_table_mut().unwrap();
         }
 
-        let index = Self::entry_index(0, vpn);
+        let index = Self::entry_index(0, va);
         let pte = &mut pt.0[index];
         let res = f(pte);
         // cannot change PTE to non-leaf (level0 PTE must be invalid or leaf)
@@ -181,52 +307,40 @@ impl PageTable {
         Ok(res)
     }
 
-    /// Looks up a virtual address, returns the physical address.
-    pub fn resolve_page(
-        &self,
-        vpn: VirtPageNum,
-        flags: PtEntryFlags,
-    ) -> Result<PhysPageNum, KernelError> {
-        let pte = self.find_leaf_entry(vpn)?;
-        assert!(pte.is_valid() && pte.is_leaf());
-        if !pte.flags().contains(flags) {
-            return Err(KernelError::InaccessiblePage(vpn));
-        }
-
-        Ok(pte.phys_page_num())
-    }
-
-    /// Looks up a virtual address, returns the physical address.
-    pub fn resolve_virt_addr(
+    pub(super) fn fetch_chunk(
         &self,
         va: VirtAddr,
         flags: PtEntryFlags,
-    ) -> Result<PhysAddr, KernelError> {
-        let ppn = self.resolve_page(va.virt_page_num(), flags)?;
-        Ok(ppn.phys_addr().map_addr(|a| a + va.addr() % PAGE_SIZE))
+    ) -> Result<&[u8], KernelError> {
+        let (level, pte) = self.find_leaf_entry(va)?;
+        assert!(pte.is_valid() && pte.is_leaf());
+        if !pte.flags().contains(flags) {
+            return Err(KernelError::InaccessiblePage(va));
+        }
+
+        let page_size = memory::level_page_size(level);
+        let pa = pte.phys_addr();
+        let page = unsafe { slice::from_raw_parts(pa.as_ptr(), page_size) };
+        let offset = va.addr() % page_size;
+        Ok(&page[offset..])
     }
 
-    /// Fetches the page that is mapped at virtual address `va`.
-    pub(super) fn fetch_page(
-        &self,
-        vpn: VirtPageNum,
-        flags: PtEntryFlags,
-    ) -> Result<&[u8; PAGE_SIZE], KernelError> {
-        let ppn = self.resolve_page(vpn, flags)?;
-        let page = unsafe { ppn.as_ptr().as_ref() };
-        Ok(page)
-    }
-
-    /// Fetches the page that is mapped at virtual address `va`.
-    #[expect(clippy::needless_pass_by_ref_mut)]
-    pub(super) fn fetch_page_mut(
+    pub(super) fn fetch_chunk_mut(
         &mut self,
-        vpn: VirtPageNum,
+        va: VirtAddr,
         flags: PtEntryFlags,
-    ) -> Result<&mut [u8; PAGE_SIZE], KernelError> {
-        let ppn = self.resolve_page(vpn, flags)?;
-        let page = unsafe { ppn.as_ptr().as_mut() };
-        Ok(page)
+    ) -> Result<&mut [u8], KernelError> {
+        let (level, pte) = self.find_leaf_entry_mut(va)?;
+        assert!(pte.is_valid() && pte.is_leaf());
+        if !pte.flags().contains(flags) {
+            return Err(KernelError::InaccessiblePage(va));
+        }
+
+        let page_size = memory::level_page_size(level);
+        let pa = pte.phys_addr();
+        let page = unsafe { slice::from_raw_parts_mut(pa.as_mut_ptr().as_ptr(), page_size) };
+        let offset = va.addr() % page_size;
+        Ok(&mut page[offset..])
     }
 
     /// Recursively frees page-table pages.
@@ -300,19 +414,24 @@ bitflags! {
 
 pub(super) struct UnmapPages<'a> {
     pt: &'a mut PageTable,
-    vpns: Range<VirtPageNum>,
+    va_range: Range<VirtAddr>,
 }
 
 impl Iterator for UnmapPages<'_> {
-    type Item = Result<PhysAddr, KernelError>;
+    type Item = Result<(usize, PhysAddr), KernelError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let vpn = self.vpns.start;
-        if vpn >= self.vpns.end {
+        let va = self.va_range.start;
+        if va >= self.va_range.end {
             return None;
         }
-        self.vpns.start = vpn.checked_add(1).unwrap();
-        Some(self.pt.unmap_page(vpn))
+        let (level, pa) = match self.pt.unmap_page(va) {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e)),
+        };
+        let page_size = memory::level_page_size(level);
+        self.va_range.start = va.byte_add(page_size).unwrap();
+        Some(Ok((level, pa)))
     }
 }
 
@@ -401,12 +520,6 @@ impl PtEntry {
         PtEntryFlags::from_bits_retain(self.0 & Self::FLAGS_MASK)
     }
 
-    /// Sets page table entry flags.
-    pub(super) fn set_flags(&mut self, flags: PtEntryFlags) {
-        self.0 &= !&Self::FLAGS_MASK;
-        self.0 |= flags.bits();
-    }
-
     /// Clears the page table entry.
     pub(super) fn clear(&mut self) {
         self.0 = 0;
@@ -417,60 +530,69 @@ pub(crate) fn dump_pagetable(pt: &PageTable) {
     println!("page table {:p}", pt);
 
     let level = 2;
-    dump_pagetable_level(pt, level, VirtPageNum::ZERO);
+    dump_pagetable_level(pt, level, VirtAddr::ZERO);
 }
 
-fn dump_pagetable_level(pt: &PageTable, level: usize, base_vpn: VirtPageNum) {
+fn pte_va(base_va: VirtAddr, i: usize, level: usize) -> VirtAddr {
+    assert!(i <= 512);
+    base_va
+        .map_addr(|a| a | (i << (9 * level + PAGE_SHIFT)))
+        .unwrap()
+}
+
+fn dump_pagetable_level(pt: &PageTable, level: usize, base_va: VirtAddr) {
     let mut state = None;
+
     for (i, pte) in pt.0.iter().enumerate() {
         if !pte.is_valid() {
             if let Some((start_i, start_pte, end_i, end_ptr)) = state.take() {
-                print_pte(level, base_vpn, start_i, start_pte, end_i, end_ptr);
+                print_pte(level, base_va, start_i, start_pte, end_i, end_ptr);
             }
             continue;
         }
 
         if pte.is_non_leaf() {
-            if let Some((start_i, start_pte, end_i, end_ptr)) = state.take() {
-                print_pte(level, base_vpn, start_i, start_pte, end_i, end_ptr);
+            if let Some((start_i, start_pte, end_i, end_pte)) = state.take() {
+                print_pte(level, base_va, start_i, start_pte, end_i, end_pte);
             }
 
-            let vpn = VirtPageNum::new(base_vpn.value() | (i << (9 * level))).unwrap();
-            let va = vpn.virt_addr();
+            let va = pte_va(base_va, i, level);
             let pa = pte.phys_addr();
             println!(
                 "{prefix} [{i:3}] {va:#p} @ {pa:#p}",
                 prefix = format_args!("{:.<1$}", "", (2 - level) * 2),
             );
-            dump_pagetable_level(pte.get_page_table().unwrap(), level - 1, vpn);
+            dump_pagetable_level(pte.get_page_table().unwrap(), level - 1, va);
             continue;
         }
 
         match &mut state {
             Some((start_i, start_pte, end_i, end_pte)) => {
                 if start_pte.flags() == pte.flags()
-                    && end_pte.phys_page_num().value() + 1 == pte.phys_page_num().value()
+                    && end_pte.phys_page_num().checked_add(1) == Some(pte.phys_page_num())
                 {
                     *end_i = i;
                     *end_pte = pte;
                     continue;
                 }
-                print_pte(level, base_vpn, *start_i, start_pte, *end_i, end_pte);
-                state = None;
+
+                print_pte(level, base_va, *start_i, start_pte, *end_i, end_pte);
+                state = Some((i, pte, i, pte));
             }
             None => {
                 state = Some((i, pte, i, pte));
             }
         }
     }
-    if let Some((start_i, start_pte, end_i, end_ptr)) = state.take() {
-        print_pte(level, base_vpn, start_i, start_pte, end_i, end_ptr);
+
+    if let Some((start_i, start_pte, end_i, end_pte)) = state.take() {
+        print_pte(level, base_va, start_i, start_pte, end_i, end_pte);
     }
 }
 
 fn print_pte(
     level: usize,
-    base_vpn: VirtPageNum,
+    base_va: VirtAddr,
     start_i: usize,
     start_pte: &PtEntry,
     end_i: usize,
@@ -494,23 +616,23 @@ fn print_pte(
         }
     }
 
-    let start_vpn = VirtPageNum::new(base_vpn.value() | (start_i << (9 * level))).unwrap();
-    let start_va = start_vpn.virt_addr();
+    let start_va = pte_va(base_va, start_i, level);
     let start_pa = start_pte.phys_addr();
 
-    let end_i = end_i + 1;
-    let end_vpn = VirtPageNum::new(base_vpn.value() | (end_i << (9 * level))).unwrap();
-    let end_va = end_vpn.virt_addr();
+    let end_va = pte_va(base_va, end_i, level)
+        .byte_add(level_page_size(level))
+        .unwrap();
     let end_pa = end_pte
         .phys_addr()
-        .map_addr(|addr| addr + (PAGE_SIZE << (9 * level)));
+        .byte_add(level_page_size(level))
+        .unwrap();
 
     assert_eq!(start_pte.flags(), end_pte.flags());
 
     println!(
         "{prefix} [{index}] {va} => {pa} {flags:?}",
         prefix = format_args!("{:.<1$}", "", (2 - level) * 2),
-        index = format_args!("{:3}..{:3}", start_i, end_i),
+        index = format_args!("{:3}..{:3}", start_i, end_i + 1),
         va = format_args!("{start_va:#p}..{end_va:#p}"),
         pa = format_args!("{start_pa:#p}..{end_pa:#p}"),
         flags = Flags(start_pte.flags()),

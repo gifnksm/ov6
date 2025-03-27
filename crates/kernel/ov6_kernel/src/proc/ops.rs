@@ -55,7 +55,7 @@ pub fn resize_by(private: &mut ProcPrivateData, increment: isize) -> Result<(), 
     match new_sz.cmp(&old_sz) {
         cmp::Ordering::Less => pagetable.shrink_to(new_sz),
         cmp::Ordering::Equal => {}
-        cmp::Ordering::Greater => pagetable.grow_to(new_sz, PtEntryFlags::W)?,
+        cmp::Ordering::Greater => pagetable.grow_to(new_sz, PtEntryFlags::URW)?,
     }
     Ok(())
 }

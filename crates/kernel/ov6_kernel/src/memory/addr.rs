@@ -1,5 +1,5 @@
 use core::{
-    cmp, fmt,
+    fmt,
     num::NonZero,
     ops::Range,
     ptr::{self, NonNull},
@@ -132,11 +132,6 @@ macro_rules! impl_fmt {
     };
 }
 
-/// Physical Page Number of a page
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct VirtPageNum(usize);
-impl_fmt!(VirtPageNum);
-
 /// Virtual address
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VirtAddr(usize);
@@ -144,19 +139,13 @@ impl_fmt!(VirtAddr);
 
 /// Physical Page Number of a page
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PhysPageNum(usize);
+pub(super) struct PhysPageNum(usize);
 impl_fmt!(PhysPageNum);
 
 /// Physical Address
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PhysAddr(usize);
 impl_fmt!(PhysAddr);
-
-impl VirtPageNum {
-    pub const MAX: Self = Self(1 << (9 * 3 - 1));
-    pub const MIN: Self = Self(0);
-    pub const ZERO: Self = Self(0);
-}
 
 impl VirtAddr {
     /// One beyond the highest possible virtual address.
@@ -166,35 +155,7 @@ impl VirtAddr {
     /// that have the high bit set.
     pub const MAX: Self = Self(1 << (9 * 3 + PAGE_SHIFT - 1));
     pub const MIN: Self = Self(0);
-}
-
-const _: () = {
-    assert!(VirtAddr::MAX.0 == VirtPageNum::MAX.0 << PAGE_SHIFT);
-    assert!(VirtAddr::MIN.0 == VirtPageNum::MIN.0 << PAGE_SHIFT);
-};
-
-impl VirtPageNum {
-    pub const fn new(vpn: usize) -> Result<Self, KernelError> {
-        if vpn > Self::MAX.0 {
-            return Err(KernelError::TooLargeVirtualPageNumber(vpn));
-        }
-        Ok(Self(vpn))
-    }
-
-    pub const fn virt_addr(self) -> VirtAddr {
-        VirtAddr(self.0 << PAGE_SHIFT)
-    }
-
-    pub const fn value(self) -> usize {
-        self.0
-    }
-
-    pub const fn checked_add(self, n: usize) -> Result<Self, KernelError> {
-        let Some(vpn) = self.0.checked_add(n) else {
-            return Err(KernelError::TooLargeVirtualPageNumber(usize::MAX));
-        };
-        Self::new(vpn)
-    }
+    pub const ZERO: Self = Self(0);
 }
 
 impl VirtAddr {
@@ -207,10 +168,6 @@ impl VirtAddr {
 
     pub const fn addr(self) -> usize {
         self.0
-    }
-
-    pub fn virt_page_num(self) -> VirtPageNum {
-        VirtPageNum(self.0 >> PAGE_SHIFT)
     }
 
     pub const fn byte_add(self, offset: usize) -> Result<Self, KernelError> {
@@ -245,13 +202,11 @@ impl PhysPageNum {
         self.0
     }
 
-    pub fn checked_add(self, n: usize) -> Option<Self> {
-        self.0.checked_add(n).map(Self)
-    }
-
-    pub fn as_ptr(self) -> NonNull<[u8; PAGE_SIZE]> {
-        let addr = self.phys_addr().addr();
-        NonNull::new(ptr::with_exposed_provenance_mut(addr)).unwrap()
+    pub(super) const fn checked_add(self, n: usize) -> Option<Self> {
+        let Some(n) = self.0.checked_add(n) else {
+            return None;
+        };
+        Some(Self(n))
     }
 }
 
@@ -272,8 +227,15 @@ impl PhysAddr {
         NonNull::new(ptr::with_exposed_provenance_mut(self.0)).unwrap()
     }
 
-    pub fn phys_page_num(self) -> PhysPageNum {
+    pub(super) fn phys_page_num(self) -> PhysPageNum {
         PhysPageNum(self.0 >> PAGE_SHIFT)
+    }
+
+    pub const fn byte_add(self, n: usize) -> Option<Self> {
+        match self.0.checked_add(n) {
+            Some(n) => Some(Self(n)),
+            None => None,
+        }
     }
 
     pub fn map_addr(self, f: impl FnOnce(usize) -> usize) -> Self {
@@ -375,76 +337,6 @@ where
 {
     fn as_va_range(&self) -> Range<VirtAddr> {
         self.0.try_as_va_range().unwrap()
-    }
-}
-
-#[derive(Debug)]
-pub struct AddressChunks {
-    range: Range<VirtAddr>,
-}
-
-impl AddressChunks {
-    #[expect(clippy::needless_pass_by_value)]
-    pub fn new<R>(range: R) -> Self
-    where
-        R: AsVirtAddrRange,
-    {
-        let range = range.as_va_range();
-        Self { range }
-    }
-
-    pub fn try_new<R>(range: R) -> Result<Self, KernelError>
-    where
-        R: TryAsVirtAddrRange,
-    {
-        let range = range.try_as_va_range()?;
-        Ok(Self { range })
-    }
-
-    pub fn from_size(start: VirtAddr, size: usize) -> Result<Self, KernelError> {
-        let end = start.byte_add(size)?;
-        Ok(Self { range: start..end })
-    }
-
-    pub fn from_range(range: Range<VirtAddr>) -> Self {
-        Self { range }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct AddressChunk {
-    range: Range<VirtAddr>,
-}
-
-impl AddressChunk {
-    pub fn page_num(&self) -> VirtPageNum {
-        self.range.start.virt_page_num()
-    }
-
-    pub fn offset_in_page(&self) -> Range<usize> {
-        (self.range.start.addr() % PAGE_SIZE)..(self.range.end.addr() % PAGE_SIZE)
-    }
-
-    pub fn size(&self) -> usize {
-        self.range.end.addr() - self.range.start.addr()
-    }
-}
-
-impl Iterator for AddressChunks {
-    type Item = AddressChunk;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.range.start >= self.range.end {
-            return None;
-        }
-
-        let start = self.range.start;
-        let end = start
-            .byte_add(PAGE_SIZE)
-            .map(|a| cmp::min(a.page_rounddown(), self.range.end))
-            .unwrap_or(self.range.end);
-        self.range.start = end;
-        Some(AddressChunk { range: start..end })
     }
 }
 

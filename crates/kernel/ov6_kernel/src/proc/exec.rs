@@ -1,5 +1,3 @@
-use core::slice;
-
 use dataview::PodMethods as _;
 use ov6_syscall::{UserMutSlice, UserSlice};
 use ov6_types::path::Path;
@@ -22,13 +20,20 @@ use crate::{
     },
 };
 
+const PF_X: u32 = 0x1;
+const PF_W: u32 = 0x2;
+const PF_R: u32 = 0x4;
+
 fn flags2perm(flags: u32) -> PtEntryFlags {
     let mut perm = PtEntryFlags::empty();
-    if flags & 0x1 != 0 {
+    if flags & PF_X != 0 {
         perm.insert(PtEntryFlags::X);
     }
-    if flags & 0x2 != 0 {
+    if flags & PF_W != 0 {
         perm.insert(PtEntryFlags::W);
+    }
+    if flags & PF_R != 0 {
+        perm.insert(PtEntryFlags::R);
     }
     perm
 }
@@ -122,7 +127,7 @@ fn load_segments<const READ_ONLY: bool>(
         }
         let va_end = va_start.byte_add(ph.memsz.safe_into())?;
 
-        new_pt.grow_to(va_end.addr(), flags2perm(ph.flags))?;
+        new_pt.grow_to(va_end.addr(), PtEntryFlags::U | flags2perm(ph.flags))?;
 
         load_segment(
             new_pt,
@@ -140,7 +145,7 @@ fn load_segments<const READ_ONLY: bool>(
 ///
 /// `va` must be page-aligned.
 fn load_segment<const READ_ONLY: bool>(
-    new_pt: &UserPageTable,
+    new_pt: &mut UserPageTable,
     va: VirtAddr,
     lip: &mut LockedTxInode<READ_ONLY>,
     file_offset: usize,
@@ -148,22 +153,23 @@ fn load_segment<const READ_ONLY: bool>(
 ) -> Result<(), KernelError> {
     assert!(va.is_page_aligned());
 
-    for i in (0..file_size).step_by(PAGE_SIZE) {
-        let va = va.byte_add(i).unwrap();
-        let pa = new_pt.resolve_virtual_address(va, PtEntryFlags::U).unwrap();
-
-        let n = if file_size - i < PAGE_SIZE {
-            file_size - i
-        } else {
-            PAGE_SIZE
-        };
-
-        let dst = unsafe { slice::from_raw_parts_mut(pa.as_mut_ptr().as_ptr(), n) };
-        let nread = lip.read(dst.into(), file_offset + i)?;
-        if nread != n {
+    let mut va_start = va;
+    let va_end = va.byte_add(file_size).unwrap();
+    let mut copied = 0;
+    while copied < file_size {
+        let rest_len = file_size - copied;
+        let mut dst_chunk = new_pt.fetch_chunk_mut(va_start, PtEntryFlags::U).unwrap();
+        if dst_chunk.len() > rest_len {
+            dst_chunk = &mut dst_chunk[..rest_len];
+        }
+        let nread = lip.read(dst_chunk.into(), file_offset + copied)?;
+        if nread != dst_chunk.len() {
             return Err(KernelError::InvalidExecutable);
         }
+        va_start = va_start.byte_add(dst_chunk.len()).unwrap();
+        copied += dst_chunk.len();
     }
+    assert_eq!(va_start, va_end);
 
     Ok(())
 }
@@ -174,10 +180,14 @@ fn load_segment<const READ_ONLY: bool>(
 /// Uses the rest as the user stack.
 fn allocate_stack_pages(pt: &mut UserPageTable) -> Result<(), KernelError> {
     let size = pt.size().page_roundup();
-    pt.grow_to(size + (USER_STACK + 1) * PAGE_SIZE, PtEntryFlags::W)?;
-    pt.forbide_user_access(
-        VirtAddr::new(pt.size() - (USER_STACK + 1) * PAGE_SIZE)?.virt_page_num(),
-    )?;
+
+    // stack guard
+    pt.grow_to(size + PAGE_SIZE, PtEntryFlags::R)?;
+
+    // user stack
+    assert!(pt.size().is_page_aligned());
+    pt.grow_to(pt.size() + USER_STACK * PAGE_SIZE, PtEntryFlags::URW)?;
+
     Ok(())
 }
 

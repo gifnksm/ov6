@@ -13,8 +13,7 @@ use crate::{
     error::KernelError,
     interrupt::trampoline,
     memory::{
-        PAGE_SIZE, PhysAddr, PhysPageNum,
-        addr::VirtPageNum,
+        PAGE_SIZE, PhysAddr, VirtAddr,
         layout::{KERNEL_BASE, PHYS_TOP, PLIC, TEXT_END, TRAMPOLINE, UART0, VIRT_TEST, VIRTIO0},
         page_table::PtEntryFlags,
     },
@@ -34,9 +33,9 @@ pub fn init_hart() {
     // wait for any previous writes to the page table memory to finish.
     asm::sfence_vma_all();
 
-    let ppn = KERNEL_PAGE_TABLE.get().0.phys_page_num();
+    let satp = KERNEL_PAGE_TABLE.get().0.satp();
     unsafe {
-        satp::set(satp::Mode::Sv39, 0, ppn.value());
+        satp::write(satp);
     }
 
     // flush state entries from the TLB.
@@ -49,17 +48,7 @@ unsafe fn ident_map(
     size: usize,
     perm: PtEntryFlags,
 ) -> Result<(), KernelError> {
-    assert!(addr % PAGE_SIZE == 0);
-    let page = addr / PAGE_SIZE;
-    assert!(size % PAGE_SIZE == 0);
-    let npages = size / PAGE_SIZE;
-
-    kpgtbl.map_pages(
-        VirtPageNum::new(page)?,
-        npages,
-        PhysPageNum::new(page),
-        perm,
-    )
+    kpgtbl.map_addrs(VirtAddr::new(addr)?, PhysAddr::new(addr), size, perm)
 }
 
 pub struct KernelPageTable(Box<PageTable, PageFrameAllocator>);
@@ -98,12 +87,7 @@ impl KernelPageTable {
             // map the trampoline for trap entry/exit to
             // the highest virtual address in the kernel.
             kpgtbl
-                .map_pages(
-                    TRAMPOLINE.virt_page_num(),
-                    1,
-                    phys_trampoline.phys_page_num(),
-                    rx,
-                )
+                .map_addrs(TRAMPOLINE, phys_trampoline, PAGE_SIZE, rx)
                 .unwrap();
 
             // allocate and map a kernel stack for each process.
@@ -117,12 +101,11 @@ impl KernelPageTable {
 fn map_proc_stacks(kpgtbl: &mut PageTable) {
     for i in 0..NPROC {
         for k in 0..KSTACK_PAGES {
-            let ppn = PhysAddr::new(page::alloc_page().unwrap().addr().get()).phys_page_num();
-            let vpn = layout::kstack(i)
-                .byte_add(k * PAGE_SIZE)
-                .unwrap()
-                .virt_page_num();
-            kpgtbl.map_page(vpn, ppn, PtEntryFlags::RW).unwrap();
+            let pa = PhysAddr::new(page::alloc_page().unwrap().addr().get());
+            let va = layout::kstack(i).byte_add(k * PAGE_SIZE).unwrap();
+            kpgtbl
+                .map_addrs(va, pa, PAGE_SIZE, PtEntryFlags::RW)
+                .unwrap();
         }
     }
 }

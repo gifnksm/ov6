@@ -4,7 +4,7 @@ use ov6_types::{fs::RawFd, process::ProcId};
 
 use crate::{
     fs::DeviceNo,
-    memory::addr::VirtPageNum,
+    memory::VirtAddr,
     sync::{SleepLockError, WaitError},
 };
 
@@ -20,16 +20,14 @@ pub(crate) enum KernelError {
     ProcessNotFound(ProcId),
     #[error("device not found: {0}")]
     DeviceNotFound(DeviceNo),
-    #[error("too large virtual page number: {0:#x}")]
-    TooLargeVirtualPageNumber(usize),
     #[error("too large virtual address: {0:#x}")]
     TooLargeVirtualAddress(usize),
     #[error("virtual address underflow")]
     VirtualAddressUnderflow,
     #[error("page not mapped: {0:#x}")]
-    VirtualPageNotMapped(VirtPageNum),
+    VirtualPageNotMapped(VirtAddr),
     #[error("inaccessible page: {0:#x}")]
-    InaccessiblePage(VirtPageNum),
+    InaccessiblePage(VirtAddr),
     #[error("bad file descriptor: fd={0}, pid={1}")]
     FileDescriptorNotFound(RawFd, ProcId),
     #[error("file descriptor not readable")]
@@ -106,8 +104,7 @@ impl From<KernelError> for SyscallError {
             KernelError::ProcessNotFound(_) => Self::ProcessNotFound,
             KernelError::DeviceNotFound(_) => Self::DeviceNotFound,
             KernelError::NoWaitTarget => Self::NoChildProcess,
-            KernelError::TooLargeVirtualPageNumber(_)
-            | KernelError::TooLargeVirtualAddress(_)
+            KernelError::TooLargeVirtualAddress(_)
             | KernelError::VirtualAddressUnderflow
             | KernelError::VirtualPageNotMapped(_)
             | KernelError::InaccessiblePage(_) => Self::BadAddress,

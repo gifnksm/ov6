@@ -202,7 +202,7 @@ pub fn trap_user_ret(mut private: ProcPrivateDataGuard) {
     }
 
     // tell trampoline.S the user page table to switch to.
-    let satp = (8 << 60) | (private.pagetable().phys_page_num().value());
+    let satp = private.pagetable().satp().bits();
     drop(private);
 
     // jump to userret in trampoline.S at the top of memory, which
@@ -210,8 +210,8 @@ pub fn trap_user_ret(mut private: ProcPrivateDataGuard) {
     // and switches to user mode with sret.
     let trampoline_user_ret = trampoline::user_ret_addr();
     unsafe {
-        let f: extern "C" fn(u64) = mem::transmute(trampoline_user_ret.addr());
-        f(satp as u64);
+        let f: extern "C" fn(usize) = mem::transmute(trampoline_user_ret.addr());
+        f(satp);
     }
 }
 

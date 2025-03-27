@@ -102,12 +102,14 @@ unsafe extern "C" {
 //  TRAMPOLINE
 // ```
 
-pub const TRAMPOLINE: VirtAddr = match VirtAddr::MAX.byte_sub(PAGE_SIZE) {
+pub const TRAMPOLINE_SIZE: usize = PAGE_SIZE;
+pub const TRAMPOLINE: VirtAddr = match VirtAddr::MAX.byte_sub(TRAMPOLINE_SIZE) {
     Ok(va) => va,
     Err(_) => unreachable!(),
 };
 
-pub const TRAPFRAME: VirtAddr = match TRAMPOLINE.byte_sub(PAGE_SIZE) {
+pub const TRAPFRAME_SIZE: usize = PAGE_SIZE;
+pub const TRAPFRAME: VirtAddr = match TRAMPOLINE.byte_sub(TRAPFRAME_SIZE) {
     Ok(va) => va,
     Err(_) => unreachable!(),
 };
