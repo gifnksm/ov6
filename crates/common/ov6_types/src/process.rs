@@ -1,8 +1,12 @@
 use core::{fmt, num::NonZero, str::FromStr};
 
+use dataview::Pod;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct ProcId(NonZero<u32>);
+
+unsafe impl Pod for ProcId {}
 
 impl fmt::Display for ProcId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

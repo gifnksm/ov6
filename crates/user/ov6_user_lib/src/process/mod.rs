@@ -111,7 +111,7 @@ pub fn fork() -> Result<JoinHandle, Ov6Error> {
 /// Returns the process ID of the current process.
 #[must_use]
 pub fn id() -> ProcId {
-    syscall::getpid()
+    syscall::ugetpid()
 }
 
 /// Returns the current program break (end of the process's data segment).

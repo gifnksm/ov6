@@ -29,6 +29,7 @@
 use core::arch::global_asm;
 
 use ov6_kernel_params::NPROC;
+use ov6_syscall::{USYSCALL_ADDR, USyscallData};
 
 use crate::memory::{PAGE_SIZE, VirtAddr};
 
@@ -101,6 +102,14 @@ unsafe extern "C" {
 //  TRAPFRAME (p.trapframe, used by the trampoline)
 //  TRAMPOLINE
 // ```
+
+pub const USYSCALL: VirtAddr = match VirtAddr::new(USYSCALL_ADDR) {
+    Ok(va) => va,
+    Err(_) => unreachable!(),
+};
+pub const USYSCALL_SIZE: usize = PAGE_SIZE;
+
+const _: () = assert!(USYSCALL_SIZE >= size_of::<USyscallData>());
 
 pub const TRAMPOLINE_SIZE: usize = PAGE_SIZE;
 pub const TRAMPOLINE: VirtAddr = match VirtAddr::MAX.byte_sub(TRAMPOLINE_SIZE) {

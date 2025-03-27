@@ -2,7 +2,9 @@ use core::{convert::Infallible, ptr, time::Duration};
 
 use dataview::PodMethods as _;
 pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
-use ov6_syscall::{UserMutRef, UserMutSlice, UserSlice, WaitTarget, syscall};
+use ov6_syscall::{
+    USYSCALL_ADDR, USyscallData, UserMutRef, UserMutSlice, UserSlice, WaitTarget, syscall,
+};
 use ov6_types::{fs::RawFd, path::Path, process::ProcId};
 
 use self::ffi::SyscallExt as _;
@@ -115,8 +117,9 @@ pub fn dup(fd: RawFd) -> Result<OwnedFd, Ov6Error> {
 }
 
 #[must_use]
-pub fn getpid() -> ProcId {
-    syscall::Getpid::call(())
+pub fn ugetpid() -> ProcId {
+    let usyscall_data = ptr::with_exposed_provenance::<USyscallData>(USYSCALL_ADDR);
+    unsafe { (*usyscall_data).pid }
 }
 
 /// # Safety

@@ -246,7 +246,6 @@ pub fn syscall(p: &'static Proc, private_opt: &mut Option<ProcPrivateDataGuard>)
         SyscallCode::Fstat => syscall::Fstat::handle(p, private),
         SyscallCode::Chdir => syscall::Chdir::handle(p, private),
         SyscallCode::Dup => syscall::Dup::handle(p, private),
-        SyscallCode::Getpid => syscall::Getpid::handle(p, private),
         SyscallCode::Sbrk => syscall::Sbrk::handle(p, private),
         SyscallCode::Sleep => syscall::Sleep::handle(p, private),
         SyscallCode::Open => syscall::Open::handle(p, private),

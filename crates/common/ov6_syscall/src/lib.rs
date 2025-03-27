@@ -11,6 +11,14 @@ pub mod error;
 mod register;
 pub mod syscall;
 
+pub const USYSCALL_ADDR: usize = 0x20_0000_0000;
+
+#[derive(Debug, Pod)]
+#[repr(C)]
+pub struct USyscallData {
+    pub pid: ProcId,
+}
+
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     #[repr(transparent)]
@@ -68,7 +76,6 @@ pub enum SyscallCode {
     Fstat,
     Chdir,
     Dup,
-    Getpid,
     Sbrk,
     Sleep,
     Open,

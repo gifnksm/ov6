@@ -2,13 +2,14 @@ use alloc::boxed::Box;
 use core::{ops::Range, ptr, slice};
 
 use dataview::{Pod, PodMethods as _};
-use ov6_syscall::{UserMutRef, UserMutSlice, UserRef, UserSlice};
+use ov6_syscall::{USyscallData, UserMutRef, UserMutSlice, UserRef, UserSlice};
+use ov6_types::process::ProcId;
 use riscv::register::satp::Satp;
 
 use super::{
     PAGE_SIZE, PageRound as _, PhysAddr, VirtAddr,
     addr::{GenericMutSlice, GenericSlice, Validated},
-    layout::{TRAMPOLINE, TRAMPOLINE_SIZE, TRAPFRAME, TRAPFRAME_SIZE},
+    layout::{TRAMPOLINE, TRAMPOLINE_SIZE, TRAPFRAME, TRAPFRAME_SIZE, USYSCALL, USYSCALL_SIZE},
     page::{self, PageFrameAllocator},
     page_table::{self, PageTable, PtEntryFlags},
 };
@@ -26,33 +27,44 @@ pub struct UserPageTable {
 impl UserPageTable {
     /// Creates a user page table with a given trapframe, with no user memory,
     /// but with trampoline and trapframe pages.
-    pub fn new(tf: &TrapFrame) -> Result<Self, KernelError> {
+    pub fn new(pid: ProcId, tf: &TrapFrame) -> Result<Self, KernelError> {
         // An empty page table.
-        let mut pt = PageTable::try_allocate()?;
-        if let Err(e) = pt.map_addrs(
+        let mut pt = Self {
+            pt: PageTable::try_allocate()?,
+            size: 0,
+        };
+
+        let usyscall = page::alloc_zeroed_page()?;
+        unsafe {
+            usyscall.cast::<USyscallData>().write(USyscallData { pid });
+        }
+        if let Err(e) = pt.pt.map_addrs(
+            USYSCALL,
+            PhysAddr::new(usyscall.addr().get()),
+            USYSCALL_SIZE,
+            PtEntryFlags::UR,
+        ) {
+            unsafe {
+                page::free_page(usyscall);
+            }
+            return Err(e);
+        }
+
+        pt.pt.map_addrs(
             TRAMPOLINE,
             PhysAddr::new(trampoline::trampoline as usize),
             TRAMPOLINE_SIZE,
             PtEntryFlags::RX,
-        ) {
-            pt.free_descendant();
-            drop(pt);
-            return Err(e);
-        }
+        )?;
 
-        if let Err(e) = pt.map_addrs(
+        pt.pt.map_addrs(
             TRAPFRAME,
             PhysAddr::new(ptr::from_ref(tf).addr()),
             TRAPFRAME_SIZE,
             PtEntryFlags::RW,
-        ) {
-            pt.unmap_addrs(TRAMPOLINE, TRAMPOLINE_SIZE).unwrap();
-            pt.free_descendant();
-            drop(pt);
-            return Err(e);
-        }
+        )?;
 
-        Ok(Self { pt, size: 0 })
+        Ok(pt)
     }
 
     pub fn satp(&self) -> Satp {
@@ -336,6 +348,17 @@ impl UserPageTable {
 
 impl Drop for UserPageTable {
     fn drop(&mut self) {
+        let unmapped_pages = self.pt.unmap_addrs(USYSCALL, USYSCALL_SIZE).unwrap();
+        for pa in unmapped_pages {
+            let Ok((level, pa)) = pa else {
+                continue;
+            };
+            assert_eq!(level, 0, "super page is not supported yet");
+            unsafe {
+                page::free_page(pa.as_mut_ptr());
+            }
+        }
+
         let _ = self.pt.unmap_addrs(TRAMPOLINE, TRAMPOLINE_SIZE).unwrap();
         let _ = self.pt.unmap_addrs(TRAPFRAME, TRAPFRAME_SIZE).unwrap();
 

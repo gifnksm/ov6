@@ -86,16 +86,6 @@ impl SyscallExt for syscall::Kill {
     }
 }
 
-impl SyscallExt for syscall::Getpid {
-    type KernelArg = Self::Arg;
-    type KernelReturn = Self::Return;
-    type Private<'a> = ProcPrivateData;
-
-    fn call(p: &'static Proc, _private: &mut Self::Private<'_>, (): Self::Arg) -> Self::Return {
-        p.shared().lock().pid()
-    }
-}
-
 impl SyscallExt for syscall::Sbrk {
     type KernelArg = Self::Arg;
     type KernelReturn = Self::Return;

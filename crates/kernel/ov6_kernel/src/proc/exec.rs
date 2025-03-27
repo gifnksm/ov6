@@ -72,7 +72,7 @@ pub fn exec(
         return Err(KernelError::InvalidExecutable);
     }
 
-    let mut pt = UserPageTable::new(private.trapframe())?;
+    let mut pt = UserPageTable::new(private.pid, private.trapframe())?;
 
     // Load program into memory.
     load_segments(&mut lip, &mut pt, &elf)?;

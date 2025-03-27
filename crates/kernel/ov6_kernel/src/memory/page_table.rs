@@ -448,7 +448,10 @@ impl Iterator for UnmapPages<'_> {
         }
         let (level, pa) = match self.pt.unmap_page(va) {
             Ok(v) => v,
-            Err(e) => return Some(Err(e)),
+            Err(e) => {
+                self.va_range.start = self.va_range.start.byte_add(PAGE_SIZE).unwrap();
+                return Some(Err(e));
+            }
         };
         let page_size = memory::level_page_size(level);
         self.va_range.start = va.byte_add(page_size).unwrap();

@@ -33,7 +33,6 @@ syscall! {
     struct Fstat(fn(RawFd, UserMutRef<Stat>) -> Result<(), SyscallError>);
     struct Chdir(fn(UserSlice<u8>) -> Result<(), SyscallError>);
     struct Dup(fn(RawFd) -> Result<RawFd, SyscallError>);
-    struct Getpid(fn() -> ProcId);
     struct Sbrk(fn(isize) -> Result<usize, SyscallError>);
     struct Sleep(fn(Duration) -> Result<(), SyscallError>);
     struct Open(fn(UserSlice<u8>, OpenFlags) -> Result<RawFd, SyscallError>);

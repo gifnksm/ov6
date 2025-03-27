@@ -413,7 +413,7 @@ impl Proc {
             let private = ProcPrivateData {
                 pid,
                 kstack: layout::kstack(i),
-                pagetable: UserPageTable::new(&trapframe)?,
+                pagetable: UserPageTable::new(pid, &trapframe)?,
                 trapframe,
                 ofile: [const { None }; NOFILE],
                 cwd: None,

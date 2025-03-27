@@ -189,7 +189,6 @@ syscall!(Link);
 syscall!(Mkdir);
 syscall!(Chdir);
 syscall!(Dup);
-syscall!(Getpid);
 syscall!(Sbrk);
 syscall!(Sleep);
 syscall!(Reboot);
