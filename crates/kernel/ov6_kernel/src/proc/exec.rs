@@ -50,7 +50,7 @@ pub fn exec(
     path: &Path,
     argv: &Validated<UserSlice<Validated<UserSlice<u8>>>>,
     arg_data_size: usize,
-) -> Result<(usize, usize), KernelError> {
+) -> Result<(usize, VirtAddr), KernelError> {
     let user_stack_size = USER_STACK * PAGE_SIZE;
     let arg_stack_size = arg_stack_size(arg_data_size, argv.len())
         .filter(|size| *size <= user_stack_size)
@@ -83,7 +83,7 @@ pub fn exec(
 
     allocate_stack_pages(&mut pt)?;
 
-    let sp = pt.size();
+    let sp = pt.program_break();
 
     // Push argument strings, prepare rest of stack in ustack.
     let (sp, argc) = push_arguments(&mut pt, private.pagetable(), sp, arg_stack_size, argv);
@@ -97,7 +97,7 @@ pub fn exec(
     // Commit to the user image.
     private.update_pagetable(pt);
     private.trapframe_mut().epc = elf.entry.safe_into(); // initial pogram counter = main
-    private.trapframe_mut().sp = sp; // initial stack pointer
+    private.trapframe_mut().sp = sp.addr(); // initial stack pointer
 
     Ok((argc, argv))
 }
@@ -121,13 +121,15 @@ fn load_segments<const READ_ONLY: bool>(
             return Err(KernelError::InvalidExecutable);
         }
 
+        // TODO: Validate for address/page overlap or permission conflicts
+
         let va_start = VirtAddr::new(ph.vaddr.safe_into())?;
         if !va_start.is_page_aligned() {
             return Err(KernelError::InvalidExecutable);
         }
         let va_end = va_start.byte_add(ph.memsz.safe_into())?;
 
-        new_pt.grow_to(va_end.addr(), PtEntryFlags::U | flags2perm(ph.flags))?;
+        new_pt.grow_to_addr(va_end, PtEntryFlags::U | flags2perm(ph.flags))?;
 
         load_segment(
             new_pt,
@@ -179,14 +181,15 @@ fn load_segment<const READ_ONLY: bool>(
 /// Makes the first inaccessible as a stack guard.
 /// Uses the rest as the user stack.
 fn allocate_stack_pages(pt: &mut UserPageTable) -> Result<(), KernelError> {
-    let size = pt.size().page_roundup();
+    pt.grow_to_addr(pt.program_break().page_roundup(), PtEntryFlags::empty())?;
+    assert!(pt.program_break().is_page_aligned());
 
     // stack guard
-    pt.grow_to(size + PAGE_SIZE, PtEntryFlags::R)?;
+    pt.grow_by(PAGE_SIZE, PtEntryFlags::R)?;
 
     // user stack
-    assert!(pt.size().is_page_aligned());
-    pt.grow_to(pt.size() + USER_STACK * PAGE_SIZE, PtEntryFlags::URW)?;
+    assert!(pt.program_break().is_page_aligned());
+    pt.grow_by(USER_STACK * PAGE_SIZE, PtEntryFlags::URW)?;
 
     Ok(())
 }
@@ -194,14 +197,14 @@ fn allocate_stack_pages(pt: &mut UserPageTable) -> Result<(), KernelError> {
 fn push_arguments(
     dst_pt: &mut UserPageTable,
     src_pt: &UserPageTable,
-    sp: usize,
+    sp: VirtAddr,
     arg_stack_size: usize,
     argv: &Validated<UserSlice<Validated<UserSlice<u8>>>>,
-) -> (usize, usize) {
-    let arg_top = sp - arg_stack_size;
-    assert_eq!(arg_top % 16, 0);
+) -> (VirtAddr, usize) {
+    let arg_top = sp.byte_sub(arg_stack_size).unwrap();
+    assert_eq!(arg_top.addr() % 16, 0);
 
-    let mut arg_stack = UserMutSlice::from_raw_parts(arg_top, arg_stack_size)
+    let mut arg_stack = UserMutSlice::from_raw_parts(arg_top.addr(), arg_stack_size)
         .validate(dst_pt)
         .unwrap();
     let argv_size = (argv.len() + 1) * size_of::<usize>();

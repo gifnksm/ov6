@@ -71,9 +71,8 @@ impl UserPageTable {
         self.pt.satp()
     }
 
-    /// Returns process size.
-    pub fn size(&self) -> usize {
-        self.size
+    pub fn program_break(&self) -> VirtAddr {
+        VirtAddr::MIN_AVA.byte_add(self.size).unwrap()
     }
 
     /// Loads the user initcode into address 0 of pagetable.
@@ -85,7 +84,7 @@ impl UserPageTable {
 
         let mem = page::alloc_zeroed_page().unwrap();
         self.pt.map_addrs(
-            VirtAddr::MIN,
+            VirtAddr::MIN_AVA,
             PhysAddr::new(mem.addr().get()),
             PAGE_SIZE,
             PtEntryFlags::URWX,
@@ -96,23 +95,42 @@ impl UserPageTable {
         Ok(())
     }
 
+    pub fn grow_by(&mut self, increment: usize, xperm: PtEntryFlags) -> Result<(), KernelError> {
+        let new_size = self.size.saturating_add(increment);
+        self.grow_to_size(new_size, xperm)
+    }
+
+    pub fn grow_to_addr(
+        &mut self,
+        end_addr: VirtAddr,
+        xperm: PtEntryFlags,
+    ) -> Result<(), KernelError> {
+        let Some(new_size) = end_addr.checked_sub(VirtAddr::MIN_AVA) else {
+            return Ok(());
+        };
+        self.grow_to_size(new_size, xperm)
+    }
+
     /// Allocates PTEs and physical memory to grow process to `new_size`,
     /// which need not be page aligned.
-    pub fn grow_to(&mut self, new_size: usize, xperm: PtEntryFlags) -> Result<(), KernelError> {
+    fn grow_to_size(&mut self, new_size: usize, xperm: PtEntryFlags) -> Result<(), KernelError> {
         if new_size < self.size {
             return Ok(());
         }
 
         let old_size = self.size;
-        let mut map_start = VirtAddr::new(self.size.page_roundup()).unwrap();
-        let map_end = VirtAddr::new(new_size)?;
+        let mut map_start = VirtAddr::MIN_AVA
+            .byte_add(self.size)
+            .unwrap()
+            .page_roundup();
+        let map_end = VirtAddr::MIN_AVA.byte_add(new_size)?;
         while map_start < map_end {
-            self.size = map_start.addr();
+            self.size = map_start.addr() - VirtAddr::MIN_AVA.addr();
 
             let mem = match page::alloc_zeroed_page() {
                 Ok(mem) => mem,
                 Err(e) => {
-                    self.shrink_to(old_size);
+                    self.shrink_to_size(old_size);
                     return Err(e);
                 }
             };
@@ -124,7 +142,7 @@ impl UserPageTable {
                 unsafe {
                     page::free_page(mem);
                 }
-                self.shrink_to(old_size);
+                self.shrink_to_size(old_size);
                 return Err(e);
             }
             map_start = map_start.byte_add(PAGE_SIZE).unwrap();
@@ -135,18 +153,23 @@ impl UserPageTable {
         Ok(())
     }
 
+    pub fn shrink_by(&mut self, decrement: usize) {
+        let new_size = self.size.saturating_sub(decrement);
+        self.shrink_to_size(new_size);
+    }
+
     /// Deallocates user pages to bring the process size to `new_size`.
     ///
     /// `new_size` need not be page-aligned.
     /// `new_size` need not to be less than current size.
-    pub fn shrink_to(&mut self, new_size: usize) {
+    fn shrink_to_size(&mut self, new_size: usize) {
         if new_size >= self.size {
             return;
         }
 
         if new_size.page_roundup() < self.size.page_roundup() {
             let size = self.size.page_roundup() - new_size.page_roundup();
-            let start_va = VirtAddr::new(new_size.page_roundup()).unwrap();
+            let start_va = VirtAddr::MIN_AVA.byte_add(new_size).unwrap().page_roundup();
             for pa in self.pt.unmap_addrs(start_va, size).unwrap() {
                 let (level, pa) = pa.unwrap();
                 assert_eq!(level, 0, "super page is not supported yet");
@@ -160,11 +183,11 @@ impl UserPageTable {
     }
 
     pub fn try_clone_into(&self, target: &mut Self) -> Result<(), KernelError> {
-        target.shrink_to(0);
+        target.shrink_to_size(0);
 
         (|| {
-            let mut map_start = VirtAddr::MIN;
-            let map_end = VirtAddr::new(self.size)?;
+            let mut map_start = VirtAddr::MIN_AVA;
+            let map_end = map_start.byte_add(self.size)?;
             while map_start < map_end {
                 let va = map_start;
                 target.size = va.addr();
@@ -192,7 +215,7 @@ impl UserPageTable {
             Ok(())
         })()
         .inspect_err(|_| {
-            target.shrink_to(0);
+            target.shrink_to_size(0);
         })
     }
 
@@ -364,7 +387,7 @@ impl Drop for UserPageTable {
 
         if self.size > 0 {
             let size = self.size.page_roundup();
-            let unmapped_pages = self.pt.unmap_addrs(VirtAddr::MIN, size).unwrap();
+            let unmapped_pages = self.pt.unmap_addrs(VirtAddr::MIN_AVA, size).unwrap();
             for pa in unmapped_pages {
                 let (level, pa) = pa.unwrap();
                 assert_eq!(level, 0, "super page is not supported yet");

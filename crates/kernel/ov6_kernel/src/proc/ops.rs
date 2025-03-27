@@ -7,7 +7,7 @@ use super::{PROC, ProcPrivateData, ProcPrivateDataGuard, ProcShared, WaitLock};
 use crate::{
     error::KernelError,
     fs::{self, Inode, TxInode},
-    memory::{PAGE_SIZE, page_table::PtEntryFlags},
+    memory::{VirtAddr, page_table::PtEntryFlags},
     println,
     proc::{INIT_PROC, Proc, ProcState, scheduler, wait_lock},
     sync::{SpinLockCondVar, SpinLockGuard, WaitError},
@@ -34,9 +34,11 @@ pub fn spawn_init() {
     private.pagetable_mut().map_first(INIT_CODE).unwrap();
 
     // prepare for the very first `return` from kernel to user.
+    let pc = VirtAddr::MIN_AVA.addr();
+    let sp = private.pagetable().program_break().addr();
     let trapframe = private.trapframe_mut();
-    trapframe.epc = 0; // user program counter
-    trapframe.sp = PAGE_SIZE; // user stack pointer
+    trapframe.epc = pc;
+    trapframe.sp = sp;
 
     let tx = fs::begin_readonly_tx();
     private.cwd = Some(Inode::from_tx(&TxInode::root(&tx)));
@@ -50,12 +52,11 @@ pub fn spawn_init() {
 /// Grows user memory by `n` Bytes.
 pub fn resize_by(private: &mut ProcPrivateData, increment: isize) -> Result<(), KernelError> {
     let pagetable = private.pagetable_mut();
-    let old_sz = pagetable.size();
-    let new_sz = old_sz.saturating_add_signed(increment);
-    match new_sz.cmp(&old_sz) {
-        cmp::Ordering::Less => pagetable.shrink_to(new_sz),
+    let amt = increment.saturating_abs().cast_unsigned();
+    match increment.cmp(&0) {
+        cmp::Ordering::Less => pagetable.shrink_by(amt),
         cmp::Ordering::Equal => {}
-        cmp::Ordering::Greater => pagetable.grow_to(new_sz, PtEntryFlags::URW)?,
+        cmp::Ordering::Greater => pagetable.grow_by(amt, PtEntryFlags::URW)?,
     }
     Ok(())
 }

@@ -163,7 +163,7 @@ impl VirtAddr {
     /// Sv39, to avoid having to sign-extend virtual addresses
     /// that have the high bit set.
     pub const MAX: Self = Self(1 << (9 * 3 + PAGE_SHIFT - 1));
-    pub const MIN: Self = Self(0);
+    pub const MIN_AVA: Self = Self(4096);
     pub const ZERO: Self = Self(0);
 }
 
@@ -191,6 +191,10 @@ impl VirtAddr {
             return Err(KernelError::VirtualAddressUnderflow);
         };
         Self::new(addr)
+    }
+
+    pub(crate) const fn checked_sub(self, other: Self) -> Option<usize> {
+        self.0.checked_sub(other.0)
     }
 
     pub fn map_addr(self, f: impl FnOnce(usize) -> usize) -> Result<Self, KernelError> {

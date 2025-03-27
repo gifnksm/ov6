@@ -155,8 +155,8 @@ impl ProcPrivateData {
         self.kstack
     }
 
-    pub fn size(&self) -> usize {
-        self.pagetable.size()
+    pub fn program_break(&self) -> VirtAddr {
+        self.pagetable.program_break()
     }
 
     pub fn pagetable(&self) -> &UserPageTable {

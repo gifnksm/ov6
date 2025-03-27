@@ -96,9 +96,9 @@ impl SyscallExt for syscall::Sbrk {
         private: &mut Self::Private<'_>,
         (increment,): Self::Arg,
     ) -> Self::Return {
-        let addr = private.size();
+        let pb = private.program_break();
         proc::ops::resize_by(private, increment)?;
-        Ok(addr)
+        Ok(pb.addr())
     }
 }
 

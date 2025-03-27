@@ -10,7 +10,10 @@ use crate::{
     error::KernelError,
     file::File,
     fs::{self, DeviceNo, Inode, T_DEVICE, T_DIR, T_FILE},
-    memory::addr::{Validate as _, Validated},
+    memory::{
+        VirtAddr,
+        addr::{Validate as _, Validated},
+    },
     param::MAX_PATH,
     proc::{Proc, ProcPrivateData, exec},
 };
@@ -270,7 +273,7 @@ fn sys_exec(
     p: &'static Proc,
     private: &mut ProcPrivateData,
     (user_path, uargv): <syscall::Exec as Syscall>::Arg,
-) -> Result<(usize, usize), KernelError> {
+) -> Result<(usize, VirtAddr), KernelError> {
     let mut path = [0; MAX_PATH];
     let path = fetch_path(private, user_path, &mut path)?;
     let uargv = uargv.validate(private.pagetable())?;
@@ -289,7 +292,7 @@ fn sys_exec(
 
 #[derive(Debug)]
 pub(super) enum ExecReturn {
-    Ok((usize, usize)),
+    Ok((usize, VirtAddr)),
     Err(SyscallError),
 }
 
@@ -299,7 +302,7 @@ impl RegisterValue for ExecReturn {
 
     fn encode(self) -> Self::Repr {
         match self {
-            Self::Ok(a) => Register::new(a.into()),
+            Self::Ok((a0, a1)) => Register::new([a0, a1.addr()]),
             Self::Err(e) => {
                 let [a0, a1] = <syscall::Exec as Syscall>::Return::Err(e).encode().a;
                 Register::new([a0, a1])
