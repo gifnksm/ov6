@@ -161,19 +161,57 @@ impl PageTable {
     /// allocate a needed page-table page.
     fn map_page(
         &mut self,
+        level: usize,
         va: VirtAddr,
         pa: PhysAddr,
         perm: PtEntryFlags,
     ) -> Result<(), KernelError> {
+        assert!(level <= 2);
         assert!(perm.intersects(PtEntryFlags::RWX), "perm={perm:?}");
 
-        self.update_level0_entry(va, true, |pte| {
-            assert!(
-                !pte.is_valid(),
-                "remap on the already mapped address: va={va:?}"
-            );
-            pte.set_phys_page_num(pa.phys_page_num(), perm | PtEntryFlags::V);
-        })
+        let mut pt = self;
+        for level in (level + 1..=2).rev() {
+            let index = Self::entry_index(level, va);
+            let pte = &mut pt.0[index];
+            if !pte.is_valid() {
+                let new_pt = Self::try_allocate()?;
+                pte.set_page_table(new_pt);
+            }
+            pt = pte.get_page_table_mut().unwrap();
+        }
+
+        let index = Self::entry_index(level, va);
+        let pte = &mut pt.0[index];
+        assert!(
+            !pte.is_valid(),
+            "remap on the already mapped address: va={va:?}"
+        );
+        pte.set_phys_page_num(pa.phys_page_num(), perm | PtEntryFlags::V);
+        Ok(())
+    }
+
+    fn map_addrs_level(
+        &mut self,
+        level: usize,
+        va: &mut VirtAddr,
+        pa: &mut PhysAddr,
+        size: usize,
+        perm: PtEntryFlags,
+    ) -> Result<(), KernelError> {
+        let page_size = memory::level_page_size(level);
+        assert!(va.is_level_page_aligned(level));
+        assert!(pa.is_level_page_aligned(level));
+        assert!(size.is_multiple_of(page_size));
+
+        assert!(perm.intersects(PtEntryFlags::RWX), "perm={perm:?}");
+
+        let va_end = va.byte_add(size)?;
+        while *va < va_end {
+            self.map_page(level, *va, *pa, perm)?;
+            *va = va.byte_add(page_size).unwrap();
+            *pa = pa.byte_add(page_size).unwrap();
+        }
+        Ok(())
     }
 
     /// Creates PTEs for virtual addresses starting at `va` that refer to
@@ -195,12 +233,32 @@ impl PageTable {
         assert!(size.is_multiple_of(PAGE_SIZE));
         assert!(perm.intersects(PtEntryFlags::RWX), "perm={perm:?}");
 
-        let last = va.byte_add(size)?;
-        while va < last {
-            self.map_page(va, pa, perm)?;
-            va = va.byte_add(PAGE_SIZE).unwrap();
-            pa = pa.byte_add(PAGE_SIZE).unwrap();
+        if va.addr() % level_page_size(1) != pa.addr() % level_page_size(1) {
+            return self.map_addrs_level(0, &mut va, &mut pa, size, perm);
         }
+
+        let va_end = va.byte_add(size)?;
+        let pa_end = pa.byte_add(size).unwrap();
+        let lv1_start_va = va.level_page_roundup(1);
+        let lv1_end_va = va_end.level_page_rounddown(1);
+        if lv1_start_va >= lv1_end_va {
+            return self.map_addrs_level(0, &mut va, &mut pa, size, perm);
+        }
+
+        if va < lv1_start_va {
+            let size = lv1_start_va.addr() - va.addr();
+            self.map_addrs_level(0, &mut va, &mut pa, size, perm)?;
+        }
+        if lv1_start_va < lv1_end_va {
+            let size = lv1_end_va.addr() - va.addr();
+            self.map_addrs_level(1, &mut va, &mut pa, size, perm)?;
+        }
+        if va < va_end {
+            let size = va_end.addr() - va.addr();
+            self.map_addrs_level(0, &mut va, &mut pa, size, perm)?;
+        }
+        assert_eq!(va, va_end);
+        assert_eq!(pa, pa_end);
         Ok(())
     }
 
@@ -268,43 +326,6 @@ impl PageTable {
             pt = pte.get_page_table_mut().unwrap();
         }
         panic!("invalid page table");
-    }
-
-    /// Updates the level-0 PTE in the page tables that corredponds to virtual
-    /// page `vpn`.
-    ///
-    /// If `insert_new_table` is `true`, it will allocate new page-table pages
-    /// if needed.
-    ///
-    /// Updated PTE must be leaf PTE or invalid.
-    fn update_level0_entry<T, F>(
-        &mut self,
-        va: VirtAddr,
-        insert_new_table: bool,
-        f: F,
-    ) -> Result<T, KernelError>
-    where
-        F: for<'a> FnOnce(&'a mut PtEntry) -> T,
-    {
-        let mut pt = self;
-        for level in (1..=2).rev() {
-            let index = Self::entry_index(level, va);
-            if !pt.0[index].is_valid() {
-                if !insert_new_table {
-                    return Err(KernelError::VirtualPageNotMapped(va));
-                }
-                let new_pt = Self::try_allocate()?;
-                pt.0[index].set_page_table(new_pt);
-            }
-            pt = pt.0[index].get_page_table_mut().unwrap();
-        }
-
-        let index = Self::entry_index(0, va);
-        let pte = &mut pt.0[index];
-        let res = f(pte);
-        // cannot change PTE to non-leaf (level0 PTE must be invalid or leaf)
-        assert!(!pte.is_non_leaf());
-        Ok(res)
     }
 
     pub(super) fn fetch_chunk(
@@ -569,7 +590,7 @@ fn dump_pagetable_level(pt: &PageTable, level: usize, base_va: VirtAddr) {
         match &mut state {
             Some((start_i, start_pte, end_i, end_pte)) => {
                 if start_pte.flags() == pte.flags()
-                    && end_pte.phys_page_num().checked_add(1) == Some(pte.phys_page_num())
+                    && end_pte.phys_addr().byte_add(level_page_size(level)) == Some(pte.phys_addr())
                 {
                     *end_i = i;
                     *end_pte = pte;

@@ -29,8 +29,8 @@ static PAGE_FRAME_ALLOCATOR: OnceInit<SpinLock<page_alloc::PageFrameAllocator<PA
     OnceInit::new();
 
 pub fn init() {
-    let pa_start = end().page_roundup();
-    let pa_end = top().page_rounddown();
+    let pa_start = end().map_addr(|a| a.get().page_roundup().try_into().unwrap());
+    let pa_end = top().map_addr(|a| a.get().page_rounddown().try_into().unwrap());
 
     unsafe {
         PAGE_FRAME_ALLOCATOR.init(SpinLock::new(page_alloc::PageFrameAllocator::new(

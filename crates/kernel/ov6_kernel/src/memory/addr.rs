@@ -1,6 +1,5 @@
 use core::{
     fmt,
-    num::NonZero,
     ops::Range,
     ptr::{self, NonNull},
 };
@@ -11,91 +10,101 @@ use ov6_syscall::{UserMutRef, UserMutSlice, UserRef, UserSlice};
 use super::{PAGE_SHIFT, PAGE_SIZE, vm_user::UserPageTable};
 use crate::error::KernelError;
 
-pub const fn page_roundup(addr: usize) -> usize {
+const fn page_roundup(addr: usize) -> usize {
     (addr + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
 }
 
-pub const fn page_rounddown(addr: usize) -> usize {
+const fn page_rounddown(addr: usize) -> usize {
     addr & !(PAGE_SIZE - 1)
 }
 
-pub const fn is_page_aligned(addr: usize) -> bool {
+const fn is_page_aligned(addr: usize) -> bool {
     addr % PAGE_SIZE == 0
 }
 
+const fn level_page_roundup(addr: usize, level: usize) -> usize {
+    let page_size = super::level_page_size(level);
+    (addr + page_size - 1) & !(page_size - 1)
+}
+
+const fn level_page_rounddown(addr: usize, level: usize) -> usize {
+    let page_size = super::level_page_size(level);
+    addr & !(page_size - 1)
+}
+
+const fn is_level_page_aligned(addr: usize, level: usize) -> bool {
+    let page_size = super::level_page_size(level);
+    addr % page_size == 0
+}
+
 pub trait PageRound {
-    fn page_roundup(&self) -> Self;
-    fn page_rounddown(&self) -> Self;
-    fn is_page_aligned(&self) -> bool;
+    fn as_addr(&self) -> usize;
+    fn from_addr(addr: usize) -> Self;
+
+    fn page_roundup(&self) -> Self
+    where
+        Self: Sized,
+    {
+        Self::from_addr(page_roundup(self.as_addr()))
+    }
+
+    fn page_rounddown(&self) -> Self
+    where
+        Self: Sized,
+    {
+        Self::from_addr(page_rounddown(self.as_addr()))
+    }
+
+    fn is_page_aligned(&self) -> bool {
+        is_page_aligned(self.as_addr())
+    }
+
+    fn level_page_roundup(&self, level: usize) -> Self
+    where
+        Self: Sized,
+    {
+        Self::from_addr(level_page_roundup(self.as_addr(), level))
+    }
+
+    fn level_page_rounddown(&self, level: usize) -> Self
+    where
+        Self: Sized,
+    {
+        Self::from_addr(level_page_rounddown(self.as_addr(), level))
+    }
+
+    fn is_level_page_aligned(&self, level: usize) -> bool {
+        is_level_page_aligned(self.as_addr(), level)
+    }
 }
 
 impl PageRound for usize {
-    fn page_roundup(&self) -> Self {
-        page_roundup(*self)
+    fn as_addr(&self) -> usize {
+        *self
     }
 
-    fn page_rounddown(&self) -> Self {
-        page_rounddown(*self)
-    }
-
-    fn is_page_aligned(&self) -> bool {
-        is_page_aligned(*self)
-    }
-}
-
-impl PageRound for NonZero<usize> {
-    fn page_roundup(&self) -> Self {
-        Self::new(page_roundup(self.get())).unwrap()
-    }
-
-    fn page_rounddown(&self) -> Self {
-        Self::new(page_rounddown(self.get())).unwrap()
-    }
-
-    fn is_page_aligned(&self) -> bool {
-        is_page_aligned(self.get())
-    }
-}
-
-impl<T> PageRound for NonNull<T> {
-    fn page_roundup(&self) -> Self {
-        self.map_addr(|a| a.page_roundup())
-    }
-
-    fn page_rounddown(&self) -> Self {
-        self.map_addr(|a| a.page_rounddown())
-    }
-
-    fn is_page_aligned(&self) -> bool {
-        is_page_aligned(self.as_ptr().addr())
+    fn from_addr(addr: usize) -> Self {
+        addr
     }
 }
 
 impl PageRound for VirtAddr {
-    fn page_roundup(&self) -> Self {
-        self.map_addr(page_roundup).unwrap()
+    fn as_addr(&self) -> usize {
+        self.0
     }
 
-    fn page_rounddown(&self) -> Self {
-        self.map_addr(page_rounddown).unwrap()
-    }
-
-    fn is_page_aligned(&self) -> bool {
-        is_page_aligned(self.addr())
+    fn from_addr(addr: usize) -> Self {
+        Self::new(addr).unwrap()
     }
 }
 
 impl PageRound for PhysAddr {
-    fn page_roundup(&self) -> Self {
-        self.map_addr(page_roundup)
+    fn as_addr(&self) -> usize {
+        self.0
     }
 
-    fn page_rounddown(&self) -> Self {
-        self.map_addr(page_rounddown)
-    }
-
-    fn is_page_aligned(&self) -> bool {
-        is_page_aligned(self.addr())
+    fn from_addr(addr: usize) -> Self {
+        Self::new(addr)
     }
 }
 
@@ -201,13 +210,6 @@ impl PhysPageNum {
     pub const fn value(self) -> usize {
         self.0
     }
-
-    pub(super) const fn checked_add(self, n: usize) -> Option<Self> {
-        let Some(n) = self.0.checked_add(n) else {
-            return None;
-        };
-        Some(Self(n))
-    }
 }
 
 impl PhysAddr {
@@ -232,14 +234,10 @@ impl PhysAddr {
     }
 
     pub const fn byte_add(self, n: usize) -> Option<Self> {
-        match self.0.checked_add(n) {
-            Some(n) => Some(Self(n)),
-            None => None,
-        }
-    }
-
-    pub fn map_addr(self, f: impl FnOnce(usize) -> usize) -> Self {
-        Self(f(self.0))
+        let Some(n) = self.0.checked_add(n) else {
+            return None;
+        };
+        Some(Self(n))
     }
 }
 
