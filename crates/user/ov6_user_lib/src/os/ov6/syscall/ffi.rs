@@ -14,16 +14,16 @@ impl<T> CallWithArg for Register<T, 0> {
     #[cfg(target_arch = "riscv64")]
     fn call_with_arg(self, code: SyscallCode) -> [usize; 2] {
         let [] = self.a;
-        let (a, b);
+        let mut out = [0, 0];
         unsafe {
             core::arch::asm!(
                 "ecall",
                 in("a7") code as usize,
-                lateout("a0") a,
-                lateout("a1") b,
+                lateout("a0") out[0],
+                lateout("a1") out[1],
             );
         }
-        [a, b]
+        out
     }
 }
 
@@ -36,17 +36,17 @@ impl<T> CallWithArg for Register<T, 1> {
     #[cfg(target_arch = "riscv64")]
     fn call_with_arg(self, code: SyscallCode) -> [usize; 2] {
         let [a0] = self.a;
-        let (a, b);
+        let mut out = [0, 0];
         unsafe {
             core::arch::asm!(
                 "ecall",
                 in("a0") a0,
                 in("a7") code as usize,
-                lateout("a0") a,
-                lateout("a1") b,
+                lateout("a0") out[0],
+                lateout("a1") out[1],
             );
         }
-        [a, b]
+        out
     }
 }
 
@@ -59,18 +59,18 @@ impl<T> CallWithArg for Register<T, 2> {
     #[cfg(target_arch = "riscv64")]
     fn call_with_arg(self, code: SyscallCode) -> [usize; 2] {
         let [a0, a1] = self.a;
-        let (a, b);
+        let mut out = [0, 0];
         unsafe {
             core::arch::asm!(
                 "ecall",
                 in("a0") a0,
                 in("a1") a1,
                 in("a7") code as usize,
-                lateout("a0") a,
-                lateout("a1") b,
+                lateout("a0") out[0],
+                lateout("a1") out[1],
             );
         }
-        [a, b]
+        out
     }
 }
 
@@ -83,7 +83,7 @@ impl<T> CallWithArg for Register<T, 3> {
     #[cfg(target_arch = "riscv64")]
     fn call_with_arg(self, code: SyscallCode) -> [usize; 2] {
         let [a0, a1, a2] = self.a;
-        let (a, b);
+        let mut out = [0, 0];
         unsafe {
             core::arch::asm!(
                 "ecall",
@@ -91,11 +91,11 @@ impl<T> CallWithArg for Register<T, 3> {
                 in("a1") a1,
                 in("a2") a2,
                 in("a7") code as usize,
-                lateout("a0") a,
-                lateout("a1") b,
+                lateout("a0") out[0],
+                lateout("a1") out[1],
             );
         }
-        [a, b]
+        out
     }
 }
 
@@ -108,7 +108,7 @@ impl<T> CallWithArg for Register<T, 4> {
     #[cfg(target_arch = "riscv64")]
     fn call_with_arg(self, code: SyscallCode) -> [usize; 2] {
         let [a0, a1, a2, a3] = self.a;
-        let (a, b);
+        let mut out = [0, 0];
         unsafe {
             core::arch::asm!(
                 "ecall",
@@ -117,11 +117,11 @@ impl<T> CallWithArg for Register<T, 4> {
                 in("a2") a2,
                 in("a3") a3,
                 in("a7") code as usize,
-                lateout("a0") a,
-                lateout("a1") b,
+                lateout("a0") out[0],
+                lateout("a1") out[1],
             );
         }
-        [a, b]
+        out
     }
 }
 

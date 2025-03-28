@@ -27,6 +27,8 @@ RUST_CROSS_TARGET=riscv64imac-unknown-none-elf
 RX=target/$(RUST_CROSS_TARGET)/$(PROFILE)
 IX=target/$(RUST_CROSS_TARGET)/initcode
 
+RN_PKGS=ov6_fs_utilities ov6_integration_tests
+
 OV6_INITCODE=\
 	initcode\
 
@@ -126,14 +128,40 @@ check: cargo-clippy typos cargo-doc
 .PHONY: test
 test: cargo-test-build cargo-miri-test-build .WAIT cargo-test .WAIT cargo-miri-test
 
+
 .PHONY: cargo-clippy
-cargo-clippy:
-	# cannot use --all-targets here
+cargo-clippy: cargo-clippy-lib cargo-clippy-bins cargo-clippy-tests cargo-clippy-benches cargo-clippy-examples
+
+.PHONY: cargo-clippy-lib
+cargo-clippy-lib:
 	cargo hack clippy --workspace --lib
+
+.PHONY: cargo-clippy-bins
+cargo-clippy-bins:
 	cargo hack clippy --workspace --bins
+
+.PHONY: cargo-clippy-tests
+cargo-clippy-tests:
 	cargo hack clippy --workspace --tests --exclude ov6_kernel
+
+.PHONY: cargo-clippy-benches
+cargo-clippy-benches:
 	cargo hack clippy --workspace --benches --exclude ov6_kernel
+
+.PHONY: cargo-clippy-examples
+cargo-clippy-examples:
 	cargo hack clippy --workspace --examples
+
+.PHONY: cargo-clippy-cross
+cargo-clippy-cross: cargo-clippy-cross-lib cargo-clippy-cross-bins
+
+.PHONY: cargo-clippy-cross-lib
+cargo-clippy-cross-lib:
+	cargo hack clippy --workspace --lib $(addprefix --exclude ,$(RN_PKGS)) --target $(RUST_CROSS_TARGET)
+
+.PHONY: cargo-clippy-cross-bins
+cargo-clippy-cross-bins:
+	cargo hack clippy --workspace --bins $(addprefix --exclude ,$(RN_PKGS)) --target $(RUST_CROSS_TARGET)
 
 .PHONY: cargo-test
 cargo-test: cargo-test-build
