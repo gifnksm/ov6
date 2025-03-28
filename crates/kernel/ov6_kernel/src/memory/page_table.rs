@@ -75,7 +75,7 @@ impl PageTable {
         let shift = 9 * level + PAGE_SHIFT;
         let i_start = va.start() >> shift;
         let i_end = va.end() >> shift;
-        assert!(i_start <= i_end && i_end <= self.0.len());
+        assert!(i_start <= i_end && i_end < self.0.len());
 
         for i in i_start..=i_end {
             let pte = &self.0[i];
