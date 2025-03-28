@@ -16,7 +16,7 @@ use riscv::register::satp::{self, Satp};
 use super::{PhysAddr, VirtAddr, addr::PhysPageNum, page::PageFrameAllocator};
 use crate::{
     error::KernelError,
-    memory::{self, PAGE_SHIFT, PAGE_SIZE, PageRound as _, level_page_size},
+    memory::{self, PAGE_SIZE, PageRound as _, level_page_size},
     println,
 };
 
@@ -30,24 +30,6 @@ impl PageTable {
         let pt = Box::try_new_zeroed_in(PageFrameAllocator)
             .map_err(|AllocError| KernelError::NoFreePage)?;
         Ok(unsafe { pt.assume_init() })
-    }
-
-    /// Returns the page table index that corresponds to virtual address `va`
-    ///
-    /// The RISC-V Sv39 schema has three levels of page-table
-    /// pages. A page-table page contains 512 64-bit PTEs.
-    /// A 64-bit virtual address is split into five fields:
-    /// ```text
-    ///     39..=63 -- must be zero.
-    ///     30..=38 -- 9 bits of level-2 index.
-    ///     21..=29 -- 9 bits of level-1 index.
-    ///     12..=20 -- 9 bits of level-0 index.
-    ///      0..=11 -- 12 bits byte offset with the page.
-    /// ```
-    fn entry_index(level: usize, va: VirtAddr) -> usize {
-        assert!(level <= 2);
-        let shift = 9 * level + PAGE_SHIFT;
-        (va.addr() >> shift) & 0x1ff
     }
 
     /// Returns the physical address containing this page table
@@ -123,7 +105,7 @@ impl PageTable {
 
         let mut pt = self;
         for level in (level + 1..=2).rev() {
-            let index = Self::entry_index(level, va);
+            let index = va.level_idx(level);
             let pte = &mut pt.0[index];
             if !pte.is_valid() {
                 let new_pt = Self::try_allocate()?;
@@ -132,7 +114,7 @@ impl PageTable {
             pt = pte.get_page_table_mut().unwrap();
         }
 
-        let index = Self::entry_index(level, va);
+        let index = va.level_idx(level);
         let pte = &mut pt.0[index];
         assert!(
             !pte.is_valid(),
@@ -254,7 +236,7 @@ impl PageTable {
     pub(super) fn find_leaf_entry(&self, va: VirtAddr) -> Result<(usize, &PtEntry), KernelError> {
         let mut pt = self;
         for level in (0..=2).rev() {
-            let index = Self::entry_index(level, va);
+            let index = va.level_idx(level);
             let pte = &pt.0[index];
             if !pte.is_valid() {
                 return Err(KernelError::VirtualPageNotMapped(va));
@@ -276,7 +258,7 @@ impl PageTable {
     ) -> Result<(usize, &mut PtEntry), KernelError> {
         let mut pt = self;
         for level in (0..=2).rev() {
-            let index = Self::entry_index(level, va);
+            let index = va.level_idx(level);
             let pte = &mut pt.0[index];
             if !pte.is_valid() {
                 return Err(KernelError::VirtualPageNotMapped(va));
@@ -416,8 +398,8 @@ impl<'a> Entries<'a> {
 
         let min_va = *va_range.start();
         let max_va = *va_range.end();
-        let level_min_idx = PageTable::entry_index(2, min_va);
-        let level_max_idx = PageTable::entry_index(2, max_va);
+        let level_min_idx = min_va.level_idx(2);
+        let level_max_idx = max_va.level_idx(2);
         let mut stack = ArrayVec::<_, 3>::new();
         let it = (level_min_idx..=level_max_idx)
             .zip(&pt.0[level_min_idx..=level_max_idx])
@@ -444,10 +426,8 @@ impl<'a> Iterator for Entries<'a> {
 
             let level_min_va = base_va.with_level_idx(*level, idx);
             let leval_max_va = level_min_va.with_level_idx(*level - 1, 511);
-            let level_min_idx =
-                PageTable::entry_index(*level - 1, VirtAddr::max(min_va, level_min_va));
-            let level_max_idx =
-                PageTable::entry_index(*level - 1, VirtAddr::min(max_va, leval_max_va));
+            let level_min_idx = VirtAddr::max(min_va, level_min_va).level_idx(*level - 1);
+            let level_max_idx = VirtAddr::min(max_va, leval_max_va).level_idx(*level - 1);
 
             let pt = pte.get_page_table().unwrap();
             let it = (level_min_idx..=level_max_idx)
@@ -493,8 +473,8 @@ impl<'a> LeavesMut<'a> {
 
         let min_va = *va_range.start();
         let max_va = *va_range.end();
-        let level_min_idx = PageTable::entry_index(2, min_va);
-        let level_max_idx = PageTable::entry_index(2, max_va);
+        let level_min_idx = min_va.level_idx(2);
+        let level_max_idx = max_va.level_idx(2);
         let mut stack = ArrayVec::<_, 3>::new();
         let it = (level_min_idx..=level_max_idx).zip(&mut pt.0[level_min_idx..=level_max_idx]);
         stack.push((2, VirtAddr::ZERO, it));
@@ -527,10 +507,8 @@ impl<'a> Iterator for LeavesMut<'a> {
             }
 
             let leval_max_va = level_min_va.with_level_idx(*level - 1, 511);
-            let level_min_idx =
-                PageTable::entry_index(*level - 1, VirtAddr::max(min_va, level_min_va));
-            let level_max_idx =
-                PageTable::entry_index(*level - 1, VirtAddr::min(max_va, leval_max_va));
+            let level_min_idx = VirtAddr::max(min_va, level_min_va).level_idx(*level - 1);
+            let level_max_idx = VirtAddr::min(max_va, leval_max_va).level_idx(*level - 1);
 
             let pt = pte.get_page_table_mut().unwrap();
             let it = (level_min_idx..=level_max_idx).zip(&mut pt.0[level_min_idx..=level_max_idx]);
@@ -717,7 +695,7 @@ impl DumpState {
 }
 
 fn print_non_leaf(level: usize, va: VirtAddr, pte: &PtEntry) {
-    let i = PageTable::entry_index(level, va);
+    let i = va.level_idx(level);
     let pa = pte.phys_addr();
     println!(
         "{prefix} [{i:3}] {va:#p} @ {pa:#p}",
@@ -753,9 +731,9 @@ fn print_leaves(leaves: &DumpLeaves) {
         end_pa,
     } = leaves;
 
-    let start_i = PageTable::entry_index(level, start_va);
+    let start_i = start_va.level_idx(level);
 
-    let end_i = PageTable::entry_index(level, end_va) + 1;
+    let end_i = end_va.level_idx(level) + 1;
     let end_va = end_va.byte_add(level_page_size(level)).unwrap();
     let end_pa = end_pa.byte_add(level_page_size(level)).unwrap();
 
