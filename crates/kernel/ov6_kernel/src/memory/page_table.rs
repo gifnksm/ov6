@@ -2,10 +2,12 @@ use alloc::boxed::Box;
 use core::{
     alloc::AllocError,
     fmt,
-    ops::{Range, RangeInclusive},
+    iter::Zip,
+    ops::{RangeBounds, RangeInclusive},
     ptr, slice,
 };
 
+use arrayvec::ArrayVec;
 use bitflags::bitflags;
 use dataview::Pod;
 use riscv::register::satp::{self, Satp};
@@ -139,18 +141,15 @@ impl PageTable {
     ///
     /// - If the range is empty (`va.start == va.end`), the function returns
     ///   `Ok(())` immediately.
-    pub(super) fn validate(
-        &self,
-        va: Range<VirtAddr>,
-        flags: PtEntryFlags,
-    ) -> Result<(), KernelError> {
-        assert!(va.start <= va.end);
-        if va.start == va.end {
+    pub(super) fn validate<R>(&self, va_range: R, flags: PtEntryFlags) -> Result<(), KernelError>
+    where
+        R: RangeBounds<VirtAddr>,
+    {
+        let Some(va_range) = VirtAddr::range_inclusive(va_range) else {
             return Ok(());
-        }
-
-        let start = va.start.addr();
-        let end = va.end.addr() - 1;
+        };
+        let start = va_range.start().addr();
+        let end = va_range.end().addr();
         self.validate_inclusive(2, start..=end, flags)
     }
 
@@ -262,16 +261,6 @@ impl PageTable {
         Ok(())
     }
 
-    /// Unmaps the page of memory at virtual page `vpn`.
-    ///
-    /// Returns the physical address of the page that was unmapped.
-    fn unmap_page(&mut self, va: VirtAddr) -> Result<(usize, PhysAddr), KernelError> {
-        let (level, pte) = self.find_leaf_entry_mut(va)?;
-        let pa = pte.phys_addr();
-        pte.clear();
-        Ok((level, pa))
-    }
-
     /// Unmaps the pages of memory starting at virtual page `vpn` and
     /// covering `npages` pages.
     pub(super) fn unmap_addrs(
@@ -281,10 +270,23 @@ impl PageTable {
     ) -> Result<UnmapPages, KernelError> {
         let start = va;
         let end = va.byte_add(size)?;
-        Ok(UnmapPages {
-            pt: self,
-            va_range: start..end,
-        })
+        Ok(self.unmap_range(start..end))
+    }
+
+    pub(super) fn unmap_range<R>(&mut self, va_range: R) -> UnmapPages
+    where
+        R: RangeBounds<VirtAddr>,
+    {
+        UnmapPages {
+            leaves: self.leaves_mut(va_range),
+        }
+    }
+
+    pub(super) fn leaves_mut<R>(&mut self, va_range: R) -> LeavesMut<'_>
+    where
+        R: RangeBounds<VirtAddr>,
+    {
+        LeavesMut::new(self, va_range)
     }
 
     /// Returns the leaf PTE in the page tables that corredponds to virtual
@@ -433,29 +435,82 @@ bitflags! {
     }
 }
 
+type LeavesMutIter<'a> = Zip<RangeInclusive<usize>, slice::IterMut<'a, PtEntry>>;
+type LeavesMutStack<'a> = ArrayVec<(usize, VirtAddr, LeavesMutIter<'a>), 3>;
+
+pub(super) struct LeavesMut<'a>(Option<(RangeInclusive<VirtAddr>, LeavesMutStack<'a>)>);
+
+impl<'a> LeavesMut<'a> {
+    fn new<R>(pt: &'a mut PageTable, va_range: R) -> Self
+    where
+        R: RangeBounds<VirtAddr>,
+    {
+        let Some(va_range) = VirtAddr::range_inclusive(va_range) else {
+            return Self(None);
+        };
+
+        let min_va = *va_range.start();
+        let max_va = *va_range.end();
+        let level_min_idx = PageTable::entry_index(2, min_va);
+        let level_max_idx = PageTable::entry_index(2, max_va);
+        let mut stack = ArrayVec::<_, 3>::new();
+        let it = (level_min_idx..=level_max_idx).zip(&mut pt.0[level_min_idx..=level_max_idx]);
+        stack.push((2, VirtAddr::ZERO, it));
+        Self(Some((va_range, stack)))
+    }
+}
+
+impl<'a> Iterator for LeavesMut<'a> {
+    type Item = (usize, VirtAddr, &'a mut PtEntry);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (va_range, stack) = self.0.as_mut()?;
+        let min_va = *va_range.start();
+        let max_va = *va_range.end();
+        while let Some((level, base_va, ptes)) = stack.last_mut() {
+            let Some((idx, pte)) = ptes.next() else {
+                stack.pop();
+                continue;
+            };
+
+            let level_min_va = base_va.with_level_idx(*level, idx);
+            assert!(!pte.is_leaf() || va_range.contains(&level_min_va));
+
+            if !pte.is_valid() {
+                continue;
+            }
+
+            if pte.is_leaf() {
+                return Some((*level, level_min_va, pte));
+            }
+
+            let leval_max_va = level_min_va.with_level_idx(*level - 1, 511);
+            let level_min_idx =
+                PageTable::entry_index(*level - 1, VirtAddr::max(min_va, level_min_va));
+            let level_max_idx =
+                PageTable::entry_index(*level - 1, VirtAddr::min(max_va, leval_max_va));
+
+            let pt = pte.get_page_table_mut().unwrap();
+            let it = (level_min_idx..=level_max_idx).zip(&mut pt.0[level_min_idx..=level_max_idx]);
+            let elem = (*level - 1, level_min_va, it);
+            stack.push(elem);
+        }
+        None
+    }
+}
+
 pub(super) struct UnmapPages<'a> {
-    pt: &'a mut PageTable,
-    va_range: Range<VirtAddr>,
+    leaves: LeavesMut<'a>,
 }
 
 impl Iterator for UnmapPages<'_> {
-    type Item = Result<(usize, PhysAddr), KernelError>;
+    type Item = (usize, VirtAddr, PhysAddr);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let va = self.va_range.start;
-        if va >= self.va_range.end {
-            return None;
-        }
-        let (level, pa) = match self.pt.unmap_page(va) {
-            Ok(v) => v,
-            Err(e) => {
-                self.va_range.start = self.va_range.start.byte_add(PAGE_SIZE).unwrap();
-                return Some(Err(e));
-            }
-        };
-        let page_size = memory::level_page_size(level);
-        self.va_range.start = va.byte_add(page_size).unwrap();
-        Some(Ok((level, pa)))
+        let (level, va, pte) = self.leaves.next()?;
+        let pa = pte.phys_addr();
+        pte.clear();
+        Some((level, va, pa))
     }
 }
 

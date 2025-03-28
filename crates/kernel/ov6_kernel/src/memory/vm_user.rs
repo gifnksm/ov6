@@ -170,9 +170,11 @@ impl UserPageTable {
         if new_size.page_roundup() < self.size.page_roundup() {
             let size = self.size.page_roundup() - new_size.page_roundup();
             let start_va = VirtAddr::MIN_AVA.byte_add(new_size).unwrap().page_roundup();
-            for pa in self.pt.unmap_addrs(start_va, size).unwrap() {
-                let (level, pa) = pa.unwrap();
-                assert_eq!(level, 0, "super page is not supported yet");
+            for (level, va, pa) in self.pt.unmap_addrs(start_va, size).unwrap() {
+                assert_eq!(
+                    level, 0,
+                    "super page is not supported yet, level={level}, va={va:#x}, pa={pa:#x}"
+                );
                 unsafe {
                     page::free_page(pa.as_mut_ptr());
                 }
@@ -375,31 +377,19 @@ impl UserPageTable {
 
 impl Drop for UserPageTable {
     fn drop(&mut self) {
-        let unmapped_pages = self.pt.unmap_addrs(USYSCALL, USYSCALL_SIZE).unwrap();
-        for pa in unmapped_pages {
-            let Ok((level, pa)) = pa else {
-                continue;
-            };
-            assert_eq!(level, 0, "super page is not supported yet");
+        let _ = self.pt.unmap_addrs(TRAMPOLINE, TRAMPOLINE_SIZE).unwrap();
+        let _ = self.pt.unmap_addrs(TRAPFRAME, TRAPFRAME_SIZE).unwrap();
+
+        for (level, va, pa) in self.pt.unmap_range(VirtAddr::MIN_AVA..VirtAddr::MAX) {
+            assert_eq!(
+                level, 0,
+                "super page is not supported yet, level={level}, va={va:#x}, pa={pa:#x}"
+            );
             unsafe {
                 page::free_page(pa.as_mut_ptr());
             }
         }
 
-        let _ = self.pt.unmap_addrs(TRAMPOLINE, TRAMPOLINE_SIZE).unwrap();
-        let _ = self.pt.unmap_addrs(TRAPFRAME, TRAPFRAME_SIZE).unwrap();
-
-        if self.size > 0 {
-            let size = self.size.page_roundup();
-            let unmapped_pages = self.pt.unmap_addrs(VirtAddr::MIN_AVA, size).unwrap();
-            for pa in unmapped_pages {
-                let (level, pa) = pa.unwrap();
-                assert_eq!(level, 0, "super page is not supported yet");
-                unsafe {
-                    page::free_page(pa.as_mut_ptr());
-                }
-            }
-        }
         self.pt.free_descendant();
     }
 }

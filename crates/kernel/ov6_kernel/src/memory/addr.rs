@@ -1,6 +1,6 @@
 use core::{
     fmt,
-    ops::Range,
+    ops::{Bound, Range, RangeBounds, RangeInclusive},
     ptr::{self, NonNull},
 };
 
@@ -175,6 +175,14 @@ impl VirtAddr {
         Ok(Self(addr))
     }
 
+    pub const fn with_level_idx(self, level: usize, idx: usize) -> Self {
+        assert!(level <= 2);
+        assert!(idx < 512);
+        let shift = (9 * level) + PAGE_SHIFT;
+        let mask = 0x1ff << shift;
+        Self(self.0 & !mask | (idx << shift))
+    }
+
     pub const fn addr(self) -> usize {
         self.0
     }
@@ -199,6 +207,28 @@ impl VirtAddr {
 
     pub fn map_addr(self, f: impl FnOnce(usize) -> usize) -> Result<Self, KernelError> {
         Self::new(f(self.0))
+    }
+
+    pub fn range_inclusive<R>(range: R) -> Option<RangeInclusive<Self>>
+    where
+        R: RangeBounds<Self>,
+    {
+        let min_va = match range.start_bound() {
+            Bound::Included(va) => *va,
+            Bound::Excluded(va) => va.byte_add(1).ok()?,
+            Bound::Unbounded => Self::ZERO,
+        };
+        let max_va = match range.end_bound() {
+            Bound::Included(va) => *va,
+            Bound::Excluded(va) => va.byte_sub(1).ok()?,
+            Bound::Unbounded => Self::MAX.byte_sub(1).ok()?,
+        };
+
+        if min_va > max_va {
+            return None;
+        }
+
+        Some(min_va..=max_va)
     }
 }
 
