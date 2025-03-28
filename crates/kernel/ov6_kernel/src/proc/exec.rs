@@ -122,13 +122,10 @@ fn load_segments<const READ_ONLY: bool>(
         }
 
         let va_start = VirtAddr::new(ph.vaddr.safe_into())?;
-        if !va_start.is_page_aligned() {
-            return Err(KernelError::InvalidExecutable);
-        }
         let va_end = va_start.byte_add(ph.memsz.safe_into())?;
         let perm = PtEntryFlags::U | flags2perm(ph.flags);
 
-        new_pt.grow_to_addr(va_start.page_rounddown(), PtEntryFlags::empty())?;
+        new_pt.grow_to_addr(va_start.page_rounddown(), PtEntryFlags::R)?;
         new_pt.grow_to_addr(va_end.page_roundup(), perm)?;
 
         new_pt.validate(va_start..va_end, perm)?;
@@ -155,8 +152,6 @@ fn load_segment<const READ_ONLY: bool>(
     file_offset: usize,
     file_size: usize,
 ) -> Result<(), KernelError> {
-    assert!(va.is_page_aligned());
-
     let mut va_start = va;
     let va_end = va.byte_add(file_size).unwrap();
     let mut copied = 0;
@@ -183,7 +178,7 @@ fn load_segment<const READ_ONLY: bool>(
 /// Makes the first inaccessible as a stack guard.
 /// Uses the rest as the user stack.
 fn allocate_stack_pages(pt: &mut UserPageTable) -> Result<(), KernelError> {
-    pt.grow_to_addr(pt.program_break().page_roundup(), PtEntryFlags::empty())?;
+    pt.grow_to_addr(pt.program_break().page_roundup(), PtEntryFlags::R)?;
     assert!(pt.program_break().is_page_aligned());
 
     // stack guard
