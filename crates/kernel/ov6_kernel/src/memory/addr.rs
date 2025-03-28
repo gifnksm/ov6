@@ -205,10 +205,6 @@ impl VirtAddr {
         self.0.checked_sub(other.0)
     }
 
-    pub fn map_addr(self, f: impl FnOnce(usize) -> usize) -> Result<Self, KernelError> {
-        Self::new(f(self.0))
-    }
-
     pub fn range_inclusive<R>(range: R) -> Option<RangeInclusive<Self>>
     where
         R: RangeBounds<Self>,

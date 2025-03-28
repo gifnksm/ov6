@@ -2,7 +2,8 @@ use alloc::boxed::Box;
 use core::{
     alloc::AllocError,
     fmt,
-    iter::Zip,
+    iter::{Peekable, Zip},
+    mem,
     ops::{RangeBounds, RangeInclusive},
     ptr, slice,
 };
@@ -67,57 +68,6 @@ impl PageTable {
         satp
     }
 
-    fn validate_inclusive(
-        &self,
-        level: usize,
-        va: RangeInclusive<usize>,
-        flags: PtEntryFlags,
-    ) -> Result<(), KernelError> {
-        assert!(level <= 2);
-        let shift = 9 * level + PAGE_SHIFT;
-        let i_start = va.start() >> shift;
-        let i_end = va.end() >> shift;
-        assert!(i_start <= i_end && i_end < self.0.len());
-
-        for i in i_start..=i_end {
-            let pte = &self.0[i];
-            if !pte.is_valid() {
-                return Err(KernelError::VirtualPageNotMapped(
-                    VirtAddr::new(*va.start()).unwrap(),
-                ));
-            }
-
-            if pte.is_leaf() {
-                if !pte.flags().contains(flags) {
-                    return Err(KernelError::InaccessiblePage(
-                        VirtAddr::new(*va.start()).unwrap(),
-                    ));
-                }
-                return Ok(());
-            }
-
-            assert!(pte.is_non_leaf());
-
-            let table_start_addr = if i == i_start {
-                va.start() & !(0x1ff << shift)
-            } else {
-                i << shift
-            };
-            let table_end_addr = if i == i_end {
-                va.end() & !(0x1ff << shift)
-            } else {
-                ((i + 1) << shift) - 1
-            };
-
-            pte.get_page_table().unwrap().validate_inclusive(
-                level - 1,
-                table_start_addr..=table_end_addr,
-                flags,
-            )?;
-        }
-        Ok(())
-    }
-
     /// Validates that the virtual address range `va` at the specified `level`
     /// is mapped with the required `flags`.
     ///
@@ -145,12 +95,15 @@ impl PageTable {
     where
         R: RangeBounds<VirtAddr>,
     {
-        let Some(va_range) = VirtAddr::range_inclusive(va_range) else {
-            return Ok(());
-        };
-        let start = va_range.start().addr();
-        let end = va_range.end().addr();
-        self.validate_inclusive(2, start..=end, flags)
+        self.entries(va_range).try_for_each(|(_level, va, pte)| {
+            if !pte.is_valid() {
+                return Err(KernelError::VirtualPageNotMapped(va));
+            }
+            if pte.is_leaf() && !pte.flags().contains(flags) {
+                return Err(KernelError::InaccessiblePage(va));
+            }
+            Ok(())
+        })
     }
 
     /// Creates PTE for virtual page `vpn` that refer to
@@ -280,6 +233,13 @@ impl PageTable {
         UnmapPages {
             leaves: self.leaves_mut(va_range),
         }
+    }
+
+    fn entries<R>(&self, va_range: R) -> Entries<'_>
+    where
+        R: RangeBounds<VirtAddr>,
+    {
+        Entries::new(self, va_range)
     }
 
     pub(super) fn leaves_mut<R>(&mut self, va_range: R) -> LeavesMut<'_>
@@ -432,6 +392,88 @@ bitflags! {
         const URW = Self::U.bits() | Self::RW.bits();
         const URX = Self::U.bits() | Self::RX.bits();
         const URWX = Self::U.bits() | Self::RWX.bits();
+    }
+}
+
+type EntriesIter<'a> = Peekable<Zip<RangeInclusive<usize>, slice::Iter<'a, PtEntry>>>;
+type EntriesStack<'a> = ArrayVec<(usize, VirtAddr, EntriesIter<'a>), 3>;
+pub(super) struct Entries<'a> {
+    state: Option<(RangeInclusive<VirtAddr>, EntriesStack<'a>)>,
+    do_push: bool,
+}
+
+impl<'a> Entries<'a> {
+    fn new<R>(pt: &'a PageTable, va_range: R) -> Self
+    where
+        R: RangeBounds<VirtAddr>,
+    {
+        let Some(va_range) = VirtAddr::range_inclusive(va_range) else {
+            return Self {
+                state: None,
+                do_push: false,
+            };
+        };
+
+        let min_va = *va_range.start();
+        let max_va = *va_range.end();
+        let level_min_idx = PageTable::entry_index(2, min_va);
+        let level_max_idx = PageTable::entry_index(2, max_va);
+        let mut stack = ArrayVec::<_, 3>::new();
+        let it = (level_min_idx..=level_max_idx)
+            .zip(&pt.0[level_min_idx..=level_max_idx])
+            .peekable();
+        stack.push((2, VirtAddr::ZERO, it));
+        Self {
+            state: Some((va_range, stack)),
+            do_push: false,
+        }
+    }
+}
+
+impl<'a> Iterator for Entries<'a> {
+    type Item = (usize, VirtAddr, &'a PtEntry);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (va_range, stack) = self.state.as_mut()?;
+        let min_va = *va_range.start();
+        let max_va = *va_range.end();
+
+        if mem::take(&mut self.do_push) {
+            let (level, base_va, ptes) = stack.last_mut().unwrap();
+            let (idx, pte) = ptes.next().unwrap();
+
+            let level_min_va = base_va.with_level_idx(*level, idx);
+            let leval_max_va = level_min_va.with_level_idx(*level - 1, 511);
+            let level_min_idx =
+                PageTable::entry_index(*level - 1, VirtAddr::max(min_va, level_min_va));
+            let level_max_idx =
+                PageTable::entry_index(*level - 1, VirtAddr::min(max_va, leval_max_va));
+
+            let pt = pte.get_page_table().unwrap();
+            let it = (level_min_idx..=level_max_idx)
+                .zip(&pt.0[level_min_idx..=level_max_idx])
+                .peekable();
+            let elem = (*level - 1, level_min_va, it);
+            stack.push(elem);
+        }
+
+        while let Some((level, base_va, ptes)) = stack.last_mut() {
+            let Some((idx, _pte)) = ptes.peek() else {
+                stack.pop();
+                continue;
+            };
+            let level_min_va = base_va.with_level_idx(*level, *idx);
+
+            if let Some((_idx, pte)) = ptes.next_if(|(_idx, pte)| !pte.is_valid() || pte.is_leaf())
+            {
+                return Some((*level, level_min_va, pte));
+            }
+
+            let (_idx, pte) = ptes.peek().unwrap();
+            self.do_push = true;
+            return Some((*level, level_min_va, *pte));
+        }
+        None
     }
 }
 
@@ -608,75 +650,82 @@ impl PtEntry {
 pub(crate) fn dump_pagetable(pt: &PageTable) {
     println!("page table {:p}", pt);
 
-    let level = 2;
-    dump_pagetable_level(pt, level, VirtAddr::ZERO);
-}
-
-fn pte_va(base_va: VirtAddr, i: usize, level: usize) -> VirtAddr {
-    assert!(i <= 512);
-    base_va
-        .map_addr(|a| a | (i << (9 * level + PAGE_SHIFT)))
-        .unwrap()
-}
-
-fn dump_pagetable_level(pt: &PageTable, level: usize, base_va: VirtAddr) {
-    let mut state = None;
-
-    for (i, pte) in pt.0.iter().enumerate() {
+    let mut state = DumpState(None);
+    for (level, va, pte) in pt.entries(VirtAddr::ZERO..VirtAddr::MAX) {
         if !pte.is_valid() {
-            if let Some((start_i, start_pte, end_i, end_ptr)) = state.take() {
-                print_pte(level, base_va, start_i, start_pte, end_i, end_ptr);
-            }
+            state.dump();
             continue;
         }
 
         if pte.is_non_leaf() {
-            if let Some((start_i, start_pte, end_i, end_pte)) = state.take() {
-                print_pte(level, base_va, start_i, start_pte, end_i, end_pte);
-            }
-
-            let va = pte_va(base_va, i, level);
-            let pa = pte.phys_addr();
-            println!(
-                "{prefix} [{i:3}] {va:#p} @ {pa:#p}",
-                prefix = format_args!("{:.<1$}", "", (2 - level) * 2),
-            );
-            dump_pagetable_level(pte.get_page_table().unwrap(), level - 1, va);
+            state.dump();
+            print_non_leaf(level, va, pte);
             continue;
         }
 
-        match &mut state {
-            Some((start_i, start_pte, end_i, end_pte)) => {
-                if start_pte.flags() == pte.flags()
-                    && end_pte.phys_addr().byte_add(level_page_size(level)) == Some(pte.phys_addr())
-                {
-                    *end_i = i;
-                    *end_pte = pte;
-                    continue;
-                }
+        state.append_or_dump(level, va, pte);
+    }
+    state.dump();
+}
 
-                print_pte(level, base_va, *start_i, start_pte, *end_i, end_pte);
-                state = Some((i, pte, i, pte));
-            }
-            None => {
-                state = Some((i, pte, i, pte));
-            }
+struct DumpLeaves {
+    level: usize,
+    flags: PtEntryFlags,
+    start_va: VirtAddr,
+    start_pa: PhysAddr,
+    end_va: VirtAddr,
+    end_pa: PhysAddr,
+}
+
+struct DumpState(Option<DumpLeaves>);
+
+impl DumpState {
+    fn dump(&mut self) {
+        if let Some(leaves) = self.0.take() {
+            print_leaves(&leaves);
         }
     }
 
-    if let Some((start_i, start_pte, end_i, end_pte)) = state.take() {
-        print_pte(level, base_va, start_i, start_pte, end_i, end_pte);
+    fn append_or_dump(&mut self, level: usize, va: VirtAddr, pte: &PtEntry) {
+        if let Some(leaves) = &mut self.0 {
+            if leaves.level == level
+                && leaves.flags == pte.flags()
+                && leaves
+                    .end_va
+                    .byte_add(level_page_size(level))
+                    .is_ok_and(|end_va| end_va == va)
+                && leaves
+                    .end_pa
+                    .byte_add(level_page_size(level))
+                    .is_some_and(|end_pa| end_pa == pte.phys_addr())
+            {
+                leaves.end_va = va;
+                leaves.end_pa = pte.phys_addr();
+                return;
+            }
+        }
+        self.dump();
+        self.0 = Some(DumpLeaves {
+            level,
+            flags: pte.flags(),
+            start_va: va,
+            start_pa: pte.phys_addr(),
+            end_va: va,
+            end_pa: pte.phys_addr(),
+        });
     }
 }
 
-fn print_pte(
-    level: usize,
-    base_va: VirtAddr,
-    start_i: usize,
-    start_pte: &PtEntry,
-    end_i: usize,
-    end_pte: &PtEntry,
-) {
+fn print_non_leaf(level: usize, va: VirtAddr, pte: &PtEntry) {
+    let i = PageTable::entry_index(level, va);
+    let pa = pte.phys_addr();
+    println!(
+        "{prefix} [{i:3}] {va:#p} @ {pa:#p}",
+        prefix = format_args!("{:.<1$}", "", (2 - level) * 2),
+    );
+}
+
+fn print_leaves(leaves: &DumpLeaves) {
     struct Flags(PtEntryFlags);
     impl fmt::Debug for Flags {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -695,25 +744,27 @@ fn print_pte(
         }
     }
 
-    let start_va = pte_va(base_va, start_i, level);
-    let start_pa = start_pte.phys_addr();
+    let &DumpLeaves {
+        level,
+        flags,
+        start_va,
+        start_pa,
+        end_va,
+        end_pa,
+    } = leaves;
 
-    let end_va = pte_va(base_va, end_i, level)
-        .byte_add(level_page_size(level))
-        .unwrap();
-    let end_pa = end_pte
-        .phys_addr()
-        .byte_add(level_page_size(level))
-        .unwrap();
+    let start_i = PageTable::entry_index(level, start_va);
 
-    assert_eq!(start_pte.flags(), end_pte.flags());
+    let end_i = PageTable::entry_index(level, end_va) + 1;
+    let end_va = end_va.byte_add(level_page_size(level)).unwrap();
+    let end_pa = end_pa.byte_add(level_page_size(level)).unwrap();
 
     println!(
         "{prefix} [{index}] {va} => {pa} {flags:?}",
         prefix = format_args!("{:.<1$}", "", (2 - level) * 2),
-        index = format_args!("{:3}..{:3}", start_i, end_i + 1),
+        index = format_args!("{:3}..{:3}", start_i, end_i),
         va = format_args!("{start_va:#p}..{end_va:#p}"),
         pa = format_args!("{start_pa:#p}..{end_pa:#p}"),
-        flags = Flags(start_pte.flags()),
+        flags = Flags(flags),
     );
 }
