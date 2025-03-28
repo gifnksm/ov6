@@ -121,15 +121,17 @@ fn load_segments<const READ_ONLY: bool>(
             return Err(KernelError::InvalidExecutable);
         }
 
-        // TODO: Validate for address/page overlap or permission conflicts
-
         let va_start = VirtAddr::new(ph.vaddr.safe_into())?;
         if !va_start.is_page_aligned() {
             return Err(KernelError::InvalidExecutable);
         }
         let va_end = va_start.byte_add(ph.memsz.safe_into())?;
+        let perm = PtEntryFlags::U | flags2perm(ph.flags);
 
-        new_pt.grow_to_addr(va_end, PtEntryFlags::U | flags2perm(ph.flags))?;
+        new_pt.grow_to_addr(va_start.page_rounddown(), PtEntryFlags::empty())?;
+        new_pt.grow_to_addr(va_end.page_roundup(), perm)?;
+
+        new_pt.validate(va_start..va_end, perm)?;
 
         load_segment(
             new_pt,

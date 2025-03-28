@@ -354,28 +354,28 @@ pub trait Validate: Sized {
 
 impl<T> Validate for UserRef<T> {
     fn validate(self, pt: &UserPageTable) -> Result<Validated<Self>, KernelError> {
-        pt.validate_read(self.try_as_va_range()?)?;
+        pt.validate_user_read(self.try_as_va_range()?)?;
         Ok(Validated(self))
     }
 }
 
 impl<T> Validate for UserMutRef<T> {
     fn validate(self, pt: &UserPageTable) -> Result<Validated<Self>, KernelError> {
-        pt.validate_write(self.try_as_va_range()?)?;
+        pt.validate_user_write(self.try_as_va_range()?)?;
         Ok(Validated(self))
     }
 }
 
 impl<T> Validate for UserSlice<T> {
     fn validate(self, pt: &UserPageTable) -> Result<Validated<Self>, KernelError> {
-        pt.validate_read(self.try_as_va_range()?)?;
+        pt.validate_user_read(self.try_as_va_range()?)?;
         Ok(Validated(self))
     }
 }
 
 impl<T> Validate for UserMutSlice<T> {
     fn validate(self, pt: &UserPageTable) -> Result<Validated<Self>, KernelError> {
-        pt.validate_write(self.try_as_va_range()?)?;
+        pt.validate_user_write(self.try_as_va_range()?)?;
         Ok(Validated(self))
     }
 }

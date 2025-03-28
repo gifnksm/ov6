@@ -227,12 +227,16 @@ impl UserPageTable {
         self.pt.fetch_chunk_mut(va, flags)
     }
 
-    pub fn validate_read(&self, va: Range<VirtAddr>) -> Result<(), KernelError> {
-        self.pt.validate(va, PtEntryFlags::UR)
+    pub fn validate(&self, va: Range<VirtAddr>, perm: PtEntryFlags) -> Result<(), KernelError> {
+        self.pt.validate(va, perm)
     }
 
-    pub fn validate_write(&self, va: Range<VirtAddr>) -> Result<(), KernelError> {
-        self.pt.validate(va, PtEntryFlags::UW)
+    pub fn validate_user_read(&self, va: Range<VirtAddr>) -> Result<(), KernelError> {
+        self.validate(va, PtEntryFlags::UR)
+    }
+
+    pub fn validate_user_write(&self, va: Range<VirtAddr>) -> Result<(), KernelError> {
+        self.validate(va, PtEntryFlags::UW)
     }
 
     /// Copies from user to kernel.
