@@ -193,34 +193,6 @@ pub fn pg_bug() {
 pub fn sbrk_bugs() {
     let status = ProcessBuilder::new()
         .spawn_fn(|| {
-            let sz = process::current_break().addr();
-            // free all user memory; there used to be a bug that
-            // would not adjust p->sz correctly in this case,
-            // causing exit() to panic.
-            unsafe { process::shrink_break(sz) }.unwrap();
-            process::exit(0);
-        })
-        .unwrap()
-        .wait()
-        .unwrap();
-    assert_eq!(status.code(), -1);
-
-    let status = ProcessBuilder::new()
-        .spawn_fn(|| {
-            let sz = process::current_break().addr();
-            // set the break to somewhere in the very first
-            // page; there used to be a bug that would incorrectly
-            // free the first page.
-            unsafe { process::shrink_break(sz - 3500) }.unwrap();
-            process::exit(0);
-        })
-        .unwrap()
-        .wait()
-        .unwrap();
-    assert_eq!(status.code(), -1);
-
-    let status = ProcessBuilder::new()
-        .spawn_fn(|| {
             // set the break in the middle of a page.
             process::grow_break(usize::abs_diff(
                 process::current_break().addr(),

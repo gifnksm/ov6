@@ -10,7 +10,7 @@ use crate::{
     memory::{
         PAGE_SIZE, PageRound as _, VirtAddr,
         addr::{Validate as _, Validated},
-        page_table::PtEntryFlags,
+        page_table::{MapTarget, PtEntryFlags},
         vm_user::UserPageTable,
     },
     param::USER_STACK_PAGES,
@@ -75,7 +75,11 @@ pub fn exec(
     let mut pt = UserPageTable::new(private.pid, private.trapframe())?;
 
     // Load program into memory.
-    load_segments(&mut lip, &mut pt, &elf)?;
+    let segment_end = load_segments(&mut lip, &mut pt, &elf)?;
+    assert!(segment_end.is_page_aligned());
+    let heap_start = segment_end.byte_add(PAGE_SIZE)?.level_page_roundup(1);
+
+    pt.set_heap_start(heap_start);
 
     lip.unlock();
     ip.put();
@@ -106,7 +110,9 @@ fn load_segments<const READ_ONLY: bool>(
     lip: &mut LockedTxInode<READ_ONLY>,
     new_pt: &mut UserPageTable,
     elf: &ElfHeader,
-) -> Result<(), KernelError> {
+) -> Result<VirtAddr, KernelError> {
+    let mut segment_end = new_pt.heap_start();
+
     for i in 0..elf.phnum {
         let off = usize::safe_from(elf.phoff) + usize::from(i) * size_of::<ProgramHeader>();
         let mut ph = ProgramHeader::zero();
@@ -125,8 +131,15 @@ fn load_segments<const READ_ONLY: bool>(
         let va_end = va_start.byte_add(ph.memsz.safe_into())?;
         let perm = PtEntryFlags::U | flags2perm(ph.flags);
 
-        new_pt.grow_to_addr(va_start.page_rounddown(), PtEntryFlags::R)?;
-        new_pt.grow_to_addr(va_end.page_roundup(), perm)?;
+        let map_start = va_start.page_rounddown();
+        let map_end = va_end.page_roundup();
+        let map_size = map_end.checked_sub(map_start).unwrap();
+        new_pt.map_addrs(
+            map_start,
+            MapTarget::allocated_addr(true, false),
+            map_size,
+            perm,
+        )?;
 
         new_pt.validate(va_start..va_end, perm)?;
 
@@ -137,9 +150,11 @@ fn load_segments<const READ_ONLY: bool>(
             ph.off.safe_into(),
             ph.filesz.safe_into(),
         )?;
+
+        segment_end = VirtAddr::max(segment_end, map_end);
     }
 
-    Ok(())
+    Ok(segment_end)
 }
 
 /// Loads a program segment into pagetable at virtual address `va`.

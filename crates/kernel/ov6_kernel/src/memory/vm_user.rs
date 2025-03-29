@@ -24,7 +24,8 @@ use crate::{
 
 pub struct UserPageTable {
     pt: Box<PageTable, PageFrameAllocator>,
-    size: usize,
+    heap_start: VirtAddr,
+    heap_size: usize,
     stack_start: VirtAddr,
     stack_size: usize,
 }
@@ -36,7 +37,8 @@ impl UserPageTable {
         // An empty page table.
         let mut pt = Self {
             pt: PageTable::try_allocate()?,
-            size: 0,
+            heap_start: VirtAddr::MIN_AVA,
+            heap_size: 0,
             stack_start: USER_STACK_BOTTOM,
             stack_size: USER_STACK_SIZE,
         };
@@ -64,8 +66,16 @@ impl UserPageTable {
         self.pt.satp()
     }
 
+    pub fn heap_start(&self) -> VirtAddr {
+        self.heap_start
+    }
+
+    pub fn set_heap_start(&mut self, heap_start: VirtAddr) {
+        self.heap_start = heap_start;
+    }
+
     pub fn program_break(&self) -> VirtAddr {
-        VirtAddr::MIN_AVA.byte_add(self.size).unwrap()
+        self.heap_start.byte_add(self.heap_size).unwrap()
     }
 
     pub fn stack_top(&self) -> VirtAddr {
@@ -115,46 +125,61 @@ impl UserPageTable {
         let bytes = self.fetch_chunk_mut(VirtAddr::MIN_AVA, PtEntryFlags::U)?;
         assert!(bytes.len() >= src.len());
         bytes[..src.len()].copy_from_slice(src);
-        self.size += PAGE_SIZE;
+
+        let segment_end = VirtAddr::MIN_AVA.byte_add(PAGE_SIZE).unwrap();
+        self.heap_start = segment_end
+            .byte_add(2 * PAGE_SIZE)
+            .unwrap()
+            .level_page_roundup(1);
 
         Ok(())
     }
 
-    pub fn grow_by(&mut self, increment: usize, xperm: PtEntryFlags) -> Result<(), KernelError> {
-        let new_size = self.size.saturating_add(increment);
-        self.grow_to_size(new_size, xperm)
+    pub fn map_addrs(
+        &mut self,
+        va: VirtAddr,
+        pa: MapTarget,
+        size: usize,
+        flags: PtEntryFlags,
+    ) -> Result<(), KernelError> {
+        self.pt.map_addrs(va, pa, size, flags)
     }
 
-    pub fn grow_to_addr(
+    pub fn grow_heap_by(
         &mut self,
-        end_addr: VirtAddr,
+        increment: usize,
         xperm: PtEntryFlags,
     ) -> Result<(), KernelError> {
-        let Some(new_size) = end_addr.checked_sub(VirtAddr::MIN_AVA) else {
-            return Ok(());
-        };
-        self.grow_to_size(new_size, xperm)
+        let new_size = self
+            .heap_size
+            .checked_add(increment)
+            .ok_or(KernelError::HeapSizeOverflow)?;
+        self.grow_heap_to_size(new_size, xperm)
     }
 
     /// Allocates PTEs and physical memory to grow process to `new_size`,
     /// which need not be page aligned.
-    fn grow_to_size(&mut self, new_size: usize, xperm: PtEntryFlags) -> Result<(), KernelError> {
-        if new_size < self.size {
+    fn grow_heap_to_size(
+        &mut self,
+        new_size: usize,
+        xperm: PtEntryFlags,
+    ) -> Result<(), KernelError> {
+        if new_size < self.heap_size {
             return Ok(());
         }
 
-        let old_size = self.size;
-        self.size = new_size;
+        let old_size = self.heap_size;
+        self.heap_size = new_size;
 
-        let map_start = VirtAddr::MIN_AVA.byte_add(old_size).unwrap().page_roundup();
-        let map_end = VirtAddr::MIN_AVA.byte_add(new_size)?;
+        let map_start = self.heap_start.byte_add(old_size).unwrap().page_roundup();
+        let map_end = self.heap_start.byte_add(new_size)?;
         if map_start < map_end {
             let map_size = map_end.page_roundup().checked_sub(map_start).unwrap();
             if let Err(e) =
                 self.pt
                     .map_addrs(map_start, MapTarget::allocate_new_zeroed(), map_size, xperm)
             {
-                self.shrink_to_size(old_size);
+                self.shrink_heap_to_size(old_size);
                 return Err(e);
             }
         }
@@ -162,23 +187,28 @@ impl UserPageTable {
         Ok(())
     }
 
-    pub fn shrink_by(&mut self, decrement: usize) {
-        let new_size = self.size.saturating_sub(decrement);
-        self.shrink_to_size(new_size);
+    pub fn shrink_heap_by(&mut self, decrement: usize) -> Result<(), KernelError> {
+        let new_size = self
+            .heap_size
+            .checked_sub(decrement)
+            .ok_or(KernelError::HeapSizeUnderflow)?;
+        self.shrink_heap_to_size(new_size);
+
+        Ok(())
     }
 
     /// Deallocates user pages to bring the process size to `new_size`.
     ///
     /// `new_size` need not be page-aligned.
     /// `new_size` need not to be less than current size.
-    fn shrink_to_size(&mut self, new_size: usize) {
-        if new_size >= self.size {
+    fn shrink_heap_to_size(&mut self, new_size: usize) {
+        if new_size >= self.heap_size {
             return;
         }
 
-        if new_size.page_roundup() < self.size.page_roundup() {
-            let size = self.size.page_roundup() - new_size.page_roundup();
-            let start_va = VirtAddr::MIN_AVA.byte_add(new_size).unwrap().page_roundup();
+        if new_size.page_roundup() < self.heap_size.page_roundup() {
+            let size = self.heap_size.page_roundup() - new_size.page_roundup();
+            let start_va = self.heap_start.byte_add(new_size).unwrap().page_roundup();
             for (level, va, pa) in self.pt.unmap_addrs(start_va, size).unwrap() {
                 assert_eq!(
                     level, 0,
@@ -190,10 +220,16 @@ impl UserPageTable {
             }
         }
 
-        self.size = new_size;
+        self.heap_size = new_size;
     }
 
     pub fn clone_from(&mut self, other: &Self) -> Result<(), KernelError> {
+        self.pt.clone_pages_from(
+            &other.pt,
+            VirtAddr::MIN_AVA..other.heap_start,
+            PtEntryFlags::U,
+        )?;
+
         self.pt.clone_pages_from(
             &other.pt,
             other.stack_start..other.stack_top(),
@@ -202,11 +238,12 @@ impl UserPageTable {
         self.stack_start = other.stack_start;
         self.stack_size = other.stack_size;
 
-        let heap_start = VirtAddr::MIN_AVA;
-        let heap_end = heap_start.byte_add(other.size)?;
+        let heap_start = other.heap_start;
+        let heap_end = heap_start.byte_add(other.heap_size)?;
         self.pt
             .clone_pages_from(&other.pt, heap_start..heap_end, PtEntryFlags::U)?;
-        self.size = other.size;
+        self.heap_start = other.heap_start;
+        self.heap_size = other.heap_size;
 
         Ok(())
     }

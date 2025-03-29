@@ -55,9 +55,9 @@ pub fn resize_by(private: &mut ProcPrivateData, increment: isize) -> Result<(), 
     let pagetable = private.pagetable_mut();
     let amt = increment.saturating_abs().cast_unsigned();
     match increment.cmp(&0) {
-        cmp::Ordering::Less => pagetable.shrink_by(amt),
+        cmp::Ordering::Less => pagetable.shrink_heap_by(amt)?,
         cmp::Ordering::Equal => {}
-        cmp::Ordering::Greater => pagetable.grow_by(amt, PtEntryFlags::URW)?,
+        cmp::Ordering::Greater => pagetable.grow_heap_by(amt, PtEntryFlags::URW)?,
     }
     Ok(())
 }

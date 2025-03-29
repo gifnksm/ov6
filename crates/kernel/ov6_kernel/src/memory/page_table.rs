@@ -29,27 +29,27 @@ use crate::{
 pub struct PageTable([PtEntry; 512]);
 
 #[derive(Debug, Clone, Copy)]
-pub(super) enum MapTarget {
+pub enum MapTarget {
     AllocatedAddr { zeroed: bool, allocate_new: bool },
     FixedAddr { addr: PhysAddr },
 }
 
 impl MapTarget {
-    pub(super) fn allocate_new_zeroed() -> Self {
+    pub fn allocate_new_zeroed() -> Self {
         Self::AllocatedAddr {
             zeroed: true,
             allocate_new: true,
         }
     }
 
-    pub(super) fn allocated_addr(zeroed: bool, allocate_new: bool) -> Self {
+    pub fn allocated_addr(zeroed: bool, allocate_new: bool) -> Self {
         Self::AllocatedAddr {
             zeroed,
             allocate_new,
         }
     }
 
-    pub(super) fn fixed_addr(addr: PhysAddr) -> Self {
+    pub fn fixed_addr(addr: PhysAddr) -> Self {
         Self::FixedAddr { addr }
     }
 

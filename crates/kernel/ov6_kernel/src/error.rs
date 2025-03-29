@@ -30,6 +30,10 @@ pub(crate) enum KernelError {
     InaccessiblePage(VirtAddr),
     #[error("virtual address with different permission: va={0:#x}, flags={1:?},{2:?}")]
     VirtualAddressWithUnexpectedPerm(VirtAddr, PtEntryFlags, PtEntryFlags),
+    #[error("heap size overflow")]
+    HeapSizeOverflow,
+    #[error("heap size underflow")]
+    HeapSizeUnderflow,
     #[error("bad file descriptor: fd={0}, pid={1}")]
     FileDescriptorNotFound(RawFd, ProcId),
     #[error("file descriptor not readable")]
@@ -123,7 +127,10 @@ impl From<KernelError> for SyscallError {
             KernelError::DirectoryNotEmpty => Self::DirectoryNotEmpty,
             KernelError::WriteOffsetTooLarge => Self::NotSeekable,
             KernelError::UnlinkRootDir => Self::ResourceBusy,
-            KernelError::UnlinkDots | KernelError::NullInPath => Self::InvalidInput,
+            KernelError::HeapSizeOverflow
+            | KernelError::HeapSizeUnderflow
+            | KernelError::UnlinkDots
+            | KernelError::NullInPath => Self::InvalidInput,
             KernelError::CreateRootDir
             | KernelError::CreateAlreadyExists
             | KernelError::LinkRootDir
