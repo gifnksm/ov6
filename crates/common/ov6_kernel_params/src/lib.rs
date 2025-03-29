@@ -31,7 +31,7 @@ pub const NBUF: usize = MAX_OP_BLOCKS * 3;
 pub const MAX_PATH: usize = 128;
 
 /// User stack pages
-pub const USER_STACK: usize = 2;
+pub const USER_STACK_PAGES: usize = 2;
 
 /// Size of file system image in blocks
 pub const FS_SIZE: usize = 2000;

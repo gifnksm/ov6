@@ -11,7 +11,7 @@
 //! 0x1000_0000 -- UART0
 //! 0x1000_1000 -- virtio disk
 //! 0x8000_0000 -- boot ROM jumps here in machine mode
-//!               -kernel loads the kernel here
+//!                kernel loads the kernel here
 //! unused RAM after 0x8000_0000.
 //! ```
 //!
@@ -28,7 +28,7 @@
 
 use core::arch::global_asm;
 
-use ov6_kernel_params::NPROC;
+use ov6_kernel_params::{NPROC, USER_STACK_PAGES};
 use ov6_syscall::{USYSCALL_ADDR, USyscallData};
 
 use crate::memory::{PAGE_SIZE, VirtAddr};
@@ -92,16 +92,33 @@ unsafe extern "C" {
 }
 
 // User memory layout.
+//
 // ```text
-// Address zero first:
-//  text
-//  original data and bss
-//  fixed-size stack
-//  expandable heap
-//  ...
-//  TRAPFRAME (p.trapframe, used by the trampoline)
-//  TRAMPOLINE
-// ```
+// 0x0000_0000_0100 -- text
+// ...                 data, bss
+// ...                 expandable heap
+// ...
+// 0x000f_ffff_e000 -- user stack bottom
+// 0x0010_0000_0000 -- user stack top
+// ...
+// 0x0020_0000_0000 -- usyscall
+// ...
+// 0x003f_ffff_e000 -- TRAPFRAME
+// 0x003f_ffff_f000 -- TRAMPOLINE
+// 0x0040_0000_0000 -- VirtAddr::MAX
+
+pub const USER_STACK_BOTTOM_ADDR: usize = USER_STACK_TOP_ADDR - USER_STACK_SIZE;
+pub const USER_STACK_TOP_ADDR: usize = 0x0010_0000_0000;
+pub const USER_STACK_BOTTOM: VirtAddr = match VirtAddr::new(USER_STACK_BOTTOM_ADDR) {
+    Ok(va) => va,
+    Err(_) => unreachable!(),
+};
+pub const USER_STACK_TOP: VirtAddr = match VirtAddr::new(USER_STACK_TOP_ADDR) {
+    Ok(va) => va,
+    Err(_) => unreachable!(),
+};
+
+pub const USER_STACK_SIZE: usize = USER_STACK_PAGES * PAGE_SIZE;
 
 pub const USYSCALL: VirtAddr = match VirtAddr::new(USYSCALL_ADDR) {
     Ok(va) => va,

@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use core::{ops::Range, ptr, slice};
 
-use dataview::{Pod, PodMethods as _};
+use dataview::{DataView, Pod, PodMethods as _};
 use ov6_syscall::{USyscallData, UserMutRef, UserMutSlice, UserRef, UserSlice};
 use ov6_types::process::ProcId;
 use riscv::register::satp::Satp;
@@ -9,7 +9,10 @@ use riscv::register::satp::Satp;
 use super::{
     PAGE_SIZE, PageRound as _, PhysAddr, VirtAddr,
     addr::{GenericMutSlice, GenericSlice, Validated},
-    layout::{TRAMPOLINE, TRAMPOLINE_SIZE, TRAPFRAME, TRAPFRAME_SIZE, USYSCALL, USYSCALL_SIZE},
+    layout::{
+        TRAMPOLINE, TRAMPOLINE_SIZE, TRAPFRAME, TRAPFRAME_SIZE, USER_STACK_BOTTOM, USER_STACK_TOP,
+        USYSCALL, USYSCALL_SIZE,
+    },
     page::{self, PageFrameAllocator},
     page_table::{self, PageTable, PtEntryFlags},
 };
@@ -22,6 +25,8 @@ use crate::{
 pub struct UserPageTable {
     pt: Box<PageTable, PageFrameAllocator>,
     size: usize,
+    stack_bottom: VirtAddr,
+    stack_top: VirtAddr,
 }
 
 impl UserPageTable {
@@ -32,23 +37,11 @@ impl UserPageTable {
         let mut pt = Self {
             pt: PageTable::try_allocate()?,
             size: 0,
+            stack_bottom: USER_STACK_BOTTOM,
+            stack_top: USER_STACK_TOP,
         };
 
-        let usyscall = page::alloc_zeroed_page()?;
-        unsafe {
-            usyscall.cast::<USyscallData>().write(USyscallData { pid });
-        }
-        if let Err(e) = pt.pt.map_addrs(
-            USYSCALL,
-            PhysAddr::new(usyscall.addr().get()),
-            USYSCALL_SIZE,
-            PtEntryFlags::UR,
-        ) {
-            unsafe {
-                page::free_page(usyscall);
-            }
-            return Err(e);
-        }
+        pt.alloc_usyscall(pid)?;
 
         pt.pt.map_addrs(
             TRAMPOLINE,
@@ -75,11 +68,58 @@ impl UserPageTable {
         VirtAddr::MIN_AVA.byte_add(self.size).unwrap()
     }
 
+    pub fn stack_top(&self) -> VirtAddr {
+        self.stack_top
+    }
+
+    pub fn alloc_zeroed_pages(
+        &mut self,
+        addrs: Range<VirtAddr>,
+        flags: PtEntryFlags,
+    ) -> Result<(), KernelError> {
+        let mut map_start = addrs.start;
+        let map_end = addrs.end;
+
+        while map_start < map_end {
+            let va = map_start;
+
+            let page = page::alloc_zeroed_page()?;
+            if let Err(e) =
+                self.pt
+                    .map_addrs(va, PhysAddr::new(page.addr().get()), PAGE_SIZE, flags)
+            {
+                unsafe {
+                    page::free_page(page);
+                    return Err(e);
+                }
+            }
+
+            map_start = map_start.byte_add(PAGE_SIZE).unwrap();
+        }
+
+        Ok(())
+    }
+
+    pub fn alloc_stack(&mut self) -> Result<(), KernelError> {
+        self.alloc_zeroed_pages(self.stack_bottom..self.stack_top, PtEntryFlags::URW)?;
+        Ok(())
+    }
+
+    pub fn alloc_usyscall(&mut self, pid: ProcId) -> Result<(), KernelError> {
+        let start_va = USYSCALL;
+        let end_va = start_va.byte_add(USYSCALL_SIZE).unwrap();
+        self.alloc_zeroed_pages(start_va..end_va, PtEntryFlags::UR)?;
+        let bytes = self.fetch_chunk_mut(start_va, PtEntryFlags::U)?;
+        assert!(bytes.len() >= size_of::<USyscallData>());
+        *DataView::from_mut(bytes).get_mut::<USyscallData>(0) = USyscallData { pid };
+        Ok(())
+    }
+
     /// Loads the user initcode into address 0 of pagetable.
     ///
     /// For the very first process.
     /// `src.len()` must be less than a page.
-    pub fn map_first(&mut self, src: &[u8]) -> Result<(), KernelError> {
+    pub fn alloc_first(&mut self, src: &[u8]) -> Result<(), KernelError> {
         assert!(src.len() < PAGE_SIZE, "src.len()={:#x}", src.len());
 
         let mem = page::alloc_zeroed_page().unwrap();
@@ -184,41 +224,49 @@ impl UserPageTable {
         self.size = new_size;
     }
 
-    pub fn try_clone_into(&self, target: &mut Self) -> Result<(), KernelError> {
-        target.shrink_to_size(0);
+    fn clone_pages_into(
+        &self,
+        target: &mut Self,
+        addrs: Range<VirtAddr>,
+    ) -> Result<(), KernelError> {
+        let mut map_start = addrs.start;
+        let map_end = addrs.end;
 
-        (|| {
-            let mut map_start = VirtAddr::MIN_AVA;
-            let map_end = map_start.byte_add(self.size)?;
-            while map_start < map_end {
-                let va = map_start;
-                target.size = va.addr();
+        while map_start < map_end {
+            let va = map_start;
 
-                let (level, pte) = self.pt.find_leaf_entry(va)?;
-                assert_eq!(level, 0, "super page is not supported yet");
-                assert!(pte.is_valid() && pte.is_leaf());
+            let (level, pte) = self.pt.find_leaf_entry(va)?;
+            assert_eq!(level, 0, "super page is not supported yet");
+            assert!(pte.is_valid() && pte.is_leaf());
 
-                let page_size = memory::level_page_size(level);
-                let src_pa = pte.phys_addr();
-                let flags = pte.flags();
+            let page_size = memory::level_page_size(level);
+            let src_pa = pte.phys_addr();
+            let flags = pte.flags();
 
-                let dst = page::alloc_page()?;
-                unsafe {
-                    dst.as_ptr().copy_from(src_pa.as_ptr(), page_size);
-                }
-
-                target
-                    .pt
-                    .map_addrs(va, PhysAddr::new(dst.addr().get()), page_size, flags)?;
-
-                map_start = map_start.byte_add(page_size).unwrap();
+            let dst = page::alloc_page()?;
+            unsafe {
+                dst.as_ptr().copy_from(src_pa.as_ptr(), page_size);
             }
-            target.size = self.size;
-            Ok(())
-        })()
-        .inspect_err(|_| {
-            target.shrink_to_size(0);
-        })
+
+            target
+                .pt
+                .map_addrs(va, PhysAddr::new(dst.addr().get()), page_size, flags)?;
+
+            map_start = map_start.byte_add(page_size).unwrap();
+        }
+
+        Ok(())
+    }
+
+    pub fn try_clone_into(&self, target: &mut Self) -> Result<(), KernelError> {
+        self.clone_pages_into(target, self.stack_bottom..self.stack_top)?;
+
+        let heap_start = VirtAddr::MIN_AVA;
+        let heap_end = heap_start.byte_add(self.size)?;
+        self.clone_pages_into(target, heap_start..heap_end)?;
+        target.size = self.size;
+
+        Ok(())
     }
 
     pub fn fetch_chunk_mut(

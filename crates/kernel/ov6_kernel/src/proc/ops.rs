@@ -31,11 +31,12 @@ pub fn spawn_init() {
 
     // allocate one user page and copy initcode's instructions
     // and data into it.
-    private.pagetable_mut().map_first(INIT_CODE).unwrap();
+    private.pagetable_mut().alloc_first(INIT_CODE).unwrap();
+    private.pagetable_mut().alloc_stack().unwrap();
 
     // prepare for the very first `return` from kernel to user.
     let pc = VirtAddr::MIN_AVA.addr();
-    let sp = private.pagetable().program_break().addr();
+    let sp = private.pagetable().stack_top().addr();
     let trapframe = private.trapframe_mut();
     trapframe.epc = pc;
     trapframe.sp = sp;

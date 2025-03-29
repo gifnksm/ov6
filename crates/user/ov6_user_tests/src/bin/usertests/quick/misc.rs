@@ -1,6 +1,6 @@
 use core::{cell::UnsafeCell, mem::MaybeUninit, ptr, slice};
 
-use ov6_kernel_params::USER_STACK;
+use ov6_kernel_params::USER_STACK_PAGES;
 use ov6_user_lib::{
     error::Ov6Error,
     fs::{self, File},
@@ -140,7 +140,7 @@ pub fn stack() {
     let status = ProcessBuilder::new()
         .spawn_fn(|| {
             let mut sp = get_sp();
-            sp -= USER_STACK * PAGE_SIZE;
+            sp -= USER_STACK_PAGES * PAGE_SIZE;
             // the sp should cause a trap
             let v = unsafe { ptr::with_exposed_provenance::<u8>(sp).read() };
             unreachable!("read below stack: {v}");

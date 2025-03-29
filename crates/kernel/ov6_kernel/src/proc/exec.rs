@@ -13,7 +13,7 @@ use crate::{
         page_table::PtEntryFlags,
         vm_user::UserPageTable,
     },
-    param::USER_STACK,
+    param::USER_STACK_PAGES,
     proc::{
         Proc,
         elf::{ELF_MAGIC, ELF_PROG_LOAD, ElfHeader, ProgramHeader},
@@ -51,7 +51,7 @@ pub fn exec(
     argv: &Validated<UserSlice<Validated<UserSlice<u8>>>>,
     arg_data_size: usize,
 ) -> Result<(usize, VirtAddr), KernelError> {
-    let user_stack_size = USER_STACK * PAGE_SIZE;
+    let user_stack_size = USER_STACK_PAGES * PAGE_SIZE;
     let arg_stack_size = arg_stack_size(arg_data_size, argv.len())
         .filter(|size| *size <= user_stack_size)
         .ok_or(KernelError::ArgumentListTooLarge)?;
@@ -81,9 +81,9 @@ pub fn exec(
     ip.put();
     tx.end();
 
-    allocate_stack_pages(&mut pt)?;
+    pt.alloc_stack()?;
 
-    let sp = pt.program_break();
+    let sp = pt.stack_top();
 
     // Push argument strings, prepare rest of stack in ustack.
     let (sp, argc) = push_arguments(&mut pt, private.pagetable(), sp, arg_stack_size, argv);
@@ -169,24 +169,6 @@ fn load_segment<const READ_ONLY: bool>(
         copied += dst_chunk.len();
     }
     assert_eq!(va_start, va_end);
-
-    Ok(())
-}
-
-/// Allocates some pages at the next page boundary.
-///
-/// Makes the first inaccessible as a stack guard.
-/// Uses the rest as the user stack.
-fn allocate_stack_pages(pt: &mut UserPageTable) -> Result<(), KernelError> {
-    pt.grow_to_addr(pt.program_break().page_roundup(), PtEntryFlags::R)?;
-    assert!(pt.program_break().is_page_aligned());
-
-    // stack guard
-    pt.grow_by(PAGE_SIZE, PtEntryFlags::R)?;
-
-    // user stack
-    assert!(pt.program_break().is_page_aligned());
-    pt.grow_by(USER_STACK * PAGE_SIZE, PtEntryFlags::URW)?;
 
     Ok(())
 }
