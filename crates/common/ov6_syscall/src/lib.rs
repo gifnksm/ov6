@@ -11,7 +11,7 @@ pub mod error;
 mod register;
 pub mod syscall;
 
-pub const USYSCALL_ADDR: usize = 0x20_0000_0000;
+pub const USYSCALL_ADDR: usize = 0x2F_FFFF_F000;
 
 #[derive(Debug, Pod)]
 #[repr(C)]

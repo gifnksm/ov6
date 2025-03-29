@@ -108,7 +108,7 @@ unsafe extern "C" {
 // 0x0040_0000_0000 -- VirtAddr::MAX
 
 pub const USER_STACK_BOTTOM_ADDR: usize = USER_STACK_TOP_ADDR - USER_STACK_SIZE;
-pub const USER_STACK_TOP_ADDR: usize = 0x0010_0000_0000;
+pub const USER_STACK_TOP_ADDR: usize = 0x0020_0000_0000;
 pub const USER_STACK_BOTTOM: VirtAddr = match VirtAddr::new(USER_STACK_BOTTOM_ADDR) {
     Ok(va) => va,
     Err(_) => unreachable!(),
