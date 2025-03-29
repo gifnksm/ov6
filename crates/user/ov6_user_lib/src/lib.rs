@@ -25,6 +25,12 @@ pub mod sync;
 pub mod thread;
 pub mod time;
 
+// The Rust entry point `lang_start` defines the `main` function, but the linker
+// expects the entry point to be named `_start`. Therefore, assembly code is
+// used to define `_start` as an alias for `main`.
+#[cfg(all(feature = "lang_items", not(feature = "test")))]
+core::arch::global_asm!(".global _start", ".global main", ".equiv _start, main");
+
 #[cfg(all(feature = "lang_items", not(feature = "test")))]
 #[lang = "start"]
 fn lang_start<T>(main: fn() -> T, argc: isize, argv: *const *const u8, _: u8) -> isize {
