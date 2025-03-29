@@ -13,7 +13,11 @@ use bitflags::bitflags;
 use dataview::Pod;
 use riscv::register::satp::{self, Satp};
 
-use super::{PhysAddr, VirtAddr, addr::PhysPageNum, page::PageFrameAllocator};
+use super::{
+    PhysAddr, VirtAddr,
+    addr::PhysPageNum,
+    page::{self, PageFrameAllocator},
+};
 use crate::{
     error::KernelError,
     memory::{self, PAGE_SIZE, PageRound as _, level_page_size},
@@ -23,6 +27,88 @@ use crate::{
 #[repr(transparent)]
 #[derive(Pod)]
 pub struct PageTable([PtEntry; 512]);
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum MapTarget {
+    AllocatedAddr { zeroed: bool, allocate_new: bool },
+    FixedAddr { addr: PhysAddr },
+}
+
+impl MapTarget {
+    pub(super) fn allocate_new_zeroed() -> Self {
+        Self::AllocatedAddr {
+            zeroed: true,
+            allocate_new: true,
+        }
+    }
+
+    pub(super) fn allocated_addr(zeroed: bool, allocate_new: bool) -> Self {
+        Self::AllocatedAddr {
+            zeroed,
+            allocate_new,
+        }
+    }
+
+    pub(super) fn fixed_addr(addr: PhysAddr) -> Self {
+        Self::FixedAddr { addr }
+    }
+
+    fn is_page_aligned(&self) -> bool {
+        match self {
+            Self::AllocatedAddr { .. } => true,
+            Self::FixedAddr { addr } => addr.is_page_aligned(),
+        }
+    }
+
+    fn is_level_page_aligned(&self, level: usize) -> bool {
+        match self {
+            Self::AllocatedAddr { .. } => true,
+            Self::FixedAddr { addr } => addr.is_level_page_aligned(level),
+        }
+    }
+
+    fn level_offset(&self, level: usize) -> usize {
+        match self {
+            Self::AllocatedAddr { .. } => 0,
+            Self::FixedAddr { addr } => addr.addr() % level_page_size(level),
+        }
+    }
+
+    fn byte_add(&self, bytes: usize) -> Option<Self> {
+        let new = match self {
+            Self::AllocatedAddr { .. } => *self,
+            Self::FixedAddr { addr } => Self::FixedAddr {
+                addr: addr.byte_add(bytes)?,
+            },
+        };
+        Some(new)
+    }
+
+    fn allocate_new(&self) -> bool {
+        match self {
+            Self::AllocatedAddr {
+                allocate_new: create_new,
+                ..
+            } => *create_new,
+            Self::FixedAddr { .. } => true,
+        }
+    }
+
+    fn get_or_allocate(&self, level: usize) -> Result<PhysAddr, KernelError> {
+        match self {
+            Self::AllocatedAddr { zeroed, .. } => {
+                assert_eq!(level, 0, "super page is not supported yet");
+                let page = if *zeroed {
+                    page::alloc_zeroed_page()?
+                } else {
+                    page::alloc_page()?
+                };
+                Ok(PhysAddr::new(page.addr().get()))
+            }
+            Self::FixedAddr { addr } => Ok(*addr),
+        }
+    }
+}
 
 impl PageTable {
     /// Allocates a new empty page table.
@@ -88,21 +174,12 @@ impl PageTable {
         })
     }
 
-    /// Creates PTE for virtual page `vpn` that refer to
-    /// physical page `ppn`.
-    ///
-    /// Returns `Ok(())` on success, `Err()` if `walk()` couldn't
-    /// allocate a needed page-table page.
-    fn map_page(
+    fn find_or_create_leaf(
         &mut self,
         level: usize,
         va: VirtAddr,
-        pa: PhysAddr,
-        perm: PtEntryFlags,
-    ) -> Result<(), KernelError> {
+    ) -> Result<&mut PtEntry, KernelError> {
         assert!(level <= 2);
-        assert!(perm.intersects(PtEntryFlags::RWX), "perm={perm:?}");
-
         let mut pt = self;
         for level in (level + 1..=2).rev() {
             let index = va.level_idx(level);
@@ -116,10 +193,39 @@ impl PageTable {
 
         let index = va.level_idx(level);
         let pte = &mut pt.0[index];
-        assert!(
-            !pte.is_valid(),
-            "remap on the already mapped address: va={va:?}"
-        );
+        Ok(pte)
+    }
+
+    /// Creates PTE for virtual page `vpn` that refer to
+    /// physical page `ppn`.
+    ///
+    /// Returns `Ok(())` on success, `Err()` if `walk()` couldn't
+    /// allocate a needed page-table page.
+    fn map_page(
+        &mut self,
+        level: usize,
+        va: VirtAddr,
+        pa: MapTarget,
+        perm: PtEntryFlags,
+    ) -> Result<(), KernelError> {
+        assert!(perm.intersects(PtEntryFlags::RWX), "perm={perm:?}");
+        let pte = self.find_or_create_leaf(level, va)?;
+
+        if pte.is_valid() {
+            assert!(
+                !pa.allocate_new(),
+                "remap on the already mapped address: va={va:?}"
+            );
+            let pte_perm = pte.flags() & PtEntryFlags::URWX;
+            if perm != pte_perm {
+                return Err(KernelError::VirtualAddressWithUnexpectedPerm(
+                    va, perm, pte_perm,
+                ));
+            }
+            return Ok(());
+        }
+
+        let pa = pa.get_or_allocate(level)?;
         pte.set_phys_page_num(pa.phys_page_num(), perm | PtEntryFlags::V);
         Ok(())
     }
@@ -128,7 +234,7 @@ impl PageTable {
         &mut self,
         level: usize,
         va: &mut VirtAddr,
-        pa: &mut PhysAddr,
+        pa: &mut MapTarget,
         size: usize,
         perm: PtEntryFlags,
     ) -> Result<(), KernelError> {
@@ -155,10 +261,10 @@ impl PageTable {
     ///
     /// Returns `Ok(())` on success, `Err()` if `walk()` couldn't
     /// allocate a needed page-table page.
-    pub fn map_addrs(
+    pub(super) fn map_addrs(
         &mut self,
         mut va: VirtAddr,
-        mut pa: PhysAddr,
+        mut pa: MapTarget,
         size: usize,
         perm: PtEntryFlags,
     ) -> Result<(), KernelError> {
@@ -167,12 +273,16 @@ impl PageTable {
         assert!(size.is_multiple_of(PAGE_SIZE));
         assert!(perm.intersects(PtEntryFlags::RWX), "perm={perm:?}");
 
-        if va.addr() % level_page_size(1) != pa.addr() % level_page_size(1) {
+        if let MapTarget::AllocatedAddr { .. } = pa {
+            // currently, supr page allocation is not supported
+            return self.map_addrs_level(0, &mut va, &mut pa, size, perm);
+        }
+
+        if va.addr() % level_page_size(1) != pa.level_offset(1) {
             return self.map_addrs_level(0, &mut va, &mut pa, size, perm);
         }
 
         let va_end = va.byte_add(size)?;
-        let pa_end = pa.byte_add(size).unwrap();
         let lv1_start_va = va.level_page_roundup(1);
         let lv1_end_va = va_end.level_page_rounddown(1);
         if lv1_start_va >= lv1_end_va {
@@ -192,7 +302,38 @@ impl PageTable {
             self.map_addrs_level(0, &mut va, &mut pa, size, perm)?;
         }
         assert_eq!(va, va_end);
-        assert_eq!(pa, pa_end);
+        Ok(())
+    }
+
+    pub(super) fn clone_pages_from<R>(
+        &mut self,
+        other: &Self,
+        va_range: R,
+        flags: PtEntryFlags,
+    ) -> Result<(), KernelError>
+    where
+        R: RangeBounds<VirtAddr>,
+    {
+        for (level, va, src_pte) in other.entries(va_range) {
+            if !src_pte.is_leaf() {
+                continue;
+            }
+            if !src_pte.flags().contains(flags) {
+                return Err(KernelError::InaccessiblePage(va));
+            }
+
+            let page_size = memory::level_page_size(level);
+            let flags = src_pte.flags();
+
+            let mut dst_va = va;
+            let mut dst_pa = MapTarget::allocated_addr(false, true);
+            self.map_addrs_level(level, &mut dst_va, &mut dst_pa, page_size, flags)?;
+
+            let src = other.fetch_chunk(va, PtEntryFlags::U)?;
+            let dst = self.fetch_chunk_mut(va, PtEntryFlags::U)?;
+            dst.copy_from_slice(src);
+        }
+
         Ok(())
     }
 
@@ -217,7 +358,7 @@ impl PageTable {
         }
     }
 
-    fn entries<R>(&self, va_range: R) -> Entries<'_>
+    pub(super) fn entries<R>(&self, va_range: R) -> Entries<'_>
     where
         R: RangeBounds<VirtAddr>,
     {

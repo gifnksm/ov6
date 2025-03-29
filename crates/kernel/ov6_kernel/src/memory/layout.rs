@@ -113,10 +113,6 @@ pub const USER_STACK_BOTTOM: VirtAddr = match VirtAddr::new(USER_STACK_BOTTOM_AD
     Ok(va) => va,
     Err(_) => unreachable!(),
 };
-pub const USER_STACK_TOP: VirtAddr = match VirtAddr::new(USER_STACK_TOP_ADDR) {
-    Ok(va) => va,
-    Err(_) => unreachable!(),
-};
 
 pub const USER_STACK_SIZE: usize = USER_STACK_PAGES * PAGE_SIZE;
 

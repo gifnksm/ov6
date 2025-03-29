@@ -4,7 +4,7 @@ use ov6_types::{fs::RawFd, process::ProcId};
 
 use crate::{
     fs::DeviceNo,
-    memory::VirtAddr,
+    memory::{VirtAddr, page_table::PtEntryFlags},
     sync::{SleepLockError, WaitError},
 };
 
@@ -28,6 +28,8 @@ pub(crate) enum KernelError {
     VirtualPageNotMapped(VirtAddr),
     #[error("inaccessible page: {0:#x}")]
     InaccessiblePage(VirtAddr),
+    #[error("virtual address with different permission: va={0:#x}, flags={1:?},{2:?}")]
+    VirtualAddressWithUnexpectedPerm(VirtAddr, PtEntryFlags, PtEntryFlags),
     #[error("bad file descriptor: fd={0}, pid={1}")]
     FileDescriptorNotFound(RawFd, ProcId),
     #[error("file descriptor not readable")]
@@ -107,7 +109,8 @@ impl From<KernelError> for SyscallError {
             KernelError::TooLargeVirtualAddress(_)
             | KernelError::VirtualAddressUnderflow
             | KernelError::VirtualPageNotMapped(_)
-            | KernelError::InaccessiblePage(_) => Self::BadAddress,
+            | KernelError::InaccessiblePage(_)
+            | KernelError::VirtualAddressWithUnexpectedPerm(_, _, _) => Self::BadAddress,
             KernelError::FileDescriptorNotFound(_, _)
             | KernelError::FileDescriptorNotReadable
             | KernelError::FileDescriptorNotWritable

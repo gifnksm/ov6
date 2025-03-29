@@ -72,10 +72,7 @@ pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Result<ProcId, Ker
     let (np, mut np_shared, mut np_private) = Proc::allocate()?;
 
     // Copy use memory from parent to child.
-    if let Err(e) = p_private
-        .pagetable()
-        .try_clone_into(np_private.pagetable_mut())
-    {
+    if let Err(e) = np_private.pagetable_mut().clone_from(p_private.pagetable()) {
         np.free(&mut np_shared);
         drop(np_shared);
         return Err(e);

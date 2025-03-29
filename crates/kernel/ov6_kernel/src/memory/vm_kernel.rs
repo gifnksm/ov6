@@ -6,8 +6,8 @@ use riscv::{asm, register::satp};
 
 use super::{
     layout::{self, KSTACK_PAGES},
-    page::{self, PageFrameAllocator},
-    page_table::{self, PageTable},
+    page::PageFrameAllocator,
+    page_table::{self, MapTarget, PageTable},
 };
 use crate::{
     error::KernelError,
@@ -48,7 +48,12 @@ unsafe fn ident_map(
     size: usize,
     perm: PtEntryFlags,
 ) -> Result<(), KernelError> {
-    kpgtbl.map_addrs(VirtAddr::new(addr)?, PhysAddr::new(addr), size, perm)
+    kpgtbl.map_addrs(
+        VirtAddr::new(addr)?,
+        MapTarget::fixed_addr(PhysAddr::new(addr)),
+        size,
+        perm,
+    )
 }
 
 pub struct KernelPageTable(Box<PageTable, PageFrameAllocator>);
@@ -87,7 +92,12 @@ impl KernelPageTable {
             // map the trampoline for trap entry/exit to
             // the highest virtual address in the kernel.
             kpgtbl
-                .map_addrs(TRAMPOLINE, phys_trampoline, PAGE_SIZE, rx)
+                .map_addrs(
+                    TRAMPOLINE,
+                    MapTarget::fixed_addr(phys_trampoline),
+                    PAGE_SIZE,
+                    rx,
+                )
                 .unwrap();
 
             // allocate and map a kernel stack for each process.
@@ -99,14 +109,16 @@ impl KernelPageTable {
 }
 
 fn map_proc_stacks(kpgtbl: &mut PageTable) {
-    for i in 0..NPROC {
-        for k in 0..KSTACK_PAGES {
-            let pa = PhysAddr::new(page::alloc_page().unwrap().addr().get());
-            let va = layout::kstack(i).byte_add(k * PAGE_SIZE).unwrap();
-            kpgtbl
-                .map_addrs(va, pa, PAGE_SIZE, PtEntryFlags::RW)
-                .unwrap();
-        }
+    for i in (0..NPROC).rev() {
+        let va = layout::kstack(i);
+        kpgtbl
+            .map_addrs(
+                va,
+                MapTarget::allocate_new_zeroed(),
+                KSTACK_PAGES * PAGE_SIZE,
+                PtEntryFlags::RW,
+            )
+            .unwrap();
     }
 }
 
