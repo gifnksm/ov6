@@ -1,5 +1,18 @@
 #![cfg_attr(not(test), no_std)]
 
+//! # Overview
+//!
+//! This program is a stress test for various system calls and file operations.
+//! It performs a wide range of operations, including file creation, deletion,
+//! directory navigation, process management, and inter-process communication.
+//!
+//! # Note
+//!
+//! The use of `io::stdout()` or macros like `print!` is prohibited in this
+//! test. This is because the internal `BufWriter` of `Stdout` uses heap memory,
+//! and this test involves growing and shrinking the heap area. Using
+//! `io::stdout()` could interfere with the heap operations being tested.
+
 use core::{
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
@@ -8,8 +21,9 @@ use core::{
 use ov6_user_lib::{
     env,
     fs::{self, File},
-    io::{Read as _, Write as _},
-    pipe, print,
+    io::{Read as _, STDOUT_FD, Write as _},
+    os::ov6::syscall,
+    pipe,
     process::{self, ProcessBuilder, Stdio},
     thread,
 };
@@ -28,7 +42,7 @@ fn do_rand(ctx: &mut u64) -> u64 {
     let x = (*ctx % 0x7fff_fffe) + 1;
     let hi = x / 127_773;
     let lo = x % 127_773;
-    let x = 16807 * lo - 2836 * hi;
+    let x = u64::wrapping_sub(16807 * lo, 2836 * hi);
 
     // Transform to [0, 0x7ffffffd] range
     let x = x - 1;
@@ -45,7 +59,7 @@ fn rand() -> u64 {
 }
 
 #[expect(clippy::too_many_lines)]
-fn go(name: char) {
+fn go(name: u8) {
     let mut buf = [0; 999];
     let break0 = process::current_break().addr();
 
@@ -57,7 +71,8 @@ fn go(name: char) {
 
     for iters in 1.. {
         if iters % 500 == 0 {
-            print!("{name}");
+            // We cannot use `print!` here. See module-level documentation.
+            syscall::write(STDOUT_FD, &[name]).unwrap();
         }
 
         match rand() % 23 {
@@ -281,7 +296,7 @@ fn iter() {
     let mut child1 = ProcessBuilder::new()
         .spawn_fn(|| {
             RAND_NEXT.fetch_xor(31, Ordering::Relaxed);
-            go('A');
+            go(b'A');
             process::exit(0);
         })
         .unwrap();
@@ -289,7 +304,7 @@ fn iter() {
     let mut child2 = ProcessBuilder::new()
         .spawn_fn(|| {
             RAND_NEXT.fetch_xor(7177, Ordering::Relaxed);
-            go('B');
+            go(b'B');
             process::exit(0);
         })
         .unwrap();
