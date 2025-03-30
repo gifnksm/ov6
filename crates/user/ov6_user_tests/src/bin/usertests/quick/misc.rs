@@ -1,10 +1,12 @@
 use core::{cell::UnsafeCell, mem::MaybeUninit, ptr, slice};
 
 use ov6_kernel_params::USER_STACK_PAGES;
+use ov6_syscall::{UserMutSlice, error::SyscallError, syscall};
 use ov6_user_lib::{
     error::Ov6Error,
     fs::{self, File},
     io::{Read as _, Write as _},
+    os::{fd::AsRawFd as _, ov6::syscall::ffi::SyscallExt as _},
     os_str::OsStr,
     path::Path,
     process::{self, ProcessBuilder},
@@ -114,11 +116,15 @@ pub fn fs_full() {
 }
 
 pub fn argp() {
-    let mut file = File::open("init").unwrap();
-    unsafe {
-        let p = slice::from_raw_parts_mut(process::current_break().sub(1), usize::MAX);
-        expect!(file.read(p), Err(Ov6Error::BadAddress));
-    }
+    let file = File::open("init").unwrap();
+    let addr = unsafe { process::current_break().sub(1).addr() };
+    expect!(
+        syscall::Read::call((
+            file.as_raw_fd(),
+            UserMutSlice::from_raw_parts(addr, usize::MAX),
+        )),
+        Err(SyscallError::BadAddress),
+    );
 }
 
 /// check that there's an invalid page beneath
@@ -154,6 +160,20 @@ pub fn stack() {
 /// check that writes to a few forbidden addresses
 /// cause a fault, e.g. process's text and TRAMPOLINE.
 pub fn no_write() {
+    // Rust's `write_volatile` validates the address with debug_assert,
+    // so we need to use inline assembly to write to the address.
+
+    #[cfg(target_arch = "riscv64")]
+    unsafe fn write_volatile(addr: usize, value: u8) {
+        unsafe {
+            core::arch::asm!("sb {value}, ({addr})", value = in(reg) value, addr = in(reg) addr);
+        }
+    }
+    #[cfg(not(target_arch = "riscv64"))]
+    unsafe fn write_volatile(_addr: usize, _value: u8) {
+        panic!("not riscv64");
+    }
+
     let addrs = &[
         0,
         0x8000_0000,
@@ -166,9 +186,8 @@ pub fn no_write() {
     for &a in addrs {
         let status = ProcessBuilder::new()
             .spawn_fn(|| unsafe {
-                let p = ptr::with_exposed_provenance_mut::<u8>(a);
-                p.write_volatile(10);
-                panic!("write to {p:p} did not fail!");
+                write_volatile(a, 10);
+                panic!("write to {a:#x} did not fail!");
             })
             .unwrap()
             .wait()

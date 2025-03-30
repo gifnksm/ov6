@@ -348,6 +348,7 @@ version = "0.1.0"
 dependencies = [
  "ov6_fs_types",
  "ov6_kernel_params",
+ "ov6_syscall",
  "ov6_user_lib",
  "safe_cast",
 ]

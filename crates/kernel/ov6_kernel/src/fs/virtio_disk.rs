@@ -407,6 +407,6 @@ pub fn handle_interrupt() {
         info.in_progress = false; // disk is done with buf
         info.completed.notify();
 
-        disk.used_idx += 1;
+        disk.used_idx = disk.used_idx.wrapping_add(1);
     }
 }
