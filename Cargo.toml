@@ -68,6 +68,7 @@ lto = "fat"
 [profile.dev]
 debug = "full"
 panic = "abort"
+opt-level = 1
 
 [profile.initcode]
 inherits = "release"

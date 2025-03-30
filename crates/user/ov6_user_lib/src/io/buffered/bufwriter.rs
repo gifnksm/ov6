@@ -187,7 +187,7 @@ where
     }
 
     unsafe fn write_to_buffer_unchecked(&mut self, buf: &[u8]) {
-        debug_assert!(buf.len() < self.spare_capacity());
+        debug_assert!(buf.len() <= self.spare_capacity());
         let old_len = self.buf.len();
         let buf_len = buf.len();
         let src = buf.as_ptr();
