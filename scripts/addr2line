@@ -1,0 +1,3 @@
+#!/bin/bash
+
+exec riscv64-elf-addr2line --addresses --demangle=rust --functions --inlines --pretty-print "$@"
