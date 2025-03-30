@@ -13,6 +13,8 @@ use core::{
 
 use ov6_kernel_params as param;
 
+use self::start::KernelStack;
+
 extern crate alloc;
 
 mod console;
@@ -41,8 +43,8 @@ extern "C" fn entry() {
             r#".attribute arch, "rv64imac""#,
 
             // set up a stack for kernel.t
-            // sp = STACK0 + (hartid * STACK_SIZE)
-            "la sp, {stack0}",
+            // sp = kernel_stack + ((hartid + 1) * stack_size)
+            "la sp, {kernel_stack}",
             "li a0, {stack_size}",
             "csrr a1, mhartid",
             "addi a1, a1, 1",
@@ -51,8 +53,8 @@ extern "C" fn entry() {
 
             // jump to start
             "call {start}",
-            stack0 = sym self::start::STACK0,
-            stack_size = const self::start::STACK_SIZE,
+            kernel_stack = sym self::start::KERNEL_STACK,
+            stack_size = const size_of::<KernelStack>(),
             start = sym self::start::start,
         );
     }

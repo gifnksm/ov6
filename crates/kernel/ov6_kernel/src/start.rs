@@ -12,8 +12,18 @@ use riscv::register::{
 use crate::{cpu, interrupt::timer, main, param::NCPU};
 
 // entry.s needs one stack per CPU.
-pub const STACK_SIZE: usize = 4096;
-pub static mut STACK0: [u8; STACK_SIZE * NCPU] = [0; STACK_SIZE * NCPU];
+pub const KERNEL_STACK_SIZE: usize = 4096;
+
+#[repr(align(4096))]
+pub struct KernelStack {
+    _data: [u8; KERNEL_STACK_SIZE],
+}
+
+pub static mut KERNEL_STACK: [KernelStack; NCPU] = [const {
+    KernelStack {
+        _data: [0; KERNEL_STACK_SIZE],
+    }
+}; NCPU];
 
 // entry.s jumps here in machine mode on STACK0.
 pub extern "C" fn start() -> ! {
