@@ -27,6 +27,9 @@ RUST_CROSS_TARGET=riscv64imac-unknown-none-elf
 RX=target/$(RUST_CROSS_TARGET)/$(PROFILE)
 IX=target/$(RUST_CROSS_TARGET)/initcode
 
+IX_CARGO_FLAGS=--profile initcode --target $(RUST_CROSS_TARGET) -Z build-std=core,alloc,compiler_builtins
+RX_CARGO_FLAGS=$(CARGO_PROFILE_FLAG) --target $(RUST_CROSS_TARGET) -Z build-std=core,alloc,compiler_builtins
+
 RN_PKGS=ov6_fs_utilities ov6_integration_tests
 
 OV6_INITCODE=\
@@ -93,14 +96,14 @@ $I/initcode.bin: $I/initcode
 
 $(RX)/kernel: $I/initcode.bin FORCE
 	INIT_CODE_PATH="$(PWD)/$I/initcode.bin" \
-		cargo build -p ov6_kernel $(CARGO_PROFILE_FLAG) --target $(RUST_CROSS_TARGET) --features initcode_env
+		cargo build -p ov6_kernel $(RX_CARGO_FLAGS) --features initcode_env
 
 $(IX)/%.stamp: FORCE
-	cargo build -p $(patsubst %.stamp,%,$(notdir $@)) --profile initcode --target $(RUST_CROSS_TARGET)
+	cargo build -p $(patsubst %.stamp,%,$(notdir $@)) $(IX_CARGO_FLAGS)
 	touch $@
 
 $(RX)/%.stamp: FORCE
-	cargo build -p $(patsubst %.stamp,%,$(notdir $@)) --target $(RUST_CROSS_TARGET) $(CARGO_PROFILE_FLAG)
+	cargo build -p $(patsubst %.stamp,%,$(notdir $@)) $(RX_CARGO_FLAGS)
 	touch $@
 
 $(foreach exe,$(OV6_INITCODE),$(eval $$(IX)/$(exe): $$(IX)/ov6_initcode.stamp))
