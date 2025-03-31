@@ -13,6 +13,7 @@ pub use ov6_types::{os_str, path};
 mod macros;
 
 pub mod alloc;
+pub mod backtrace;
 pub mod env;
 pub mod error;
 pub mod fs;
@@ -32,21 +33,27 @@ mod entry {
     // The Rust entry point `lang_start` defines the `main` function, but the linker
     // expects the entry point to be named `_start`. Therefore, assembly code is
     // used to define `_start` as an alias for `main`.
-    #[cfg(not(debug_assertions))]
-    core::arch::global_asm!(".global _start", ".global main", ".equiv _start, main");
+    // #[cfg(not(debug_assertions))]
+    // core::arch::global_asm!(".global _start", ".global main", ".equiv _start,
+    // main");
 
     // For unknown reasons, when the optimization level is low, defining the
     // `_start` symbol as an alias for `main` using `.equiv` results in an empty
     // ELF entry point. Therefore, in debug builds, the `_start` function is
     // explicitly defined instead of relying on `.equiv`.
-    #[cfg(debug_assertions)]
+    //#[cfg(debug_assertions)]
     #[unsafe(no_mangle)]
-    fn _start(argc: isize, argv: *const *const u8, auxv: u8) -> ! {
-        unsafe extern "C" {
-            fn main(argc: isize, argv: *const *const u8, auxv: u8) -> !;
+    #[naked]
+    extern "C" fn _start(argc: isize, argv: *const *const u8, auxv: u8) -> ! {
+        unsafe {
+            core::arch::naked_asm!(
+                "addi sp, sp, -16",
+                "sd zero, 0(sp)",
+                "sd zero, 8(sp)",
+                "addi fp, sp, 16",
+                "call main",
+            );
         }
-
-        unsafe { main(argc, argv, auxv) }
     }
 
     #[lang = "start"]
@@ -62,5 +69,6 @@ mod entry {
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     eprintln!("panic: {info}");
+    backtrace::print_backtrace();
     process::exit(1);
 }
