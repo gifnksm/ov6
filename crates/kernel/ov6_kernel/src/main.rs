@@ -6,14 +6,11 @@
 #![no_main]
 
 use core::{
-    arch::naked_asm,
     hint,
     sync::atomic::{AtomicBool, Ordering},
 };
 
 use ov6_kernel_params as param;
-
-use self::start::KernelStack;
 
 extern crate alloc;
 
@@ -23,42 +20,12 @@ mod device;
 mod error;
 mod file;
 mod fs;
+mod init;
 mod interrupt;
 mod memory;
 mod proc;
-mod start;
 mod sync;
 mod syscall;
-
-#[naked]
-#[unsafe(link_section = ".text.init")]
-#[unsafe(export_name = "_entry")]
-extern "C" fn entry() {
-    unsafe {
-        naked_asm!(
-            // Workaround for spurious LLVM error
-            // See also:
-            //  - <https://github.com/rust-embedded/riscv/issues/175>
-            //  - <https://github.com/rust-embedded/riscv/pull/176>
-            r#".attribute arch, "rv64imac""#,
-
-            // set up a stack for kernel.t
-            // sp = kernel_stack + ((hartid + 1) * stack_size)
-            "la sp, {kernel_stack}",
-            "li a0, {stack_size}",
-            "csrr a1, mhartid",
-            "addi a1, a1, 1",
-            "mul a0, a0, a1",
-            "add sp, sp, a0",
-
-            // jump to start
-            "call {start}",
-            kernel_stack = sym self::start::KERNEL_STACK,
-            stack_size = const size_of::<KernelStack>(),
-            start = sym self::start::start,
-        );
-    }
-}
 
 // start() jumps here in supervisor mode on all CPUs.
 extern "C" fn main() -> ! {

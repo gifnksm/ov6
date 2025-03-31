@@ -1,13 +1,14 @@
 //! Formatted console output
 
 use core::{
+    arch::asm,
     fmt::{self, Write as _},
-    hint,
     sync::atomic::{AtomicBool, Ordering},
 };
 
 use crate::{
     console,
+    device::test,
     sync::{SpinLock, SpinLockGuard},
 };
 
@@ -74,8 +75,35 @@ macro_rules! println {
 fn panic(info: &core::panic::PanicInfo) -> ! {
     PRINT.locking.store(false, Ordering::Relaxed);
     println!("panic: {info}");
+    print_backtrace();
     PANICKED.store(true, Ordering::Relaxed); // freeze uart output from other CPUs
-    loop {
-        hint::spin_loop();
+    test::finish(test::Finisher::Fail(255));
+}
+
+fn print_backtrace() {
+    println!("backtrace:");
+
+    let mut fp: *const *const usize;
+    unsafe {
+        asm!(
+            "mv {fp}, s0",
+            fp = out(reg) fp,
+        );
+    }
+
+    let mut depth = 0;
+    while !fp.is_null() {
+        let ra = unsafe { *fp.sub(1) };
+        if !ra.is_null() {
+            println!("{ra:#p}");
+        }
+        let prev_fp = unsafe { *fp.sub(2) };
+        fp = prev_fp.cast();
+        depth += 1;
+
+        if depth > 100 {
+            println!("too long stack chain. abort printing");
+            break;
+        }
     }
 }

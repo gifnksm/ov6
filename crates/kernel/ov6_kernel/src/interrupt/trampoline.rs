@@ -102,6 +102,11 @@ pub extern "C" fn user_vec() {
             "csrw satp, t1",
             // flush now-stale user entries from the TLB.
             "sfence.vma zero, zero",
+            // set up stack frame with dummy return address and previous frame pointer
+            "mv fp, sp",
+            "addi sp, sp, -16",
+            "sd zero, 0(sp)",
+            "sd zero, 8(sp)",
             // jump to usertrap(), which does not return
             "jr t0",
             trapframe = const TRAPFRAME.addr(),
