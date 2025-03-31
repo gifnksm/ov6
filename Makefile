@@ -29,6 +29,8 @@ IX=target/$(RUST_CROSS_TARGET)/initcode
 
 IX_CARGO_FLAGS=--profile initcode --target $(RUST_CROSS_TARGET) -Z build-std=core,alloc,compiler_builtins
 RX_CARGO_FLAGS=$(CARGO_PROFILE_FLAG) --target $(RUST_CROSS_TARGET) -Z build-std=core,alloc,compiler_builtins
+IX_RUST_FLAGS=-C relocation-model=static -C force-frame-pointers=yes
+RX_RUST_FLAGS=-C relocation-model=static -C force-frame-pointers=yes
 
 RN_PKGS=ov6_fs_utilities ov6_integration_tests
 
@@ -96,14 +98,17 @@ $I/initcode.bin: $I/initcode
 
 $(RX)/kernel: $I/initcode.bin FORCE
 	INIT_CODE_PATH="$(PWD)/$I/initcode.bin" \
+		RUSTFLAGS="$(RX_RUST_FLAGS)" \
 		cargo build -p ov6_kernel $(RX_CARGO_FLAGS) --features initcode_env
 
 $(IX)/%.stamp: FORCE
-	cargo build -p $(patsubst %.stamp,%,$(notdir $@)) $(IX_CARGO_FLAGS)
+	RUSTFLAGS="$(IX_RUST_FLAGS)" \
+		cargo build -p $(patsubst %.stamp,%,$(notdir $@)) $(IX_CARGO_FLAGS)
 	touch $@
 
 $(RX)/%.stamp: FORCE
-	cargo build -p $(patsubst %.stamp,%,$(notdir $@)) $(RX_CARGO_FLAGS)
+	RUSTFLAGS="$(RX_RUST_FLAGS)" \
+		cargo build -p $(patsubst %.stamp,%,$(notdir $@)) $(RX_CARGO_FLAGS)
 	touch $@
 
 $(foreach exe,$(OV6_INITCODE),$(eval $$(IX)/$(exe): $$(IX)/ov6_initcode.stamp))

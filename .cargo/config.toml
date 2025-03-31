@@ -1,5 +1,0 @@
-# The rustflags settings in this file are determined based on the CFLAGS from the Makefile.
-rustflags=[
-    "-C", "force-frame-pointers=yes",
-    "-C", "relocation-model=static",
-]
