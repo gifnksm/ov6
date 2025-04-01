@@ -522,7 +522,7 @@ type EntriesIter<'a> = Peekable<Zip<RangeInclusive<usize>, slice::Iter<'a, PtEnt
 type EntriesStack<'a> = ArrayVec<(usize, VirtAddr, EntriesIter<'a>), 3>;
 pub(super) struct Entries<'a> {
     state: Option<(RangeInclusive<VirtAddr>, EntriesStack<'a>)>,
-    do_push: bool,
+    last_item_is_non_leaf: bool,
 }
 
 impl<'a> Entries<'a> {
@@ -533,7 +533,7 @@ impl<'a> Entries<'a> {
         let Some(va_range) = VirtAddr::range_inclusive(va_range) else {
             return Self {
                 state: None,
-                do_push: false,
+                last_item_is_non_leaf: false,
             };
         };
 
@@ -548,7 +548,7 @@ impl<'a> Entries<'a> {
         stack.push((2, VirtAddr::ZERO, it));
         Self {
             state: Some((va_range, stack)),
-            do_push: false,
+            last_item_is_non_leaf: false,
         }
     }
 }
@@ -561,7 +561,7 @@ impl<'a> Iterator for Entries<'a> {
         let min_va = *va_range.start();
         let max_va = *va_range.end();
 
-        if mem::take(&mut self.do_push) {
+        if mem::take(&mut self.last_item_is_non_leaf) {
             let (level, base_va, ptes) = stack.last_mut().unwrap();
             let (idx, pte) = ptes.next().unwrap();
 
@@ -579,19 +579,18 @@ impl<'a> Iterator for Entries<'a> {
         }
 
         while let Some((level, base_va, ptes)) = stack.last_mut() {
-            let Some((idx, _pte)) = ptes.peek() else {
-                stack.pop();
-                continue;
-            };
-            let level_min_va = base_va.with_level_idx(*level, *idx);
-
-            if let Some((_idx, pte)) = ptes.next_if(|(_idx, pte)| !pte.is_valid() || pte.is_leaf())
-            {
+            if let Some((idx, pte)) = ptes.next_if(|(_idx, pte)| !pte.is_valid() || pte.is_leaf()) {
+                let level_min_va = base_va.with_level_idx(*level, idx);
                 return Some((*level, level_min_va, pte));
             }
 
-            let (_idx, pte) = ptes.peek().unwrap();
-            self.do_push = true;
+            let Some((idx, pte)) = ptes.peek() else {
+                stack.pop();
+                continue;
+            };
+
+            self.last_item_is_non_leaf = true;
+            let level_min_va = base_va.with_level_idx(*level, *idx);
             return Some((*level, level_min_va, *pte));
         }
         None
