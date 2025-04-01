@@ -102,7 +102,7 @@ fn print_backtrace() {
         depth += 1;
 
         if depth > 100 {
-            println!("too long stack chain. abort printing");
+            println!("... (truncated)");
             break;
         }
     }

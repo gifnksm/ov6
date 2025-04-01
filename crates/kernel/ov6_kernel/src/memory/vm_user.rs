@@ -248,6 +248,10 @@ impl UserPageTable {
         Ok(())
     }
 
+    pub fn fetch_chunk(&self, va: VirtAddr, flags: PtEntryFlags) -> Result<&[u8], KernelError> {
+        self.pt.fetch_chunk(va, flags)
+    }
+
     pub fn fetch_chunk_mut(
         &mut self,
         va: VirtAddr,

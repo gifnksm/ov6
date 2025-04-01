@@ -1,4 +1,4 @@
-use core::mem;
+use core::{mem, ptr};
 
 use dataview::Pod;
 use riscv::{
@@ -20,8 +20,10 @@ use crate::{
     console::uart,
     cpu, fs, interrupt,
     memory::{
-        PAGE_SIZE,
+        PAGE_SIZE, VirtAddr,
         layout::{KSTACK_PAGES, UART0_IRQ, VIRTIO0_IRQ},
+        page_table::PtEntryFlags,
+        vm_user::UserPageTable,
     },
     println,
     proc::{self, Proc, ProcPrivateDataGuard, scheduler},
@@ -133,6 +135,7 @@ extern "C" fn trap_user() {
             let stval = stval::read();
             println!("usertrap: exception {e:?} pid={pid} name={name}");
             println!("          sepc={sepc:#x} stval={stval:#x}");
+            print_user_backtrace(sepc, private.trapframe(), private.pagetable());
             shared.kill();
         }
         Trap::Interrupt(int) => {
@@ -145,6 +148,7 @@ extern "C" fn trap_user() {
                 let stval = stval::read();
                 println!("usertrap: unexpected interrupt {int:?} pid={pid} name={name}");
                 println!("          sepc={sepc:#x} stval={stval:#x}");
+                print_user_backtrace(sepc, private.trapframe(), private.pagetable());
                 shared.kill();
             }
         }
@@ -160,6 +164,47 @@ extern "C" fn trap_user() {
     }
 
     trap_user_ret(private);
+}
+
+fn fetch_usize(addr: usize, pt: &UserPageTable) -> Option<usize> {
+    if addr % 8 != 0 {
+        return None;
+    }
+    let va = VirtAddr::new(addr).ok()?;
+    let data = pt.fetch_chunk(va, PtEntryFlags::URW).ok()?;
+    if data.len() < mem::size_of::<usize>() {
+        return None;
+    }
+    let val = usize::from_ne_bytes(data[..mem::size_of::<usize>()].try_into().unwrap());
+    Some(val)
+}
+
+fn print_user_backtrace(epc: usize, tf: &TrapFrame, pt: &UserPageTable) {
+    println!("user backtrace:");
+    println!("{:#p}", ptr::without_provenance::<u8>(epc));
+    println!("{:#p}", ptr::without_provenance::<u8>(tf.ra));
+
+    let mut fp = tf.s0;
+    let mut depth = 0;
+    while fp != 0 {
+        let Some(ra) = fp.checked_sub(8).and_then(|addr| fetch_usize(addr, pt)) else {
+            println!("invalid frame pointer {fp:#x}");
+            break;
+        };
+        if ra != 0 {
+            println!("{:#p}", ptr::without_provenance::<u8>(ra));
+        }
+        let Some(prev_fp) = fp.checked_sub(16).and_then(|addr| fetch_usize(addr, pt)) else {
+            println!("invalid frame pointer {fp:#x}");
+            break;
+        };
+        fp = prev_fp;
+        depth += 1;
+        if depth > 10 {
+            println!("... (truncated)");
+            break;
+        }
+    }
 }
 
 /// Returns to user space
