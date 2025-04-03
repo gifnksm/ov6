@@ -1,10 +1,7 @@
-use core::slice;
-
 use ov6_syscall::{UserMutSlice, UserSlice, error::SyscallError, syscall};
 use ov6_user_lib::{
-    error::Ov6Error,
     fs::{self, File},
-    io::{Read as _, STDOUT_FD, Write as _},
+    io::{STDOUT_FD, Write as _},
     os::{fd::AsRawFd as _, ov6::syscall::ffi::SyscallExt as _},
     pipe, process,
 };
@@ -28,7 +25,9 @@ pub fn copy_u2k() {
     for &addr in addrs {
         let file = File::create(FILE_PATH).unwrap();
         expect!(
-            syscall::Write::call((file.as_raw_fd(), UserSlice::from_raw_parts(addr, 8192))),
+            syscall::Write::call((file.as_raw_fd(), unsafe {
+                UserSlice::from_raw_parts(addr, 8192)
+            })),
             Err(SyscallError::BadAddress),
             "addr={addr:?}",
         );
@@ -36,14 +35,16 @@ pub fn copy_u2k() {
         fs::remove_file(FILE_PATH).unwrap();
 
         expect!(
-            syscall::Write::call((STDOUT_FD, UserSlice::from_raw_parts(addr, 8192))),
+            syscall::Write::call((STDOUT_FD, unsafe { UserSlice::from_raw_parts(addr, 8192) })),
             Err(SyscallError::BadAddress),
             "addr={addr:?}",
         );
 
         let (_rx, tx) = pipe::pipe().unwrap();
         expect!(
-            syscall::Write::call((tx.as_raw_fd(), UserSlice::from_raw_parts(addr, 8192))),
+            syscall::Write::call((tx.as_raw_fd(), unsafe {
+                UserSlice::from_raw_parts(addr, 8192)
+            })),
             Err(SyscallError::BadAddress),
             "addr={addr:?}",
         );
@@ -66,7 +67,9 @@ pub fn copy_k2u() {
         let file = File::open(README_PATH).unwrap();
 
         expect!(
-            syscall::Read::call((file.as_raw_fd(), UserMutSlice::from_raw_parts(addr, 8192))),
+            syscall::Read::call((file.as_raw_fd(), unsafe {
+                UserMutSlice::from_raw_parts(addr, 8192)
+            })),
             Err(SyscallError::BadAddress),
             "addr={addr:?}"
         );
@@ -75,7 +78,9 @@ pub fn copy_k2u() {
         let (rx, mut tx) = pipe::pipe().unwrap();
         tx.write_all(b"x").unwrap();
         expect!(
-            syscall::Read::call((rx.as_raw_fd(), UserMutSlice::from_raw_parts(addr, 8192))),
+            syscall::Read::call((rx.as_raw_fd(), unsafe {
+                UserMutSlice::from_raw_parts(addr, 8192)
+            })),
             Err(SyscallError::BadAddress),
             "addr={addr:?}"
         );
@@ -88,22 +93,22 @@ pub fn rw_sbrk() {
     let a = process::grow_break(8192).unwrap();
     let _ = unsafe { process::shrink_break(8192) }.unwrap();
 
-    let mut file = File::create(FILE_PATH).unwrap();
-    unsafe {
-        expect!(
-            file.write(slice::from_raw_parts(a.add(4096), 1024)),
-            Err(Ov6Error::BadAddress),
-        );
-    }
+    let file = File::create(FILE_PATH).unwrap();
+    expect!(
+        syscall::Write::call((file.as_raw_fd(), unsafe {
+            UserSlice::from_raw_parts(a.addr() + 4096, 1024)
+        })),
+        Err(SyscallError::BadAddress),
+    );
     drop(file);
     fs::remove_file(FILE_PATH).unwrap();
 
-    let mut file = File::open(README_PATH).unwrap();
-    unsafe {
-        expect!(
-            file.read(slice::from_raw_parts_mut(a.add(4096), 10)),
-            Err(Ov6Error::BadAddress),
-        );
-    }
+    let file = File::open(README_PATH).unwrap();
+    expect!(
+        syscall::Read::call((file.as_raw_fd(), unsafe {
+            UserMutSlice::from_raw_parts(a.addr() + 4096, 10)
+        })),
+        Err(SyscallError::BadAddress),
+    );
     drop(file);
 }

@@ -93,12 +93,14 @@ pub enum SyscallCode {
     DumpUserPageTable,
 }
 
+/// A trait representing a system call.
 pub trait Syscall {
     const CODE: SyscallCode;
     type Arg: RegisterValue;
     type Return: RegisterValue;
 }
 
+/// A reference to a user-space object.
 pub struct UserRef<T>
 where
     T: ?Sized + 'static,
@@ -120,6 +122,7 @@ impl<T> UserRef<T>
 where
     T: ?Sized,
 {
+    /// Creates a new `UserRef` from a reference.
     pub fn new(r: &T) -> Self {
         Self {
             addr: ptr::from_ref(r).addr(),
@@ -127,11 +130,13 @@ where
         }
     }
 
+    /// Returns the address of the user reference.
     #[must_use]
     pub fn addr(&self) -> usize {
         self.addr
     }
 
+    /// Returns the size of the referenced type.
     #[must_use]
     pub const fn size(&self) -> usize
     where
@@ -140,6 +145,7 @@ where
         size_of::<T>()
     }
 
+    /// Converts the reference into a byte slice.
     #[must_use]
     pub fn as_bytes(&self) -> UserSlice<u8>
     where
@@ -153,6 +159,7 @@ where
     }
 }
 
+/// A mutable reference to a user-space object.
 pub struct UserMutRef<T>
 where
     T: ?Sized + 'static,
@@ -174,6 +181,7 @@ impl<T> UserMutRef<T>
 where
     T: ?Sized,
 {
+    /// Creates a new `UserMutRef` from a mutable reference.
     pub fn new(r: &mut T) -> Self {
         Self {
             addr: ptr::from_mut(r).addr(),
@@ -181,11 +189,13 @@ where
         }
     }
 
+    /// Returns the address of the mutable user reference.
     #[must_use]
     pub fn addr(&self) -> usize {
         self.addr
     }
 
+    /// Returns the size of the referenced type.
     #[must_use]
     pub const fn size(&self) -> usize
     where
@@ -194,6 +204,7 @@ where
         size_of::<T>()
     }
 
+    /// Converts the mutable reference into a mutable byte slice.
     #[must_use]
     pub fn as_bytes_mut(&mut self) -> UserMutSlice<u8>
     where
@@ -230,6 +241,7 @@ impl<T> fmt::Debug for UserSlice<T> {
 }
 
 impl<T> UserSlice<T> {
+    /// Creates a new `UserSlice` from a slice.
     #[must_use]
     pub fn new(s: &[T]) -> Self {
         Self {
@@ -239,8 +251,13 @@ impl<T> UserSlice<T> {
         }
     }
 
+    /// Creates a `UserSlice` from raw parts.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the provided address and length are valid.
     #[must_use]
-    pub const fn from_raw_parts(addr: usize, len: usize) -> Self {
+    pub const unsafe fn from_raw_parts(addr: usize, len: usize) -> Self {
         Self {
             addr,
             len,
@@ -248,17 +265,20 @@ impl<T> UserSlice<T> {
         }
     }
 
+    /// Returns the address of the slice.
     #[must_use]
     pub const fn addr(&self) -> usize {
         self.addr
     }
 
+    /// Returns the length of the slice.
     #[expect(clippy::len_without_is_empty)]
     #[must_use]
     pub const fn len(&self) -> usize {
         self.len
     }
 
+    /// Returns the size of the slice in bytes, if it fits in `usize`.
     #[must_use]
     pub const fn size(&self) -> Option<usize>
     where
@@ -267,6 +287,11 @@ impl<T> UserSlice<T> {
         size_of::<T>().checked_mul(self.len)
     }
 
+    /// Casts the slice to a slice of another type.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the alignment or size requirements are not met.
     #[must_use]
     #[track_caller]
     pub const fn cast<U>(&self) -> UserSlice<U> {
@@ -280,6 +305,11 @@ impl<T> UserSlice<T> {
         }
     }
 
+    /// Returns a reference to the nth element in the slice.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n` is out of bounds.
     #[must_use]
     #[track_caller]
     pub const fn nth(&self, n: usize) -> UserRef<T> {
@@ -290,17 +320,27 @@ impl<T> UserSlice<T> {
         }
     }
 
+    /// Skips the first `amt` elements of the slice.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `amt` is greater than the length of the slice.
     #[must_use]
     #[track_caller]
     pub const fn skip(&self, amt: usize) -> Self {
         assert!(amt <= self.len);
         Self {
-            addr: self.addr + amt,
+            addr: self.addr + amt * size_of::<T>(),
             len: self.len - amt,
             _phantom: PhantomData,
         }
     }
 
+    /// Takes the first `amt` elements of the slice.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `amt` is greater than the length of the slice.
     #[must_use]
     #[track_caller]
     pub const fn take(&self, amt: usize) -> Self {
@@ -336,6 +376,7 @@ impl<T> fmt::Debug for UserMutSlice<T> {
 }
 
 impl<T> UserMutSlice<T> {
+    /// Creates a new `UserMutSlice` from a mutable slice.
     #[must_use]
     pub fn new(s: &mut [T]) -> Self {
         Self {
@@ -345,8 +386,13 @@ impl<T> UserMutSlice<T> {
         }
     }
 
+    /// Creates a `UserMutSlice` from raw parts.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the provided address and length are valid.
     #[must_use]
-    pub const fn from_raw_parts(addr: usize, len: usize) -> Self {
+    pub const unsafe fn from_raw_parts(addr: usize, len: usize) -> Self {
         Self {
             addr,
             len,
@@ -354,17 +400,20 @@ impl<T> UserMutSlice<T> {
         }
     }
 
+    /// Returns the address of the mutable slice.
     #[must_use]
     pub const fn addr(&self) -> usize {
         self.addr
     }
 
+    /// Returns the length of the mutable slice.
     #[expect(clippy::len_without_is_empty)]
     #[must_use]
     pub const fn len(&self) -> usize {
         self.len
     }
 
+    /// Returns the size of the mutable slice in bytes, if it fits in `usize`.
     #[must_use]
     pub const fn size(&self) -> Option<usize>
     where
@@ -373,6 +422,11 @@ impl<T> UserMutSlice<T> {
         size_of::<T>().checked_mul(self.len)
     }
 
+    /// Casts the mutable slice to a mutable slice of another type.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the alignment or size requirements are not met.
     #[must_use]
     #[track_caller]
     pub const fn cast_mut<U>(&mut self) -> UserMutSlice<U> {
@@ -386,6 +440,11 @@ impl<T> UserMutSlice<T> {
         }
     }
 
+    /// Returns a mutable reference to the nth element in the mutable slice.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n` is out of bounds.
     #[must_use]
     #[track_caller]
     pub const fn nth_mut(&mut self, n: usize) -> UserMutRef<T> {
@@ -396,17 +455,27 @@ impl<T> UserMutSlice<T> {
         }
     }
 
+    /// Skips the first `amt` elements of the mutable slice.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `amt` is greater than the length of the mutable slice.
     #[must_use]
     #[track_caller]
     pub const fn skip_mut(&mut self, amt: usize) -> Self {
         assert!(amt <= self.len);
         Self {
-            addr: self.addr + amt,
+            addr: self.addr + amt * size_of::<T>(),
             len: self.len - amt,
             _phantom: PhantomData,
         }
     }
 
+    /// Takes the first `amt` elements of the mutable slice.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `amt` is greater than the length of the mutable slice.
     #[must_use]
     #[track_caller]
     pub const fn take_mut(&mut self, amt: usize) -> Self {

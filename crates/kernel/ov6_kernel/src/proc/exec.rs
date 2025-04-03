@@ -198,7 +198,7 @@ fn push_arguments(
     let arg_top = sp.byte_sub(arg_stack_size).unwrap();
     assert_eq!(arg_top.addr() % 16, 0);
 
-    let mut arg_stack = UserMutSlice::from_raw_parts(arg_top.addr(), arg_stack_size)
+    let mut arg_stack = unsafe { UserMutSlice::from_raw_parts(arg_top.addr(), arg_stack_size) }
         .validate(dst_pt)
         .unwrap();
     let argv_size = (argv.len() + 1) * size_of::<usize>();

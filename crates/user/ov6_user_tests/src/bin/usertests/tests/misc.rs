@@ -120,10 +120,9 @@ pub fn argp() {
     let file = File::open("init").unwrap();
     let addr = unsafe { process::current_break().sub(1).addr() };
     expect!(
-        syscall::Read::call((
-            file.as_raw_fd(),
-            UserMutSlice::from_raw_parts(addr, usize::MAX),
-        )),
+        syscall::Read::call((file.as_raw_fd(), unsafe {
+            UserMutSlice::from_raw_parts(addr, usize::MAX)
+        },)),
         Err(SyscallError::BadAddress),
     );
 }

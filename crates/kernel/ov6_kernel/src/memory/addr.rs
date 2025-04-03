@@ -563,7 +563,10 @@ impl<T> GenericSlice<'_, T> {
 
 impl<'a, T> From<(&'a UserPageTable, &'a Validated<UserSlice<T>>)> for GenericSlice<'a, T> {
     fn from((pt, s): (&'a UserPageTable, &'a Validated<UserSlice<T>>)) -> Self {
-        Self::User(pt, Validated(UserSlice::from_raw_parts(s.addr(), s.len())))
+        Self::User(
+            pt,
+            Validated(unsafe { UserSlice::from_raw_parts(s.addr(), s.len()) }),
+        )
     }
 }
 
@@ -604,7 +607,7 @@ impl<'a, T> From<(&'a mut UserPageTable, &'a mut Validated<UserMutSlice<T>>)>
     fn from((pt, s): (&'a mut UserPageTable, &'a mut Validated<UserMutSlice<T>>)) -> Self {
         Self::User(
             pt,
-            Validated(UserMutSlice::from_raw_parts(s.addr(), s.len())),
+            Validated(unsafe { UserMutSlice::from_raw_parts(s.addr(), s.len()) }),
         )
     }
 }

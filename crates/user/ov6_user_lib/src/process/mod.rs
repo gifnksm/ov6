@@ -155,7 +155,7 @@ where
     A: AsRef<OsStr>,
 {
     if argv.len() < 10 {
-        let mut new_argv = [const { UserSlice::from_raw_parts(0, 0) }; 10];
+        let mut new_argv = [const { unsafe { UserSlice::from_raw_parts(0, 0) } }; 10];
         for (dst, src) in new_argv.iter_mut().zip(argv) {
             *dst = UserSlice::new(src.as_ref().as_bytes());
         }
