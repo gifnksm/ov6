@@ -17,8 +17,9 @@ use ov6_user_lib::{
     process::{self, ProcId, ProcessBuilder, Stdio},
     thread,
 };
+use ov6_user_tests::expect;
 
-use crate::{BUF, expect};
+use crate::BUF;
 
 pub fn pipe() {
     const N: usize = 5;

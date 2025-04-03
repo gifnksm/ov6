@@ -11,9 +11,10 @@ use ov6_user_lib::{
     process::{self, ProcessBuilder},
     thread,
 };
+use ov6_user_tests::expect;
 use safe_cast::to_u8;
 
-use crate::{BUF, README_PATH, ROOT_DIR_PATH, expect};
+use crate::{BUF, README_PATH, ROOT_DIR_PATH};
 
 const TRUNC_FILE_PATH: &str = "truncfile";
 const IPUTDIR_PATH: &str = "iputdir";

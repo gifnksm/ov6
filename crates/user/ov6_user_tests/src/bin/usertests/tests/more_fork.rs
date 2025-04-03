@@ -9,9 +9,9 @@ use ov6_user_lib::{
     process::{self, ProcessBuilder, Stdio},
     thread,
 };
-use ov6_user_tests::message;
+use ov6_user_tests::{expect, message};
 
-use crate::{KERN_BASE, MAX_VA, PAGE_SIZE, expect};
+use crate::{KERN_BASE, MAX_VA, PAGE_SIZE};
 
 /// test that fork fails gracefully
 /// the forktest binary also does this, but it runs out of proc entries first.

@@ -8,8 +8,9 @@ use ov6_user_lib::{
     os::{fd::AsRawFd as _, ov6::syscall::ffi::SyscallExt as _},
     pipe, process,
 };
+use ov6_user_tests::expect;
 
-use crate::{README_PATH, expect};
+use crate::README_PATH;
 
 const FILE_PATH: &str = "copyin1";
 

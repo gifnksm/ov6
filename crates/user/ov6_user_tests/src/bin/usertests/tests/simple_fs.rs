@@ -13,8 +13,9 @@ use ov6_user_lib::{
     os_str::OsStr,
     process::{self, ProcessBuilder},
 };
+use ov6_user_tests::expect;
 
-use crate::{BUF, ECHO_PATH, expect};
+use crate::{BUF, ECHO_PATH};
 
 const NOT_EXIST_PATH: &str = "doesnotexist";
 const SMALL_PATH: &str = "small";

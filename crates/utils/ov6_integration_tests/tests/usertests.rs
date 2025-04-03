@@ -11,7 +11,7 @@ const TIMEOUT: Duration = Duration::from_secs(60);
 async fn memory() -> Result<(), anyhow::Error> {
     let r = runner!("memory").await?;
     let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
-        monitor::run_commands(qemu, 0, ["usertests -b -t memory::"]).await?;
+        monitor::run_commands(qemu, 0, ["usertests -T -t memory"]).await?;
         Ok(())
     })
     .await?;
@@ -26,7 +26,7 @@ async fn memory() -> Result<(), anyhow::Error> {
 async fn simple_fs() -> Result<(), anyhow::Error> {
     let r = runner!("simple_fs").await?;
     let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
-        monitor::run_commands(qemu, 0, ["usertests -b -t simple_fs::"]).await?;
+        monitor::run_commands(qemu, 0, ["usertests -T -t simple_fs"]).await?;
         Ok(())
     })
     .await?;
@@ -41,7 +41,7 @@ async fn simple_fs() -> Result<(), anyhow::Error> {
 async fn simple_fork() -> Result<(), anyhow::Error> {
     let r = runner!("simple_fork").await?;
     let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
-        monitor::run_commands(qemu, 0, ["usertests -b -t simple_fork::"]).await?;
+        monitor::run_commands(qemu, 0, ["usertests -T -t simple_fork"]).await?;
         Ok(())
     })
     .await?;
@@ -56,7 +56,7 @@ async fn simple_fork() -> Result<(), anyhow::Error> {
 async fn more_fs() -> Result<(), anyhow::Error> {
     let r = runner!("more_fs").await?;
     let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
-        monitor::run_commands(qemu, 0, ["usertests -b -t more_fs::"]).await?;
+        monitor::run_commands(qemu, 0, ["usertests -T -t more_fs"]).await?;
         Ok(())
     })
     .await?;
@@ -71,7 +71,7 @@ async fn more_fs() -> Result<(), anyhow::Error> {
 async fn more_fork() -> Result<(), anyhow::Error> {
     let r = runner!("more_fork").await?;
     let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
-        monitor::run_commands(qemu, 0, ["usertests -b -t more_fork::"]).await?;
+        monitor::run_commands(qemu, 0, ["usertests -T -t more_fork"]).await?;
         Ok(())
     })
     .await?;
@@ -86,7 +86,7 @@ async fn more_fork() -> Result<(), anyhow::Error> {
 async fn misc() -> Result<(), anyhow::Error> {
     let r = runner!("misc").await?;
     let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
-        monitor::run_commands(qemu, 0, ["usertests -b -t misc::"]).await?;
+        monitor::run_commands(qemu, 0, ["usertests -T -t misc"]).await?;
         Ok(())
     })
     .await?;
@@ -104,7 +104,7 @@ mod slow_fs {
     async fn big_dir() -> Result<(), anyhow::Error> {
         let r = runner!("big_dir").await?;
         let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
-            monitor::run_commands(qemu, 0, ["usertests -t slow_fs::big_dir"]).await?;
+            monitor::run_commands(qemu, 0, ["usertests -T slow_fs::big_dir"]).await?;
             Ok(())
         })
         .await?;
@@ -119,7 +119,7 @@ mod slow_fs {
     async fn many_writes() -> Result<(), anyhow::Error> {
         let r = runner!("many_writes").await?;
         let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
-            monitor::run_commands(qemu, 0, ["usertests -t slow_fs::many_writes"]).await?;
+            monitor::run_commands(qemu, 0, ["usertests -T slow_fs::many_writes"]).await?;
             Ok(())
         })
         .await?;
@@ -134,7 +134,7 @@ mod slow_fs {
     async fn bad_write() -> Result<(), anyhow::Error> {
         let r = runner!("bad_write").await?;
         let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
-            monitor::run_commands(qemu, 0, ["usertests -t slow_fs::bad_write"]).await?;
+            monitor::run_commands(qemu, 0, ["usertests -T slow_fs::bad_write"]).await?;
             Ok(())
         })
         .await?;
@@ -149,7 +149,7 @@ mod slow_fs {
     async fn diskf_full() -> Result<(), anyhow::Error> {
         let r = runner!("disk_full").await?;
         let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
-            monitor::run_commands(qemu, 0, ["usertests -t slow_fs::disk_full"]).await?;
+            monitor::run_commands(qemu, 0, ["usertests -T slow_fs::disk_full"]).await?;
             Ok(())
         })
         .await?;
@@ -164,7 +164,7 @@ mod slow_fs {
     async fn out_of_inodes() -> Result<(), anyhow::Error> {
         let r = runner!("out_of_inodes").await?;
         let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
-            monitor::run_commands(qemu, 0, ["usertests -t slow_fs::out_of_inodes"]).await?;
+            monitor::run_commands(qemu, 0, ["usertests -T slow_fs::out_of_inodes"]).await?;
             Ok(())
         })
         .await?;
@@ -183,7 +183,7 @@ mod slow_proc {
     async fn execout() -> Result<(), anyhow::Error> {
         let r = runner!("execout").await?;
         let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
-            monitor::run_commands(qemu, 0, ["usertests -t slow_proc::execout"]).await?;
+            monitor::run_commands(qemu, 0, ["usertests -T slow_proc::execout"]).await?;
             Ok(())
         })
         .await?;

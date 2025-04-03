@@ -8,8 +8,9 @@ use ov6_user_lib::{
     os_str::OsStr,
     process::{self, ProcessBuilder},
 };
+use ov6_user_tests::expect;
 
-use crate::{BUF, expect};
+use crate::BUF;
 
 /// directory that uses indirect blocks
 pub fn big_dir() {

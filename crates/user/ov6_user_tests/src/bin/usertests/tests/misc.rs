@@ -11,8 +11,9 @@ use ov6_user_lib::{
     path::Path,
     process::{self, ProcessBuilder},
 };
+use ov6_user_tests::expect;
 
-use crate::{BUF, ECHO_PATH, PAGE_SIZE, expect};
+use crate::{BUF, ECHO_PATH, PAGE_SIZE};
 
 pub fn validate() {
     let hi = 1100 * 1024;
