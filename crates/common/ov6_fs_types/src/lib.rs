@@ -19,7 +19,7 @@ use dataview::{Pod, PodMethods as _};
 use ov6_types::os_str::OsStr;
 use safe_cast::{SafeInto as _, to_u32};
 
-/// Block size.
+/// Block size in bytes.
 pub const FS_BLOCK_SIZE: usize = 1024;
 
 /// Number of blocks directly referenced by an inode.
@@ -28,9 +28,10 @@ pub const NUM_DIRECT_REFS: usize = 12;
 /// Number of blocks indirectly referenced by an inode.
 pub const NUM_INDIRECT_REFS: usize = FS_BLOCK_SIZE / size_of::<u32>();
 
+/// Maximum number of blocks a file can reference.
 pub const MAX_FILE: usize = NUM_DIRECT_REFS + NUM_INDIRECT_REFS;
 
-/// File system block number.
+/// Represents a file system block number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Pod)]
 #[repr(transparent)]
 pub struct BlockNo(u32);
@@ -42,23 +43,26 @@ impl fmt::Display for BlockNo {
 }
 
 impl BlockNo {
+    /// Creates a new `BlockNo` with the given value.
     #[must_use]
     pub const fn new(n: u32) -> Self {
         Self(n)
     }
 
+    /// Returns the value of the block number.
     #[must_use]
     pub const fn value(&self) -> u32 {
         self.0
     }
 
+    /// Converts the block number to an index.
     #[must_use]
     pub fn as_index(&self) -> usize {
         self.0.safe_into()
     }
 }
 
-/// File system inode number.
+/// Represents a file system inode number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Pod)]
 #[repr(transparent)]
 pub struct InodeNo(u32);
@@ -70,74 +74,83 @@ impl fmt::Display for InodeNo {
 }
 
 impl InodeNo {
+    /// The root inode number.
     pub const ROOT: Self = Self::new(1);
 
+    /// Creates a new `InodeNo` with the given value.
     #[must_use]
     pub const fn new(n: u32) -> Self {
         Self(n)
     }
 
+    /// Returns the value of the inode number.
     #[must_use]
     pub const fn value(&self) -> u32 {
         self.0
     }
 
+    /// Converts the inode number to an index.
     #[must_use]
     pub fn as_index(&self) -> usize {
         self.0.safe_into()
     }
 }
 
-/// Super block of the file system.
+/// Represents the super block of the file system.
 #[derive(Pod)]
 #[repr(C)]
 pub struct SuperBlock {
-    /// Magic number. Must be FSMAGIC
+    /// Magic number. Must be [`Self::FS_MAGIC`].
     pub magic: u32,
-    /// Size of file system image (blocks)
+    /// Size of the file system image in blocks.
     pub size: u32,
-    /// Number of data blocks
+    /// Number of data blocks.
     pub nblocks: u32,
     /// Number of inodes.
     pub ninodes: u32,
     /// Number of log blocks.
     pub nlog: u32,
-    /// Block number of first log block.
+    /// Block number of the first log block.
     pub logstart: u32,
-    /// Block number of first inode block.
+    /// Block number of the first inode block.
     pub inodestart: u32,
-    /// Block number of first free map block.
+    /// Block number of the first free map block.
     pub bmapstart: u32,
 }
 
 impl SuperBlock {
+    /// Magic number for the file system.
     pub const FS_MAGIC: u32 = 0x1020_3040;
+    /// Block number of the super block.
     pub const SUPER_BLOCK_NO: BlockNo = BlockNo::new(1);
 
-    /// Returns the block number that contains the specified inode.
+    /// Returns the block number containing the specified inode.
     #[must_use]
     pub fn inode_block(&self, inode_no: InodeNo) -> BlockNo {
         let block_index = inode_no.0 / to_u32!(INODE_PER_BLOCK);
         BlockNo::new(self.inodestart + block_index)
     }
 
-    /// Returns the block number that contains the specified bitmap.
+    /// Returns the block number containing the specified bitmap.
     #[must_use]
     pub fn bmap_block(&self, bn: u32) -> BlockNo {
         let block_index = bn / to_u32!(BITS_PER_BLOCK);
         BlockNo::new(self.bmapstart + block_index)
     }
 
+    /// Returns the maximum length of the log in blocks.
     #[must_use]
     pub fn max_log_len(&self) -> usize {
         self.nlog.safe_into()
     }
 
+    /// Returns the block number of the log header.
     #[must_use]
     pub fn log_header_block(&self) -> BlockNo {
         BlockNo::new(self.logstart)
     }
 
+    /// Returns the block number of the log body at the given index.
     #[must_use]
     pub fn log_body_block(&self, i: u32) -> BlockNo {
         BlockNo::new(self.logstart + i)
