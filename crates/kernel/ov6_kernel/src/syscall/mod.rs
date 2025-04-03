@@ -42,7 +42,7 @@ where
     type Target = T;
 
     fn decode_arg(tf: &TrapFrame) -> Result<Self::Target, Self::DecodeError> {
-        Self::new([tf.a0]).try_decode()
+        Self::new([tf.user_registers.a0]).try_decode()
     }
 }
 
@@ -54,7 +54,8 @@ where
     type Target = T;
 
     fn decode_arg(tf: &TrapFrame) -> Result<Self::Target, Self::DecodeError> {
-        Self::new([tf.a0, tf.a1]).try_decode()
+        let ur = &tf.user_registers;
+        Self::new([ur.a0, ur.a1]).try_decode()
     }
 }
 
@@ -66,7 +67,8 @@ where
     type Target = T;
 
     fn decode_arg(tf: &TrapFrame) -> Result<Self::Target, Self::DecodeError> {
-        Self::new([tf.a0, tf.a1, tf.a2]).try_decode()
+        let ur = &tf.user_registers;
+        Self::new([ur.a0, ur.a1, ur.a2]).try_decode()
     }
 }
 
@@ -78,7 +80,8 @@ where
     type Target = T;
 
     fn decode_arg(tf: &TrapFrame) -> Result<Self::Target, Self::DecodeError> {
-        Self::new([tf.a0, tf.a1, tf.a2, tf.a3]).try_decode()
+        let ur = &tf.user_registers;
+        Self::new([ur.a0, ur.a1, ur.a2, ur.a3]).try_decode()
     }
 }
 
@@ -116,9 +119,10 @@ impl ReturnValue {
             Self::Ret1(a0) => (a0, None),
             Self::Ret2(a0, a1) => (a0, Some(a1)),
         };
-        tf.a0 = a0;
+        let ur = &mut tf.user_registers;
+        ur.a0 = a0;
         if let Some(a1) = a1 {
-            tf.a1 = a1;
+            ur.a1 = a1;
         }
     }
 }
@@ -225,13 +229,13 @@ trait SyscallExt: Syscall {
 
 pub fn syscall(p: &'static Proc, private_opt: &mut Option<ProcPrivateDataGuard>) {
     let private = private_opt.as_mut().unwrap();
-    let n = private.trapframe().a7;
+    let n = private.trapframe().user_registers.a7;
     let Some(ty) = SyscallCode::from_repr(n) else {
         let shared = p.shared().lock();
         let pid = shared.pid();
         let name = shared.name().display();
         println!("{pid} {name}: unknown sys call {n}");
-        private.trapframe_mut().a0 = usize::MAX;
+        private.trapframe_mut().user_registers.a0 = usize::MAX;
         return;
     };
 
@@ -255,6 +259,9 @@ pub fn syscall(p: &'static Proc, private_opt: &mut Option<ProcPrivateDataGuard>)
         SyscallCode::Link => syscall::Link::handle(p, private),
         SyscallCode::Mkdir => syscall::Mkdir::handle(p, private),
         SyscallCode::Close => syscall::Close::handle(p, private),
+        SyscallCode::AlarmSet => syscall::AlarmSet::handle(p, private),
+        SyscallCode::AlarmClear => syscall::AlarmClear::handle(p, private),
+        SyscallCode::SignalReturn => syscall::SignalReturn::handle(p, private),
         SyscallCode::Reboot => syscall::Reboot::handle(p, private),
         SyscallCode::Halt => syscall::Halt::handle(p, private),
         SyscallCode::Abort => syscall::Abort::handle(p, private),

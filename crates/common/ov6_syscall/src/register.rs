@@ -658,6 +658,7 @@ impl_value!([T: ?Sized] (RawFd, UserMutRef<T>), Infallible, 2, tuple_encode_11, 
 impl_value!([T: ?Sized] (RawFd, UserRef<T>), Infallible, 2, tuple_encode_11, tuple_decode_11);
 impl_value!([T] (UserSlice<T>, OpenFlags), RegisterDecodeError, 3, tuple_encode_21, tuple_decode_21);
 impl_value!([T: ?Sized](WaitTarget, UserMutRef<T>,), RegisterDecodeError, 3, tuple_encode_21, tuple_decode_21);
+impl_value!([T: ?Sized] (Duration, UserRef<T>), RegisterDecodeError, 3, tuple_encode_21, tuple_decode_21);
 impl_value!([T, U] (UserSlice<T>, UserSlice<U>), Infallible, 4, tuple_encode_22, tuple_decode_22);
 
 impl_value!([T] (RawFd, UserSlice<T>), Infallible, 3, tuple_encode_12, tuple_decode_12);

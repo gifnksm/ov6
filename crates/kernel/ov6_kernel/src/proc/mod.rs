@@ -8,6 +8,7 @@ use core::{
     panic::Location,
     ptr,
     sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
+    time::Duration,
 };
 
 use arrayvec::ArrayVec;
@@ -26,7 +27,8 @@ use crate::{
     fs::{self, DeviceNo, Inode},
     interrupt::{
         self,
-        trap::{self, TrapFrame},
+        timer::Uptime,
+        trap::{self, TrapFrame, UserRegisters},
     },
     memory::{
         PAGE_SIZE, VirtAddr,
@@ -57,6 +59,27 @@ enum ProcState {
     Zombie { exit_status: i32 },
 }
 
+#[derive(Debug)]
+pub struct AlarmInfo {
+    time: Uptime,
+    dur: Duration,
+    handler: VirtAddr,
+}
+
+impl AlarmInfo {
+    pub(crate) fn is_expired(&self, now: Uptime) -> bool {
+        now >= self.time
+    }
+
+    pub(crate) fn update(&mut self, now: Uptime) {
+        self.time = now.saturating_add(self.dur);
+    }
+
+    pub(crate) fn handler(&self) -> VirtAddr {
+        self.handler
+    }
+}
+
 /// Per-process state that can be accessed from other processes.
 pub struct ProcSharedData {
     /// Process ID
@@ -67,6 +90,8 @@ pub struct ProcSharedData {
     state: ProcState,
     /// Process is killed
     killed: bool,
+    /// Alarm information
+    alarm: Option<AlarmInfo>,
     /// Process context.
     ///
     /// Call `switch()` here to enter process.
@@ -97,6 +122,19 @@ impl ProcSharedData {
     pub fn killed(&self) -> bool {
         self.killed
     }
+
+    pub fn alarm_mut(&mut self) -> Option<&mut AlarmInfo> {
+        self.alarm.as_mut()
+    }
+
+    pub fn set_alarm(&mut self, dur: Duration, handler: VirtAddr) {
+        let time = Uptime::now().saturating_add(dur);
+        self.alarm = Some(AlarmInfo { time, dur, handler });
+    }
+
+    pub fn clear_alarm(&mut self) {
+        self.alarm = None;
+    }
 }
 
 pub struct ProcShared(SpinLock<ProcSharedData>);
@@ -108,6 +146,7 @@ impl ProcShared {
             name: ArrayVec::new_const(),
             state: ProcState::Unused,
             killed: false,
+            alarm: None,
             context: Context::zeroed(),
         }))
     }
@@ -136,6 +175,15 @@ impl ProcShared {
     }
 }
 
+pub struct InterruptedContext {
+    pub epc: usize,
+    pub user_registers: UserRegisters,
+}
+
+pub struct SignalHandlerState {
+    context: InterruptedContext,
+}
+
 pub struct ProcPrivateData {
     pid: ProcId,
     /// Virtual address of kernel stack.
@@ -150,6 +198,7 @@ pub struct ProcPrivateData {
     cwd: Option<Inode>,
     /// System call trace mask
     trace_mask: u64,
+    signal_handler_state: Option<SignalHandlerState>,
 }
 
 impl ProcPrivateData {
@@ -221,6 +270,36 @@ impl ProcPrivateData {
 
     pub fn set_trace_mask(&mut self, mask: u64) {
         self.trace_mask = mask;
+    }
+
+    pub fn enter_signal_handler(&mut self, handler: VirtAddr) {
+        if self.signal_handler_state.is_some() {
+            // already entered
+            return;
+        }
+
+        let tf = &mut self.trapframe;
+        self.signal_handler_state = Some(SignalHandlerState {
+            context: InterruptedContext {
+                epc: tf.epc,
+                user_registers: tf.user_registers,
+            },
+        });
+
+        tf.epc = handler.addr();
+    }
+
+    pub fn exit_from_signal_handler(&mut self) -> Result<(), KernelError> {
+        let state = self
+            .signal_handler_state
+            .take()
+            .ok_or(KernelError::NotInSignalHandler)?;
+        let tf = &mut self.trapframe;
+
+        tf.epc = state.context.epc;
+        tf.user_registers = state.context.user_registers;
+
+        Ok(())
     }
 }
 
@@ -420,6 +499,7 @@ impl Proc {
                 ofile: [const { None }; NOFILE],
                 cwd: None,
                 trace_mask: 0,
+                signal_handler_state: None,
             };
 
             // Set up new context to start executing at forkret,

@@ -85,7 +85,11 @@ pub enum SyscallCode {
     Link,
     Mkdir,
     Close,
-    Reboot,
+    AlarmSet,
+    AlarmClear,
+    SignalReturn,
+
+    Reboot = 100,
     Halt,
     Abort,
     Trace,
@@ -115,6 +119,16 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:#x} as &{}", self.addr, any::type_name::<T>())
+    }
+}
+
+impl<T> UserRef<extern "C" fn() -> T> {
+    /// Creates a new `UserRef` from a function pointer.
+    pub fn from_fn(f: extern "C" fn() -> T) -> Self {
+        Self {
+            addr: f as usize,
+            _phantom: PhantomData,
+        }
     }
 }
 

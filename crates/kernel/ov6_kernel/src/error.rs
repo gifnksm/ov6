@@ -100,6 +100,8 @@ pub(crate) enum KernelError {
     SyscallDecode(#[from] RegisterDecodeError),
     #[error("caller process already killed")]
     CallerProcessAlreadyKilled,
+    #[error("caller not in signal handler")]
+    NotInSignalHandler,
 }
 
 impl From<KernelError> for SyscallError {
@@ -147,9 +149,9 @@ impl From<KernelError> for SyscallError {
             KernelError::OpenDirAsWritable => Self::IsADirectory,
             KernelError::ArgumentListTooLarge => Self::ArgumentListTooLong,
             KernelError::InvalidExecutable => Self::ExecFormat,
-            KernelError::SyscallDecode(_) | KernelError::CallerProcessAlreadyKilled => {
-                Self::Unknown
-            }
+            KernelError::NotInSignalHandler
+            | KernelError::SyscallDecode(_)
+            | KernelError::CallerProcessAlreadyKilled => Self::Unknown,
         }
     }
 }

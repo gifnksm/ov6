@@ -101,7 +101,7 @@ pub fn exec(
     // Commit to the user image.
     private.update_pagetable(pt);
     private.trapframe_mut().epc = elf.entry.safe_into(); // initial pogram counter = main
-    private.trapframe_mut().sp = sp.addr(); // initial stack pointer
+    private.trapframe_mut().user_registers.sp = sp.addr(); // initial stack pointer
 
     Ok((argc, argv))
 }

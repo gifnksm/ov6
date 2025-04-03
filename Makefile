@@ -67,6 +67,7 @@ OV6_UTILS=\
 	zombie\
 
 OV6_USER_TESTS=\
+	alarmtest\
 	forktest\
 	grind\
 	kpgtbl\

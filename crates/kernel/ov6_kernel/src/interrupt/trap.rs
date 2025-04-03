@@ -18,7 +18,8 @@ use safe_cast::to_u32;
 use super::{kernel_vec, plic, timer, trampoline};
 use crate::{
     console::uart,
-    cpu, fs, interrupt,
+    cpu, fs,
+    interrupt::{self, timer::Uptime},
     memory::{
         PAGE_SIZE, VirtAddr,
         layout::{KSTACK_PAGES, UART0_IRQ, VIRTIO0_IRQ},
@@ -29,6 +30,42 @@ use crate::{
     proc::{self, Proc, ProcPrivateDataGuard, scheduler},
     syscall,
 };
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod)]
+pub struct UserRegisters {
+    pub ra: usize,
+    pub sp: usize,
+    pub gp: usize,
+    pub tp: usize,
+    pub t0: usize,
+    pub t1: usize,
+    pub t2: usize,
+    pub s0: usize,
+    pub s1: usize,
+    pub a0: usize,
+    pub a1: usize,
+    pub a2: usize,
+    pub a3: usize,
+    pub a4: usize,
+    pub a5: usize,
+    pub a6: usize,
+    pub a7: usize,
+    pub s2: usize,
+    pub s3: usize,
+    pub s4: usize,
+    pub s5: usize,
+    pub s6: usize,
+    pub s7: usize,
+    pub s8: usize,
+    pub s9: usize,
+    pub s10: usize,
+    pub s11: usize,
+    pub t3: usize,
+    pub t4: usize,
+    pub t5: usize,
+    pub t6: usize,
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod)]
@@ -43,37 +80,7 @@ pub struct TrapFrame {
     pub epc: usize, // 24
     /// saved kernel tp
     pub kernel_hartid: usize, // 32
-    pub ra: usize,  // 40
-    pub sp: usize,  // 48
-    pub gp: usize,  // 56
-    pub tp: usize,  // 64
-    pub t0: usize,  // 72
-    pub t1: usize,  // 80
-    pub t2: usize,  // 88
-    pub s0: usize,  // 96
-    pub s1: usize,  // 104
-    pub a0: usize,  // 112
-    pub a1: usize,  // 120
-    pub a2: usize,  // 128
-    pub a3: usize,  // 136
-    pub a4: usize,  // 144
-    pub a5: usize,  // 152
-    pub a6: usize,  // 160
-    pub a7: usize,  // 168
-    pub s2: usize,  // 176
-    pub s3: usize,  // 184
-    pub s4: usize,  // 192
-    pub s5: usize,  // 200
-    pub s6: usize,  // 208
-    pub s7: usize,  // 216
-    pub s8: usize,  // 224
-    pub s9: usize,  // 232
-    pub s10: usize, // 240
-    pub s11: usize, // 248
-    pub t3: usize,  // 256
-    pub t4: usize,  // 264
-    pub t5: usize,  // 272
-    pub t6: usize,  // 280
+    pub user_registers: UserRegisters,
 }
 
 pub fn init_hart() {
@@ -154,8 +161,19 @@ extern "C" fn trap_user() {
         }
     }
 
-    if p.shared().lock().killed() {
-        proc::ops::exit(p, private, -1);
+    {
+        let mut shared = p.shared().lock();
+        if shared.killed() {
+            drop(shared);
+            proc::ops::exit(p, private, -1);
+        }
+        if let Some(alarm) = shared.alarm_mut() {
+            let now = Uptime::now();
+            if alarm.is_expired(now) {
+                alarm.update(now);
+                private.enter_signal_handler(alarm.handler());
+            }
+        }
     }
 
     // gibe up the CPU if this is a timer interrupt.
@@ -182,9 +200,9 @@ fn fetch_usize(addr: usize, pt: &UserPageTable) -> Option<usize> {
 fn print_user_backtrace(epc: usize, tf: &TrapFrame, pt: &UserPageTable) {
     println!("user backtrace:");
     println!("{:#p}", ptr::without_provenance::<u8>(epc));
-    println!("{:#p}", ptr::without_provenance::<u8>(tf.ra));
+    println!("{:#p}", ptr::without_provenance::<u8>(tf.user_registers.ra));
 
-    let mut fp = tf.s0;
+    let mut fp = tf.user_registers.s0;
     let mut depth = 0;
     while fp != 0 {
         let Some(ra) = fp.checked_sub(8).and_then(|addr| fetch_usize(addr, pt)) else {

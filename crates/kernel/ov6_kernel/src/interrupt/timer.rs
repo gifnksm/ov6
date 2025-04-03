@@ -1,4 +1,4 @@
-use core::arch::asm;
+use core::{arch::asm, time::Duration};
 
 use riscv::register::{mcounteren, mie, scounteren};
 
@@ -61,5 +61,33 @@ pub(super) fn handle_interrupt() {
     unsafe {
         asm!("csrr {}, time", out(reg) time);
         asm!("csrw stimecmp, {}", in(reg) time + CLOCKS_PER_TICK);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Uptime {
+    time: u64,
+}
+
+impl Uptime {
+    pub(crate) const MAX: Self = Self { time: u64::MAX };
+
+    pub(crate) fn now() -> Self {
+        let time: u64;
+        unsafe { asm!("csrr {}, time", out(reg) time) }
+        Self { time }
+    }
+
+    pub(crate) fn checked_add(self, dur: Duration) -> Option<Self> {
+        let nanos = self.time.checked_add(
+            (dur.as_nanos() / u128::from(NANOS_PER_CLOCK))
+                .try_into()
+                .ok()?,
+        )?;
+        Some(Self { time: nanos })
+    }
+
+    pub(crate) fn saturating_add(self, dur: Duration) -> Self {
+        self.checked_add(dur).unwrap_or(Self::MAX)
     }
 }

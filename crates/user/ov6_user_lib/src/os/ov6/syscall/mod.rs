@@ -3,7 +3,7 @@ use core::{convert::Infallible, ptr, time::Duration};
 use dataview::PodMethods as _;
 pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
 use ov6_syscall::{
-    USYSCALL_ADDR, USyscallData, UserMutRef, UserMutSlice, UserSlice, WaitTarget, syscall,
+    USYSCALL_ADDR, USyscallData, UserMutRef, UserMutSlice, UserRef, UserSlice, WaitTarget, syscall,
 };
 use ov6_types::{fs::RawFd, path::Path, process::ProcId};
 
@@ -134,6 +134,21 @@ pub unsafe fn sbrk(increment: isize) -> Result<*mut u8, Ov6Error> {
 pub fn sleep(dur: Duration) -> Result<(), Ov6Error> {
     syscall::Sleep::call((dur,))?;
     Ok(())
+}
+
+pub fn alarm_set(dur: Duration, handler: extern "C" fn()) -> Result<(), Ov6Error> {
+    syscall::AlarmSet::call((dur, UserRef::from_fn(handler)))?;
+    Ok(())
+}
+
+pub fn alarm_clear() -> Result<(), Ov6Error> {
+    syscall::AlarmClear::call(())?;
+    Ok(())
+}
+
+pub fn signal_return() -> Result<Infallible, Ov6Error> {
+    let _: Infallible = syscall::SignalReturn::call(())?;
+    unreachable!()
 }
 
 pub fn reboot() -> Result<Infallible, Ov6Error> {

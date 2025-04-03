@@ -1,12 +1,12 @@
 use core::convert::Infallible;
 
-use ov6_syscall::{Register, RegisterValue, syscall};
+use ov6_syscall::{Register, RegisterValue, Syscall, error::SyscallError, syscall};
 
 use super::SyscallExt;
 use crate::{
     error::KernelError,
     interrupt::timer::{NANOS_PER_TICKS, TICKS, TICKS_UPDATED},
-    memory::addr::Validate as _,
+    memory::{VirtAddr, addr::Validate as _},
     proc::{self, Proc, ProcPrivateData, ProcPrivateDataGuard},
     sync::WaitError,
 };
@@ -128,6 +128,84 @@ impl SyscallExt for syscall::Sleep {
         }
 
         Ok(())
+    }
+}
+
+impl SyscallExt for syscall::AlarmSet {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
+    type Private<'a> = ProcPrivateData;
+
+    fn call(
+        p: &'static Proc,
+        _private: &mut Self::Private<'_>,
+        (dur, handler): Self::KernelArg,
+    ) -> Self::KernelReturn {
+        let handler = VirtAddr::new(handler.addr())?;
+        let mut shared = p.shared().lock();
+        shared.set_alarm(dur, handler);
+        Ok(())
+    }
+}
+
+impl SyscallExt for syscall::AlarmClear {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
+    type Private<'a> = ProcPrivateData;
+
+    fn call(
+        p: &'static Proc,
+        _private: &mut Self::Private<'_>,
+        (): Self::KernelArg,
+    ) -> Self::KernelReturn {
+        let mut shared = p.shared().lock();
+        shared.clear_alarm();
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub(super) enum SignalReturn {
+    Ok(usize, usize),
+    Err(SyscallError),
+}
+
+impl RegisterValue for SignalReturn {
+    type DecodeError = Infallible;
+    type Repr = Register<Self, 2>;
+
+    fn encode(self) -> Self::Repr {
+        match self {
+            Self::Ok(a0, a1) => Register::new([a0, a1]),
+            Self::Err(e) => {
+                let [a0, a1] = <syscall::Exec as Syscall>::Return::Err(e).encode().a;
+                Register::new([a0, a1])
+            }
+        }
+    }
+
+    fn try_decode(_repr: Self::Repr) -> Result<Self, Self::DecodeError> {
+        unreachable!()
+    }
+}
+
+impl SyscallExt for syscall::SignalReturn {
+    type KernelArg = Self::Arg;
+    type KernelReturn = SignalReturn;
+    type Private<'a> = ProcPrivateData;
+
+    fn call(
+        _p: &'static Proc,
+        private: &mut Self::Private<'_>,
+        (): Self::KernelArg,
+    ) -> Self::KernelReturn {
+        match private.exit_from_signal_handler() {
+            Ok(()) => {
+                let ur = private.trapframe().user_registers;
+                SignalReturn::Ok(ur.a0, ur.a1)
+            }
+            Err(e) => SignalReturn::Err(e.into()),
+        }
     }
 }
 

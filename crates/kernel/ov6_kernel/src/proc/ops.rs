@@ -39,7 +39,7 @@ pub fn spawn_init() {
     let sp = private.pagetable().stack_top().addr();
     let trapframe = private.trapframe_mut();
     trapframe.epc = pc;
-    trapframe.sp = sp;
+    trapframe.user_registers.sp = sp;
 
     let tx = fs::begin_readonly_tx();
     private.cwd = Some(Inode::from_tx(&TxInode::root(&tx)));
@@ -130,6 +130,9 @@ fn reparent(old_parent: &Proc, new_parent: &'static Proc, wait_lock: &mut SpinLo
 /// until its parent calls `wait()`.
 pub fn exit(p: &Proc, mut p_private: ProcPrivateDataGuard, status: i32) -> ! {
     let init_proc = *INIT_PROC.get();
+
+    // Ensure shared is not locked
+    drop(p.shared().lock());
 
     // Ensure all destruction is done before `sched().`
     let mut shared = {
