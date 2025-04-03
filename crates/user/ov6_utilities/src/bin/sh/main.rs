@@ -9,9 +9,9 @@ use once_init::OnceInit;
 use ov6_user_lib::{
     eprint,
     error::Ov6Error,
-    fs::{File, StatType},
-    io::{self, STDIN_FD},
-    os::{fd::AsRawFd as _, ov6::syscall},
+    fs::File,
+    io::{self, IsTerminal as _},
+    os::fd::AsRawFd as _,
     process::{self},
 };
 use ov6_utilities::{OrExit as _, exit_err, message_err};
@@ -48,9 +48,7 @@ fn main() {
         break;
     }
 
-    let isatty = syscall::fstat(STDIN_FD)
-        .ok()
-        .is_some_and(|meta| meta.ty == StatType::Dev as u16);
+    let isatty = io::stdin().is_terminal();
     SHOW_PROMPT.init(isatty);
 
     // Read and run input commands.

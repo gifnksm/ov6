@@ -3,7 +3,7 @@ use core::fmt::{self, Write as _};
 use alloc_crate::string::String;
 use once_init::OnceInit;
 
-use super::{BufRead, BufReader, BufWriter, Read, Write};
+use super::{BufRead, BufReader, BufWriter, IsTerminal, Read, Write};
 use crate::{
     error::Ov6Error,
     io::{DEFAULT_BUF_SIZE, LineWriter},
@@ -84,7 +84,11 @@ pub fn stdout() -> Stdout {
             break instance;
         }
     };
-    Stdout { inner: instance }
+    let is_terminal = super::is_terminal(STDOUT_FD);
+    Stdout {
+        inner: instance,
+        is_terminal,
+    }
 }
 
 #[must_use]
@@ -113,10 +117,12 @@ pub fn stdin() -> Stdin {
 
 pub struct Stdout {
     inner: &'static Mutex<LineWriter<StdoutRaw>>,
+    is_terminal: bool,
 }
 
 pub struct StdoutLock<'lock> {
     inner: MutexGuard<'lock, LineWriter<StdoutRaw>>,
+    is_terminal: bool,
 }
 
 impl AsFd for Stdout {
@@ -128,6 +134,30 @@ impl AsFd for Stdout {
 impl AsRawFd for Stdout {
     fn as_raw_fd(&self) -> RawFd {
         STDOUT_FD
+    }
+}
+
+impl IsTerminal for Stdout {
+    fn is_terminal(&self) -> bool {
+        self.is_terminal
+    }
+}
+
+impl AsFd for StdoutLock<'_> {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        unsafe { BorrowedFd::borrow_raw(STDOUT_FD) }
+    }
+}
+
+impl AsRawFd for StdoutLock<'_> {
+    fn as_raw_fd(&self) -> RawFd {
+        STDOUT_FD
+    }
+}
+
+impl IsTerminal for StdoutLock<'_> {
+    fn is_terminal(&self) -> bool {
+        self.is_terminal
     }
 }
 
@@ -160,18 +190,48 @@ impl AsRawFd for Stderr {
     }
 }
 
+impl IsTerminal for Stderr {
+    fn is_terminal(&self) -> bool {
+        self.as_fd().is_terminal()
+    }
+}
+
+impl AsFd for StderrLock<'_> {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        unsafe { BorrowedFd::borrow_raw(STDERR_FD) }
+    }
+}
+
+impl AsRawFd for StderrLock<'_> {
+    fn as_raw_fd(&self) -> RawFd {
+        STDERR_FD
+    }
+}
+
+impl IsTerminal for StderrLock<'_> {
+    fn is_terminal(&self) -> bool {
+        self.as_fd().is_terminal()
+    }
+}
+
 impl Stdout {
     #[must_use]
     pub fn lock(&self) -> StdoutLock<'_> {
         StdoutLock {
             inner: self.inner.lock(),
+            is_terminal: self.is_terminal,
         }
     }
 }
 
 impl Write for Stdout {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
-        self.inner.lock().write(buf)
+        let mut inner = self.inner.lock();
+        let n = inner.write(buf)?;
+        if self.is_terminal {
+            inner.flush()?;
+        }
+        Ok(n)
     }
 
     fn flush(&mut self) -> Result<(), Ov6Error> {
@@ -179,7 +239,12 @@ impl Write for Stdout {
     }
 
     fn write_all(&mut self, buf: &[u8]) -> Result<(), Ov6Error> {
-        self.inner.lock().write_all(buf)
+        let mut inner = self.inner.lock();
+        inner.write_all(buf)?;
+        if self.is_terminal {
+            inner.flush()?;
+        }
+        Ok(())
     }
 }
 
@@ -194,7 +259,11 @@ impl fmt::Write for Stdout {
 
 impl Write for StdoutLock<'_> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Ov6Error> {
-        self.inner.write(buf)
+        let n = self.inner.write(buf)?;
+        if self.is_terminal {
+            self.inner.flush()?;
+        }
+        Ok(n)
     }
 
     fn flush(&mut self) -> Result<(), Ov6Error> {
@@ -202,7 +271,11 @@ impl Write for StdoutLock<'_> {
     }
 
     fn write_all(&mut self, buf: &[u8]) -> Result<(), Ov6Error> {
-        self.inner.write_all(buf)
+        self.inner.write_all(buf)?;
+        if self.is_terminal {
+            self.inner.flush()?;
+        }
+        Ok(())
     }
 }
 
@@ -302,6 +375,30 @@ impl AsFd for Stdin {
 impl AsRawFd for Stdin {
     fn as_raw_fd(&self) -> RawFd {
         STDIN_FD
+    }
+}
+
+impl IsTerminal for Stdin {
+    fn is_terminal(&self) -> bool {
+        self.as_fd().is_terminal()
+    }
+}
+
+impl AsFd for StdinLock<'_> {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        unsafe { BorrowedFd::borrow_raw(STDIN_FD) }
+    }
+}
+
+impl AsRawFd for StdinLock<'_> {
+    fn as_raw_fd(&self) -> RawFd {
+        STDIN_FD
+    }
+}
+
+impl IsTerminal for StdinLock<'_> {
+    fn is_terminal(&self) -> bool {
+        self.as_fd().is_terminal()
     }
 }
 

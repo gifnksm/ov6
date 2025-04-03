@@ -3,9 +3,18 @@
 use core::{cmp, io::BorrowedCursor};
 
 use alloc_crate::{string::String, vec::Vec};
+use ov6_syscall::StatType;
+use ov6_types::fs::RawFd;
 
 pub use self::{buffered::*, stdio::*};
-use crate::error::Ov6Error;
+use crate::{
+    error::Ov6Error,
+    fs::File,
+    os::{
+        fd::{AsFd as _, AsRawFd as _, BorrowedFd, OwnedFd},
+        ov6::syscall,
+    },
+};
 
 const DEFAULT_BUF_SIZE: usize = 1024;
 
@@ -196,5 +205,33 @@ impl Read for &[u8] {
         buf[..amt].copy_from_slice(a);
         *self = b;
         Ok(amt)
+    }
+}
+
+fn is_terminal(fd: RawFd) -> bool {
+    syscall::fstat(fd)
+        .ok()
+        .is_some_and(|meta| meta.ty == StatType::Dev as u16)
+}
+
+pub trait IsTerminal {
+    fn is_terminal(&self) -> bool;
+}
+
+impl IsTerminal for File {
+    fn is_terminal(&self) -> bool {
+        self.as_fd().is_terminal()
+    }
+}
+
+impl IsTerminal for BorrowedFd<'_> {
+    fn is_terminal(&self) -> bool {
+        is_terminal(self.as_raw_fd())
+    }
+}
+
+impl IsTerminal for OwnedFd {
+    fn is_terminal(&self) -> bool {
+        self.as_fd().is_terminal()
     }
 }
