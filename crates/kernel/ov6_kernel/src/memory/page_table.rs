@@ -564,9 +564,11 @@ impl<'a> Iterator for Entries<'a> {
         if mem::take(&mut self.last_item_is_non_leaf) {
             let (level, base_va, ptes) = stack.last_mut().unwrap();
             let (idx, pte) = ptes.next().unwrap();
+            let level_va = base_va.with_level_idx(*level, idx);
 
-            let level_min_va = base_va.with_level_idx(*level, idx);
-            let leval_max_va = level_min_va.with_level_idx(*level - 1, 511);
+            assert_eq!(level_va.level_idx(*level - 1), 0);
+            let level_min_va = level_va.with_level_idx(*level - 1, 0);
+            let leval_max_va = level_va.with_level_idx(*level - 1, 511);
             let level_min_idx = VirtAddr::max(min_va, level_min_va).level_idx(*level - 1);
             let level_max_idx = VirtAddr::min(max_va, leval_max_va).level_idx(*level - 1);
 
