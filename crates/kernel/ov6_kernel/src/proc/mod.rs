@@ -121,10 +121,12 @@ impl ProcShared {
         Some(&p.shared)
     }
 
+    #[track_caller]
     pub fn lock(&self) -> SpinLockGuard<ProcSharedData> {
         self.0.lock()
     }
 
+    #[track_caller]
     pub fn try_lock(&self) -> Result<SpinLockGuard<ProcSharedData>, TryLockError> {
         self.0.try_lock()
     }

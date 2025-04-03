@@ -39,11 +39,12 @@ impl<T> SpinLock<T> {
     /// Acquires the lock.
     ///
     /// Loops (spins) until the lock is acquired.
+    #[track_caller]
     pub fn try_lock(&self) -> Result<SpinLockGuard<T>, TryLockError> {
         // disable interrupts to avoid deadlock.
         let int_guard = interrupt::push_disabled();
 
-        assert!(!self.holding());
+        assert!(!self.holding(), "lock is already hold");
 
         // `Ordering::Acquire` tells the compiler and the processor to not move loads or
         // stores past this point, to ensure that the critical section's memory
@@ -66,11 +67,12 @@ impl<T> SpinLock<T> {
     /// Acquires the lock.
     ///
     /// Loops (spins) until the lock is acquired.
+    #[track_caller]
     pub fn lock(&self) -> SpinLockGuard<T> {
         // disable interrupts to avoid deadlock.
         let int_guard = interrupt::push_disabled();
 
-        assert!(!self.holding());
+        assert!(!self.holding(), "lock is already hold");
 
         // `Ordering::Acquire` tells the compiler and the processor to not move loads or
         // stores past this point, to ensure that the critical section's memory
