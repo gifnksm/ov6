@@ -7,7 +7,7 @@ use ov6_types::process::ProcId;
 use riscv::register::satp::Satp;
 
 use super::{
-    PAGE_SIZE, PageRound as _, PhysAddr, VirtAddr,
+    PageRound as _, PhysAddr, VirtAddr,
     addr::{GenericMutSlice, GenericSlice, Validated},
     layout::{
         TRAMPOLINE, TRAMPOLINE_SIZE, TRAPFRAME, TRAPFRAME_SIZE, USER_STACK_BOTTOM, USER_STACK_SIZE,
@@ -104,33 +104,6 @@ impl UserPageTable {
         let bytes = self.fetch_chunk_mut(start_va, PtEntryFlags::U)?;
         assert!(bytes.len() >= size_of::<USyscallData>());
         *DataView::from_mut(bytes).get_mut::<USyscallData>(0) = USyscallData { pid };
-
-        Ok(())
-    }
-
-    /// Loads the user initcode into address 0 of pagetable.
-    ///
-    /// For the very first process.
-    /// `src.len()` must be less than a page.
-    pub fn alloc_first(&mut self, src: &[u8]) -> Result<(), KernelError> {
-        assert!(src.len() < PAGE_SIZE, "src.len()={:#x}", src.len());
-
-        self.pt.map_addrs(
-            VirtAddr::MIN_AVA,
-            MapTarget::allocate_new_zeroed(),
-            PAGE_SIZE,
-            PtEntryFlags::URWX,
-        )?;
-
-        let bytes = self.fetch_chunk_mut(VirtAddr::MIN_AVA, PtEntryFlags::U)?;
-        assert!(bytes.len() >= src.len());
-        bytes[..src.len()].copy_from_slice(src);
-
-        let segment_end = VirtAddr::MIN_AVA.byte_add(PAGE_SIZE).unwrap();
-        self.heap_start = segment_end
-            .byte_add(2 * PAGE_SIZE)
-            .unwrap()
-            .level_page_roundup(1);
 
         Ok(())
     }
@@ -399,6 +372,19 @@ impl UserPageTable {
         }
         assert_eq!(dst_start, dst_end);
         assert_eq!(src_start, src_end);
+    }
+
+    /// Copies from either a user address, or kernel address.
+    pub fn copy_x2u_bytes(
+        &mut self,
+        dst: &mut Validated<UserMutSlice<u8>>,
+        src: &GenericSlice<u8>,
+    ) {
+        assert_eq!(dst.len(), src.len());
+        match src {
+            GenericSlice::User(src_pt, src) => Self::copy_u2u_bytes(self, dst, src_pt, src),
+            GenericSlice::Kernel(src) => self.copy_k2u_bytes(dst, src),
+        }
     }
 
     pub fn dump(&self) {

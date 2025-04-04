@@ -21,21 +21,14 @@ CARGO_PROFILE_FLAG=--profile $(PROFILE)
 endif
 
 R=target/ov6/$(PROFILE)
-I=target/ov6/initcode
 
 RUST_CROSS_TARGET=riscv64imac-unknown-none-elf
 RX=target/$(RUST_CROSS_TARGET)/$(PROFILE)
-IX=target/$(RUST_CROSS_TARGET)/initcode
 
-IX_CARGO_FLAGS=--profile initcode --target $(RUST_CROSS_TARGET) -Z build-std=core,alloc,compiler_builtins
 RX_CARGO_FLAGS=$(CARGO_PROFILE_FLAG) --target $(RUST_CROSS_TARGET) -Z build-std=core,alloc,compiler_builtins
-IX_RUST_FLAGS=-C relocation-model=static -C force-frame-pointers=yes
 RX_RUST_FLAGS=-C relocation-model=static -C force-frame-pointers=yes
 
 RN_PKGS=ov6_fs_utilities ov6_integration_tests
-
-OV6_INITCODE=\
-	initcode\
 
 OV6_SERVICES=\
 	init\
@@ -94,13 +87,9 @@ target/ov6/%.debug: target/$(RUST_CROSS_TARGET)/% | $$(dir $$@)
 target/ov6/%: target/$(RUST_CROSS_TARGET)/% target/ov6/%.debug | $$(dir $$@)
 	$(OBJCOPY) --strip-debug --strip-unneeded --remove-section=".gnu_debuglink" --add-gnu-debuglink="$@.debug" $< $@
 
-$I/initcode.bin: $I/initcode
-	$(OBJCOPY) -S -O binary $< $@
-
-$(RX)/kernel: $I/initcode.bin FORCE
-	INIT_CODE_PATH="$(PWD)/$I/initcode.bin" \
-		RUSTFLAGS="$(RX_RUST_FLAGS)" \
-		cargo build -p ov6_kernel $(RX_CARGO_FLAGS) --features initcode_env
+$(RX)/kernel: FORCE
+	RUSTFLAGS="$(RX_RUST_FLAGS)" \
+		cargo build -p ov6_kernel $(RX_CARGO_FLAGS)
 
 $(IX)/%.stamp: FORCE
 	RUSTFLAGS="$(IX_RUST_FLAGS)" \
@@ -112,7 +101,6 @@ $(RX)/%.stamp: FORCE
 		cargo build -p $(patsubst %.stamp,%,$(notdir $@)) $(RX_CARGO_FLAGS)
 	touch $@
 
-$(foreach exe,$(OV6_INITCODE),$(eval $$(IX)/$(exe): $$(IX)/ov6_initcode.stamp))
 $(foreach exe,$(OV6_SERVICES),$(eval $$(RX)/$(exe): $$(RX)/ov6_services.stamp))
 $(foreach exe,$(OV6_UTILS),$(eval $$(RX)/$(exe): $$(RX)/ov6_utilities.stamp))
 $(foreach exe,$(OV6_USER_TESTS),$(eval $$(RX)/$(exe): $$(RX)/ov6_user_tests.stamp))

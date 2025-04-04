@@ -15,7 +15,6 @@ members = [
     "crates/user/ov6_user_lib",
     "crates/user/ov6_utilities",
     "crates/user/ov6_user_tests",
-    "crates/user/ov6_initcode",
     "crates/user/ov6_services",
     "crates/utils/ov6_fs_utilities",
     "crates/utils/ov6_integration_tests",
@@ -69,11 +68,6 @@ lto = "fat"
 debug = "full"
 panic = "abort"
 opt-level = 1
-
-[profile.initcode]
-inherits = "release"
-debug = "full"
-lto = "fat"
 
 [workspace.lints.rust]
 deprecated-safe = "warn"

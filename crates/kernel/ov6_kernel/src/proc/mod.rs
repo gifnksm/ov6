@@ -24,7 +24,7 @@ use crate::{
     cpu::Cpu,
     error::KernelError,
     file::File,
-    fs::{self, DeviceNo, Inode},
+    fs::Inode,
     interrupt::{
         self,
         timer::Uptime,
@@ -546,8 +546,6 @@ impl Proc {
 /// A fork child's very first scheduling by `scheduler()`
 /// will switch for forkret.
 extern "C" fn forkret() {
-    static FIRST: AtomicBool = AtomicBool::new(true);
-
     // Still holding `p->shared` from `scheduler()`.
     let p = Proc::current();
     let _ = unsafe { p.shared.remember_locked() }; // unlock here
@@ -556,15 +554,6 @@ extern "C" fn forkret() {
         scheduler::yield_(p);
         unreachable!();
     };
-
-    if FIRST.load(Ordering::Acquire) {
-        // File system initialization must be run in the context of a
-        // regular process (e.g., because it calls sleep), and thus cannot
-        // be run from main().
-        fs::init_in_proc(DeviceNo::ROOT);
-
-        FIRST.store(false, Ordering::Release);
-    }
 
     trap::trap_user_ret(private);
 }

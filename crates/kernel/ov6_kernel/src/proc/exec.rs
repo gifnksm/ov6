@@ -1,5 +1,5 @@
 use dataview::PodMethods as _;
-use ov6_syscall::{UserMutSlice, UserSlice};
+use ov6_syscall::UserMutSlice;
 use ov6_types::path::Path;
 use safe_cast::{SafeFrom as _, SafeInto as _};
 
@@ -9,7 +9,7 @@ use crate::{
     fs::{self, LockedTxInode},
     memory::{
         PAGE_SIZE, PageRound as _, VirtAddr,
-        addr::{Validate as _, Validated},
+        addr::{AsGenericSliceOfSlice, GenericSliceOfSlice, Validate as _},
         page_table::{MapTarget, PtEntryFlags},
         vm_user::UserPageTable,
     },
@@ -44,13 +44,16 @@ fn arg_stack_size(arg_data_size: usize, arg_len: usize) -> Option<usize> {
     Some(stack_size.next_multiple_of(16))
 }
 
-pub fn exec(
+pub fn exec<'a, A>(
     p: &Proc,
     private: &mut ProcPrivateData,
     path: &Path,
-    argv: &Validated<UserSlice<Validated<UserSlice<u8>>>>,
+    argv: &'a A,
     arg_data_size: usize,
-) -> Result<(usize, VirtAddr), KernelError> {
+) -> Result<(usize, VirtAddr), KernelError>
+where
+    A: AsGenericSliceOfSlice<u8> + 'a,
+{
     let user_stack_size = USER_STACK_PAGES * PAGE_SIZE;
     let arg_stack_size = arg_stack_size(arg_data_size, argv.len())
         .filter(|size| *size <= user_stack_size)
@@ -90,7 +93,8 @@ pub fn exec(
     let sp = pt.stack_top();
 
     // Push argument strings, prepare rest of stack in ustack.
-    let (sp, argc) = push_arguments(&mut pt, private.pagetable(), sp, arg_stack_size, argv);
+    let argv = argv.as_generic_slice_of_slice(private.pagetable());
+    let (sp, argc) = push_arguments(&mut pt, sp, arg_stack_size, &argv);
 
     let argv = sp;
 
@@ -190,10 +194,9 @@ fn load_segment<const READ_ONLY: bool>(
 
 fn push_arguments(
     dst_pt: &mut UserPageTable,
-    src_pt: &UserPageTable,
     sp: VirtAddr,
     arg_stack_size: usize,
-    argv: &Validated<UserSlice<Validated<UserSlice<u8>>>>,
+    argv: &GenericSliceOfSlice<u8>,
 ) -> (VirtAddr, usize) {
     let arg_top = sp.byte_sub(arg_stack_size).unwrap();
     assert_eq!(arg_top.addr() % 16, 0);
@@ -208,8 +211,8 @@ fn push_arguments(
     for i in 0..argv.len() {
         dst_pt.copy_k2u(&mut dst_argv.nth_mut(i), &dst_chars.addr());
 
-        let uarg = src_pt.copy_u2k(&argv.nth(i));
-        UserPageTable::copy_u2u_bytes(dst_pt, &mut dst_chars.take_mut(uarg.len()), src_pt, &uarg);
+        let uarg = argv.nth(i);
+        dst_pt.copy_x2u_bytes(&mut dst_chars.take_mut(uarg.len()), &uarg);
         dst_chars = dst_chars.skip_mut(uarg.len());
         dst_pt.copy_k2u(&mut dst_chars.nth_mut(0), &0);
         dst_chars = dst_chars.skip_mut(1);

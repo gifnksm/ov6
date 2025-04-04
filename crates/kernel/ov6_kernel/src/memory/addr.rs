@@ -611,3 +611,70 @@ impl<'a, T> From<(&'a mut UserPageTable, &'a mut Validated<UserMutSlice<T>>)>
         )
     }
 }
+
+#[derive(Clone, Copy, derive_more::From)]
+pub enum GenericSliceOfSlice<'a, T> {
+    User(
+        &'a UserPageTable,
+        Validated<UserSlice<Validated<UserSlice<T>>>>,
+    ),
+    Kernel(&'a [&'a [T]]),
+}
+
+impl<T> GenericSliceOfSlice<'_, T> {
+    pub fn len(&self) -> usize {
+        match self {
+            Self::User(_pt, s) => s.len(),
+            Self::Kernel(s) => s.len(),
+        }
+    }
+
+    pub fn nth(&self, n: usize) -> GenericSlice<'_, T>
+    where
+        T: Pod,
+    {
+        assert!(n < self.len());
+        match self {
+            Self::User(pt, s) => {
+                let elem = pt.copy_u2k(&s.nth(n));
+                GenericSlice::User(pt, elem)
+            }
+            Self::Kernel(s) => GenericSlice::Kernel(s[n]),
+        }
+    }
+}
+
+pub trait AsGenericSliceOfSlice<T> {
+    fn len(&self) -> usize;
+    fn as_generic_slice_of_slice<'a>(&'a self, pt: &'a UserPageTable)
+    -> GenericSliceOfSlice<'a, T>;
+}
+
+impl<T> AsGenericSliceOfSlice<T> for Validated<UserSlice<Validated<UserSlice<T>>>> {
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    fn as_generic_slice_of_slice<'a>(
+        &'a self,
+        pt: &'a UserPageTable,
+    ) -> GenericSliceOfSlice<'a, T> {
+        GenericSliceOfSlice::User(
+            pt,
+            Self(unsafe { UserSlice::from_raw_parts(self.addr(), self.len()) }),
+        )
+    }
+}
+
+impl<'a, T> AsGenericSliceOfSlice<T> for &'a [&'a [T]] {
+    fn len(&self) -> usize {
+        (*self).len()
+    }
+
+    fn as_generic_slice_of_slice<'b>(
+        &'b self,
+        _pt: &'b UserPageTable,
+    ) -> GenericSliceOfSlice<'b, T> {
+        GenericSliceOfSlice::Kernel(self)
+    }
+}

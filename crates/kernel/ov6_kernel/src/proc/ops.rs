@@ -1,13 +1,14 @@
 use core::{cmp, ptr};
 
 use ov6_syscall::{RegisterValue as _, ReturnType, WaitTarget, syscall as sys};
-use ov6_types::{os_str::OsStr, process::ProcId};
+use ov6_types::{os_str::OsStr, path::Path, process::ProcId};
 
 use super::{PROC, ProcPrivateData, ProcPrivateDataGuard, ProcShared, WaitLock};
 use crate::{
     error::KernelError,
-    fs::{self, Inode, TxInode},
-    memory::{VirtAddr, page_table::PtEntryFlags},
+    fs::{self, DeviceNo, Inode, TxInode},
+    interrupt::trap,
+    memory::page_table::PtEntryFlags,
     println,
     proc::{INIT_PROC, Proc, ProcState, scheduler, wait_lock},
     sync::{SpinLockCondVar, SpinLockGuard, WaitError},
@@ -16,38 +17,47 @@ use crate::{
 
 /// Set up first user process.
 pub fn spawn_init() {
-    /// A user program that calls `exec("/init")`.
-    #[cfg(feature = "initcode_env")]
-    static INIT_CODE: &[u8] = const { include_bytes!(env!("INIT_CODE_PATH")) };
-    /// A user program that calls `exec("/init")`.
-    #[cfg(not(feature = "initcode_env"))]
-    static INIT_CODE: &[u8] = &[];
-
-    const _: () = const { assert!(INIT_CODE.len() < 128) };
-
     let (p, mut shared, mut private) = Proc::allocate().unwrap();
     assert_eq!(shared.pid.unwrap().get().get(), 1);
     INIT_PROC.init(p);
 
-    // allocate one user page and copy initcode's instructions
-    // and data into it.
-    private.pagetable_mut().alloc_first(INIT_CODE).unwrap();
-    private.pagetable_mut().alloc_stack().unwrap();
-
-    // prepare for the very first `return` from kernel to user.
-    let pc = VirtAddr::MIN_AVA.addr();
-    let sp = private.pagetable().stack_top().addr();
-    let trapframe = private.trapframe_mut();
-    trapframe.epc = pc;
-    trapframe.user_registers.sp = sp;
+    shared.context.ra = forkret_init as usize;
 
     let tx = fs::begin_readonly_tx();
     private.cwd = Some(Inode::from_tx(&TxInode::root(&tx)));
     tx.end();
-    shared.set_name(OsStr::new("initcode"));
+    shared.set_name(OsStr::new("spawn_init"));
     shared.state = ProcState::Runnable;
 
     drop(shared);
+}
+
+extern "C" fn forkret_init() {
+    // Still holding `p->shared` from `scheduler()`.
+    let p = Proc::current();
+    let _ = unsafe { p.shared.remember_locked() }; // unlock here
+
+    let Some(mut private) = p.borrow_private() else {
+        // process is already exited (in zombie state)
+        scheduler::yield_(p);
+        unreachable!();
+    };
+
+    // File system initialization must be run in the context of a
+    // regular process (e.g., because it calls sleep), and thus cannot
+    // be run from main().
+    fs::init_in_proc(DeviceNo::ROOT);
+
+    let argv: &[&[u8]] = &[b"/init"];
+    let arg_data_size = argv.iter().map(|arg| arg.len() + 1).sum();
+    let (a0, a1) =
+        super::exec::exec(p, &mut private, Path::new("/init"), &argv, arg_data_size).unwrap();
+
+    let tf = private.trapframe_mut();
+    tf.user_registers.a0 = a0;
+    tf.user_registers.a1 = a1.addr();
+
+    trap::trap_user_ret(private);
 }
 
 /// Grows user memory by `n` Bytes.
