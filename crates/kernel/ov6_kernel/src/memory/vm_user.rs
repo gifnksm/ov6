@@ -1,5 +1,4 @@
-use alloc::boxed::Box;
-use core::{ops::Range, ptr};
+use core::ops::Range;
 
 use dataview::{DataView, Pod, PodMethods as _};
 use ov6_syscall::{USyscallData, UserMutRef, UserMutSlice, UserRef, UserSlice};
@@ -13,7 +12,6 @@ use super::{
         TRAMPOLINE, TRAMPOLINE_SIZE, TRAPFRAME, TRAPFRAME_SIZE, USER_STACK_BOTTOM, USER_STACK_SIZE,
         USYSCALL, USYSCALL_SIZE,
     },
-    page::{self, PageFrameAllocator},
     page_table::{self, MapTarget, PageTable, PtEntryFlags},
 };
 use crate::{
@@ -23,7 +21,7 @@ use crate::{
 };
 
 pub struct UserPageTable {
-    pt: Box<PageTable, PageFrameAllocator>,
+    pt: PageTable,
     heap_start: VirtAddr,
     heap_size: usize,
     stack_start: VirtAddr,
@@ -33,9 +31,9 @@ pub struct UserPageTable {
 impl UserPageTable {
     /// Creates a user page table with a given trapframe, with no user memory,
     /// but with trampoline and trapframe pages.
-    pub fn new(pid: ProcId, tf: &TrapFrame) -> Result<Self, KernelError> {
+    pub fn new(pid: ProcId) -> Result<Self, KernelError> {
         // An empty page table.
-        let mut pt = Self {
+        let mut this = Self {
             pt: PageTable::try_allocate()?,
             heap_start: VirtAddr::MIN_AVA,
             heap_size: 0,
@@ -43,27 +41,39 @@ impl UserPageTable {
             stack_size: USER_STACK_SIZE,
         };
 
-        pt.alloc_usyscall(pid)?;
+        this.alloc_usyscall(pid)?;
 
-        pt.pt.map_addrs(
+        this.pt.map_addrs(
             TRAMPOLINE,
             MapTarget::fixed_addr(PhysAddr::new(trampoline::trampoline as usize)),
             TRAMPOLINE_SIZE,
             PtEntryFlags::RX,
         )?;
 
-        pt.pt.map_addrs(
+        this.pt.map_addrs(
             TRAPFRAME,
-            MapTarget::fixed_addr(PhysAddr::new(ptr::from_ref(tf).addr())),
+            MapTarget::allocate_new_zeroed(),
             TRAPFRAME_SIZE,
             PtEntryFlags::RW,
         )?;
 
-        Ok(pt)
+        Ok(this)
     }
 
     pub fn satp(&self) -> Satp {
         self.pt.satp()
+    }
+
+    pub fn trapframe(&self) -> &TrapFrame {
+        let bytes = self.fetch_chunk(TRAPFRAME, PtEntryFlags::R).unwrap();
+        assert!(bytes.len() >= size_of::<TrapFrame>());
+        DataView::from(bytes).get::<TrapFrame>(0)
+    }
+
+    pub fn trapframe_mut(&mut self) -> &mut TrapFrame {
+        let bytes = self.fetch_chunk_mut(TRAPFRAME, PtEntryFlags::RW).unwrap();
+        assert!(bytes.len() >= size_of::<TrapFrame>());
+        DataView::from_mut(bytes).get_mut::<TrapFrame>(0)
     }
 
     pub fn heap_start(&self) -> VirtAddr {
@@ -182,15 +192,7 @@ impl UserPageTable {
         if new_size.page_roundup() < self.heap_size.page_roundup() {
             let size = self.heap_size.page_roundup() - new_size.page_roundup();
             let start_va = self.heap_start.byte_add(new_size).unwrap().page_roundup();
-            for (level, va, pa) in self.pt.unmap_addrs(start_va, size).unwrap() {
-                assert_eq!(
-                    level, 0,
-                    "super page is not supported yet, level={level}, va={va:#x}, pa={pa:#x}"
-                );
-                unsafe {
-                    page::free_page(pa.as_mut_ptr());
-                }
-            }
+            self.pt.unmap_addrs(start_va, size).unwrap();
         }
 
         self.heap_size = new_size;
@@ -389,24 +391,5 @@ impl UserPageTable {
 
     pub fn dump(&self) {
         page_table::dump_pagetable(&self.pt);
-    }
-}
-
-impl Drop for UserPageTable {
-    fn drop(&mut self) {
-        let _ = self.pt.unmap_addrs(TRAMPOLINE, TRAMPOLINE_SIZE).unwrap();
-        let _ = self.pt.unmap_addrs(TRAPFRAME, TRAPFRAME_SIZE).unwrap();
-
-        for (level, va, pa) in self.pt.unmap_range(VirtAddr::MIN_AVA..VirtAddr::MAX) {
-            assert_eq!(
-                level, 0,
-                "super page is not supported yet, level={level}, va={va:#x}, pa={pa:#x}"
-            );
-            unsafe {
-                page::free_page(pa.as_mut_ptr());
-            }
-        }
-
-        self.pt.free_descendant();
     }
 }

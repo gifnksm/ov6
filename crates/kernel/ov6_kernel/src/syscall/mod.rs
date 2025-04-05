@@ -229,13 +229,14 @@ trait SyscallExt: Syscall {
 
 pub fn syscall(p: &'static Proc, private_opt: &mut Option<ProcPrivateDataGuard>) {
     let private = private_opt.as_mut().unwrap();
-    let n = private.trapframe().user_registers.a7;
+    let tf = private.trapframe_mut();
+    let n = tf.user_registers.a7;
     let Some(ty) = SyscallCode::from_repr(n) else {
         let shared = p.shared().lock();
         let pid = shared.pid();
         let name = shared.name().display();
         println!("{pid} {name}: unknown sys call {n}");
-        private.trapframe_mut().user_registers.a0 = usize::MAX;
+        tf.user_registers.a0 = usize::MAX;
         return;
     };
 

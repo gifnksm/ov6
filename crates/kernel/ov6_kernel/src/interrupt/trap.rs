@@ -111,7 +111,8 @@ extern "C" fn trap_user() {
     let mut private = p.borrow_private().unwrap();
 
     // save user program counter.
-    private.trapframe_mut().epc = sepc::read();
+    let tf = private.trapframe_mut();
+    tf.epc = sepc::read();
 
     let scause: Trap<Interrupt, Exception> = scause::read().cause().try_into().unwrap();
     let mut which_dev = IntrKind::NotRecognized;
@@ -124,7 +125,7 @@ extern "C" fn trap_user() {
 
             // sepc points to the ecall instruction,
             // but we want to return to the next instruction.
-            private.trapframe_mut().epc += 4;
+            tf.epc += 4;
 
             // an interrupt will change sepc, scause, and sstatus,
             // so enable only now that we're done with those registers.
@@ -249,6 +250,7 @@ pub fn trap_user_ret(mut private: ProcPrivateDataGuard) {
     tf.kernel_sp = kstack.byte_add(KSTACK_PAGES * PAGE_SIZE).unwrap().addr(); // process's kernel stack
     tf.kernel_trap = trap_user as usize;
     tf.kernel_hartid = cpu::id();
+    let epc = tf.epc;
 
     // set up the registers that trampoline.S's sret will use
     // to get to user space.
@@ -261,7 +263,7 @@ pub fn trap_user_ret(mut private: ProcPrivateDataGuard) {
 
     // set S Exception Program Counter to the saved user pc.
     unsafe {
-        sepc::write(private.trapframe().epc);
+        sepc::write(epc);
     }
 
     // tell trampoline.S the user page table to switch to.

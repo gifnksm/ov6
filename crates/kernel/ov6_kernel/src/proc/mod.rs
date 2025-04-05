@@ -1,6 +1,4 @@
-use alloc::boxed::Box;
 use core::{
-    alloc::AllocError,
     cell::UnsafeCell,
     mem,
     num::NonZero,
@@ -12,7 +10,6 @@ use core::{
 };
 
 use arrayvec::ArrayVec;
-use dataview::PodMethods as _;
 use once_init::OnceInit;
 use ov6_types::{fs::RawFd, os_str::OsStr, process::ProcId};
 
@@ -33,7 +30,6 @@ use crate::{
     memory::{
         PAGE_SIZE, VirtAddr,
         layout::{self, KSTACK_PAGES},
-        page::PageFrameAllocator,
         vm_user::UserPageTable,
     },
     param::{NOFILE, NPROC},
@@ -190,8 +186,6 @@ pub struct ProcPrivateData {
     kstack: VirtAddr,
     /// User page table,
     pagetable: UserPageTable,
-    /// Data page for trampoline.S
-    trapframe: Box<TrapFrame, PageFrameAllocator>,
     /// Open files
     ofile: [Option<File>; NOFILE],
     /// Current directory
@@ -223,11 +217,11 @@ impl ProcPrivateData {
     }
 
     pub fn trapframe(&self) -> &TrapFrame {
-        &self.trapframe
+        self.pagetable.trapframe()
     }
 
     pub fn trapframe_mut(&mut self) -> &mut TrapFrame {
-        &mut self.trapframe
+        self.pagetable.trapframe_mut()
     }
 
     pub fn ofile(&self, fd: RawFd) -> Result<&File, KernelError> {
@@ -278,7 +272,7 @@ impl ProcPrivateData {
             return;
         }
 
-        let tf = &mut self.trapframe;
+        let tf = self.pagetable.trapframe_mut();
         self.signal_handler_state = Some(SignalHandlerState {
             context: InterruptedContext {
                 epc: tf.epc,
@@ -294,8 +288,8 @@ impl ProcPrivateData {
             .signal_handler_state
             .take()
             .ok_or(KernelError::NotInSignalHandler)?;
-        let tf = &mut self.trapframe;
 
+        let tf = self.pagetable.trapframe_mut();
         tf.epc = state.context.epc;
         tf.user_registers = state.context.user_registers;
 
@@ -488,14 +482,10 @@ impl Proc {
         shared.state = ProcState::Used;
 
         let res: Result<ProcPrivateData, KernelError> = (|| {
-            let trapframe = Box::try_new_in(TrapFrame::zeroed(), PageFrameAllocator)
-                .map_err(|AllocError| KernelError::NoFreePage)?;
-
             let private = ProcPrivateData {
                 pid,
                 kstack: layout::kstack(i),
-                pagetable: UserPageTable::new(pid, &trapframe)?,
-                trapframe,
+                pagetable: UserPageTable::new(pid)?,
                 ofile: [const { None }; NOFILE],
                 cwd: None,
                 trace_mask: 0,

@@ -1,12 +1,9 @@
-use alloc::boxed::Box;
-
 use once_init::OnceInit;
 use ov6_kernel_params::NPROC;
 use riscv::{asm, register::satp};
 
 use super::{
     layout::{self, KSTACK_PAGES},
-    page::PageFrameAllocator,
     page_table::{self, MapTarget, PageTable},
 };
 use crate::{
@@ -56,7 +53,7 @@ unsafe fn ident_map(
     )
 }
 
-pub struct KernelPageTable(Box<PageTable, PageFrameAllocator>);
+pub struct KernelPageTable(PageTable);
 
 impl KernelPageTable {
     /// Makes a direct-map page table for the kernel.

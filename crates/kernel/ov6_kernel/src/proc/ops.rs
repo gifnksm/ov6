@@ -89,11 +89,12 @@ pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Result<ProcId, Ker
     }
 
     // Copy saved user registers.
-    *np_private.trapframe_mut() = *p_private.trapframe();
+    let np_tf = np_private.trapframe_mut();
+    *np_tf = *p_private.trapframe();
 
     // Cause fork to return 0 in the child.
     let child_ret: ReturnType<sys::Fork> = Ok(None);
-    ReturnValue::from(child_ret.encode()).store(np_private.trapframe_mut());
+    ReturnValue::from(child_ret.encode()).store(np_tf);
 
     // increment refereence counts on open file descriptors.
     for (of, nof) in p_private.ofile.iter().zip(&mut np_private.ofile) {

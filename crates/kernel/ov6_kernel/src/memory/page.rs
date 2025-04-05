@@ -6,37 +6,47 @@
 
 use core::{
     alloc::{AllocError, Allocator, Layout},
-    ptr::{self, NonNull},
+    ops::Range,
+    ptr::NonNull,
 };
 
 use once_init::OnceInit;
 
-use super::{PAGE_SIZE, PageRound as _, layout::KERNEL_END};
+use super::{PAGE_SIZE, PageRound as _, PhysAddr, layout::KERNEL_END};
 use crate::{error::KernelError, memory::layout::PHYS_TOP, sync::SpinLock};
 
 /// First address after kernel.
-fn end() -> NonNull<u8> {
+fn end() -> PhysAddr {
     let end = unsafe { KERNEL_END };
-    NonNull::new(ptr::with_exposed_provenance_mut::<u8>(end)).unwrap()
+    PhysAddr::new(end)
 }
 
-fn top() -> NonNull<u8> {
+fn top() -> PhysAddr {
     let top = unsafe { PHYS_TOP };
-    NonNull::new(ptr::with_exposed_provenance_mut(top)).unwrap()
+    PhysAddr::new(top)
 }
 
 static PAGE_FRAME_ALLOCATOR: OnceInit<SpinLock<page_alloc::PageFrameAllocator<PAGE_SIZE>>> =
     OnceInit::new();
 
+static PAGE_ADDR_RANGE: OnceInit<Range<PhysAddr>> = OnceInit::new();
+
 pub fn init() {
-    let pa_start = end().map_addr(|a| a.get().page_roundup().try_into().unwrap());
-    let pa_end = top().map_addr(|a| a.get().page_rounddown().try_into().unwrap());
+    let pa_start = end().page_roundup();
+    let pa_end = top().page_rounddown();
+
+    PAGE_ADDR_RANGE.init(pa_start..pa_end);
 
     unsafe {
         PAGE_FRAME_ALLOCATOR.init(SpinLock::new(page_alloc::PageFrameAllocator::new(
-            pa_start.as_ptr()..pa_end.as_ptr(),
+            pa_start.as_mut_ptr()..pa_end.as_mut_ptr(),
         )));
     }
+}
+
+pub fn is_allocated_addr(ptr: NonNull<u8>) -> bool {
+    let range = PAGE_ADDR_RANGE.get();
+    range.contains(&ptr.into())
 }
 
 /// Frees the page of physical memory pointed at by pa,

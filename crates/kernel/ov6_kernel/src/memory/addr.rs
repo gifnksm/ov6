@@ -270,7 +270,11 @@ impl PhysAddr {
         ptr::with_exposed_provenance(self.0)
     }
 
-    pub fn as_mut_ptr<T>(self) -> NonNull<T> {
+    pub fn as_mut_ptr<T>(self) -> *mut T {
+        ptr::with_exposed_provenance_mut(self.0)
+    }
+
+    pub fn as_non_null<T>(self) -> NonNull<T> {
         NonNull::new(ptr::with_exposed_provenance_mut(self.0)).unwrap()
     }
 
@@ -283,6 +287,51 @@ impl PhysAddr {
             return None;
         };
         Some(Self(n))
+    }
+}
+
+impl<T> From<&T> for PhysAddr
+where
+    T: ?Sized,
+{
+    fn from(r: &T) -> Self {
+        Self(ptr::from_ref(r).addr())
+    }
+}
+
+impl<T> From<&mut T> for PhysAddr
+where
+    T: ?Sized,
+{
+    fn from(r: &mut T) -> Self {
+        Self(ptr::from_mut(r).addr())
+    }
+}
+
+impl<T> From<*const T> for PhysAddr
+where
+    T: ?Sized,
+{
+    fn from(ptr: *const T) -> Self {
+        Self(ptr.addr())
+    }
+}
+
+impl<T> From<*mut T> for PhysAddr
+where
+    T: ?Sized,
+{
+    fn from(ptr: *mut T) -> Self {
+        Self(ptr.addr())
+    }
+}
+
+impl<T> From<NonNull<T>> for PhysAddr
+where
+    T: ?Sized,
+{
+    fn from(ptr: NonNull<T>) -> Self {
+        Self(ptr.addr().get())
     }
 }
 

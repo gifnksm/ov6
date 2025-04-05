@@ -75,7 +75,7 @@ where
         return Err(KernelError::InvalidExecutable);
     }
 
-    let mut pt = UserPageTable::new(private.pid, private.trapframe())?;
+    let mut pt = UserPageTable::new(private.pid)?;
 
     // Load program into memory.
     let segment_end = load_segments(&mut lip, &mut pt, &elf)?;
@@ -104,8 +104,9 @@ where
 
     // Commit to the user image.
     private.update_pagetable(pt);
-    private.trapframe_mut().epc = elf.entry.safe_into(); // initial pogram counter = main
-    private.trapframe_mut().user_registers.sp = sp.addr(); // initial stack pointer
+    let tf = private.trapframe_mut();
+    tf.epc = elf.entry.safe_into(); // initial pogram counter = main
+    tf.user_registers.sp = sp.addr(); // initial stack pointer
 
     Ok((argc, argv))
 }
