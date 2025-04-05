@@ -89,7 +89,7 @@ pub enum SyscallCode {
     AlarmClear,
     SignalReturn,
 
-    Reboot = 100,
+    Reboot,
     Halt,
     Abort,
     Trace,
