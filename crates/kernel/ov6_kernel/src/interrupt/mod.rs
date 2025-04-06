@@ -9,6 +9,7 @@ use riscv::register::sstatus;
 
 use crate::{cpu, param::NCPU};
 
+pub mod clic;
 mod kernel_vec;
 pub mod plic;
 pub mod timer;

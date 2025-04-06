@@ -60,7 +60,7 @@ pub(super) fn handle_interrupt() {
     let time: u64;
     unsafe {
         asm!("csrr {}, time", out(reg) time);
-        asm!("csrw stimecmp, {}", in(reg) time + CLOCKS_PER_TICK);
+        asm!("csrw stimecmp, {}", in(reg) time + CLOCKS_PER_TICK );
     }
 }
 

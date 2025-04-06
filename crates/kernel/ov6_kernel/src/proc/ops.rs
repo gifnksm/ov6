@@ -1,13 +1,15 @@
 use core::{cmp, ptr};
 
+use ov6_kernel_params::NCPU;
 use ov6_syscall::{RegisterValue as _, ReturnType, WaitTarget, syscall as sys};
 use ov6_types::{os_str::OsStr, path::Path, process::ProcId};
 
 use super::{PROC, ProcPrivateData, ProcPrivateDataGuard, ProcShared, WaitLock};
 use crate::{
+    cpu,
     error::KernelError,
     fs::{self, DeviceNo, Inode, TxInode},
-    interrupt::trap,
+    interrupt::{clic, trap},
     memory::page_table::PtEntryFlags,
     println,
     proc::{INIT_PROC, Proc, ProcState, scheduler, wait_lock},
@@ -319,15 +321,35 @@ fn sleep_common<'a, T>(
 ///
 /// Must be called without any processes locked.
 pub fn wakeup(cond: &SpinLockCondVar) {
+    let mut wakeup = 0;
     let cond = ptr::from_ref(cond).addr();
     for p in &PROC {
         let mut shared = p.shared.lock();
         if let ProcState::Sleeping { chan: ch } = shared.state {
             if ch == cond {
                 shared.state = ProcState::Runnable;
+                wakeup += 1;
             }
         }
         drop(shared);
+    }
+
+    if wakeup > 0 {
+        let mut woken = 0;
+        let cpuid = cpu::id();
+        for i in 0..NCPU {
+            if i == cpuid {
+                continue;
+            }
+            if !cpu::is_idle(i) {
+                continue;
+            }
+            clic::send_software_interrupt(i);
+            woken += 1;
+            if woken >= wakeup {
+                break;
+            }
+        }
     }
 }
 

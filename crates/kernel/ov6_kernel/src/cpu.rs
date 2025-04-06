@@ -1,4 +1,8 @@
-use core::{arch::asm, ptr::NonNull};
+use core::{
+    arch::asm,
+    ptr::NonNull,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use ov6_types::process::ProcId;
 
@@ -10,6 +14,8 @@ static CPUS: [Cpu; NCPU] = [const { Cpu::new() }; NCPU];
 pub struct Cpu {
     /// The process running on this Cpu.
     proc: SpinLock<Option<(ProcId, NonNull<Proc>)>>,
+    /// `true` if this CPU is idle.
+    idle: AtomicBool,
 }
 
 unsafe impl Sync for Cpu {}
@@ -39,10 +45,16 @@ pub unsafe fn set_id(id: usize) {
     }
 }
 
+pub fn is_idle(id: usize) -> bool {
+    assert!(id < NCPU);
+    CPUS[id].idle.load(Ordering::Relaxed)
+}
+
 impl Cpu {
     const fn new() -> Self {
         Self {
             proc: SpinLock::new(None),
+            idle: AtomicBool::new(false),
         }
     }
 
@@ -54,6 +66,10 @@ impl Cpu {
 
         let id = id();
         &CPUS[id]
+    }
+
+    pub fn set_idle(&self, idle: bool) {
+        self.idle.store(idle, Ordering::Relaxed);
     }
 
     pub fn set_proc(&self, p: Option<(ProcId, &Proc)>) {

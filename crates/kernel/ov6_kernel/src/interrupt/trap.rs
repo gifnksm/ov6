@@ -15,7 +15,7 @@ use riscv::{
 };
 use safe_cast::to_u32;
 
-use super::{kernel_vec, plic, timer, trampoline};
+use super::{clic, kernel_vec, plic, timer, trampoline};
 use crate::{
     console::uart,
     cpu, fs,
@@ -307,7 +307,7 @@ pub extern "C" fn trap_kernel() {
                 scheduler::yield_(p);
             }
         }
-        IntrKind::Other => {}
+        IntrKind::InterProcessor | IntrKind::Other => {}
         IntrKind::NotRecognized => {
             let stval = stval::read();
             println!("kernel trap: interrupt {int:?}");
@@ -330,6 +330,7 @@ pub extern "C" fn trap_kernel() {
 enum IntrKind {
     Timer,
     Other,
+    InterProcessor,
     NotRecognized,
 }
 
@@ -348,6 +349,11 @@ fn handle_dev_interrupt(int: Interrupt) -> IntrKind {
         }
         Interrupt::SupervisorExternal => {
             // this is a supervisor external interrupt, via PLIC.
+
+            if clic::is_software_interrupt_pending() {
+                clic::complete_software_interrupt();
+                return IntrKind::InterProcessor;
+            }
 
             // irq indicates which device interrupted.
             let irq = plic::claim();

@@ -112,7 +112,9 @@ pub fn schedule() -> ! {
         if !found {
             // nothing to run, stop running on this core until an interrupt.
             interrupt::enable();
+            cpu.set_idle(true);
             asm::wfi();
+            cpu.set_idle(false);
         }
     }
 }

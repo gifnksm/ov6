@@ -44,8 +44,17 @@ pub const UART0_IRQ: usize = 10;
 pub const VIRTIO0: usize = 0x1000_1000;
 pub const VIRTIO0_IRQ: usize = 1;
 
+// SiFive CLINT (Core Local Interruptor)
+pub const CLINT: usize = 0x0200_0000;
+pub const CLINT_SIZE: usize = 0x1_0000; // 64kB
+/// Machine-mode Software Interrupt Pending
+pub const fn clint_msip(hart: usize) -> usize {
+    CLINT + 4 * hart
+}
+
 // qemu puts platform-level interrupt controller (PLIC) here.
 pub const PLIC: usize = 0x0c00_0000;
+pub const PLIC_SIZE: usize = 0x400_0000; // 4MB
 // pub const PLIC_PRIORITY: usize = PLIC + 0x0;
 // pub const PLIC_PENDING: usize = PLIC + 0x1000;
 pub const fn plic_senable(hart: usize) -> usize {

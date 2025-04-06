@@ -11,7 +11,10 @@ use crate::{
     interrupt::trampoline,
     memory::{
         PAGE_SIZE, PhysAddr, VirtAddr,
-        layout::{KERNEL_BASE, PHYS_TOP, PLIC, TEXT_END, TRAMPOLINE, UART0, VIRT_TEST, VIRTIO0},
+        layout::{
+            CLINT, CLINT_SIZE, KERNEL_BASE, PHYS_TOP, PLIC, PLIC_SIZE, TEXT_END, TRAMPOLINE, UART0,
+            VIRT_TEST, VIRTIO0,
+        },
         page_table::PtEntryFlags,
     },
 };
@@ -77,8 +80,11 @@ impl KernelPageTable {
             // virtio mmio disk interface
             ident_map(&mut kpgtbl, VIRTIO0, PAGE_SIZE, rw).unwrap();
 
+            // CLINT
+            ident_map(&mut kpgtbl, CLINT, CLINT_SIZE, rw).unwrap();
+
             // PLIC
-            ident_map(&mut kpgtbl, PLIC, 0x400_0000, rw).unwrap();
+            ident_map(&mut kpgtbl, PLIC, PLIC_SIZE, rw).unwrap();
 
             // map kernel text executable and red-only.
             ident_map(&mut kpgtbl, KERNEL_BASE, TEXT_END - KERNEL_BASE, rx).unwrap();
