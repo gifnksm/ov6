@@ -30,6 +30,9 @@ RX_RUST_FLAGS=-C relocation-model=static -C force-frame-pointers=yes
 
 RN_PKGS=ov6_fs_utilities ov6_integration_tests
 
+OV6_KERNEL=\
+	kernel\
+
 OV6_SERVICES=\
 	init\
 
@@ -87,20 +90,12 @@ target/ov6/%.debug: target/$(RUST_CROSS_TARGET)/% | $$(dir $$@)
 target/ov6/%: target/$(RUST_CROSS_TARGET)/% target/ov6/%.debug | $$(dir $$@)
 	$(OBJCOPY) --strip-debug --strip-unneeded --remove-section=".gnu_debuglink" --add-gnu-debuglink="$@.debug" $< $@
 
-$(RX)/kernel: FORCE
-	RUSTFLAGS="$(RX_RUST_FLAGS)" \
-		cargo build -p ov6_kernel $(RX_CARGO_FLAGS)
-
-$(IX)/%.stamp: FORCE
-	RUSTFLAGS="$(IX_RUST_FLAGS)" \
-		cargo build -p $(patsubst %.stamp,%,$(notdir $@)) $(IX_CARGO_FLAGS)
-	touch $@
-
 $(RX)/%.stamp: FORCE
 	RUSTFLAGS="$(RX_RUST_FLAGS)" \
 		cargo build -p $(patsubst %.stamp,%,$(notdir $@)) $(RX_CARGO_FLAGS)
 	touch $@
 
+$(foreach exe,$(OV6_KERNEL),$(eval $$(RX)/$(exe): $$(RX)/ov6_kernel.stamp))
 $(foreach exe,$(OV6_SERVICES),$(eval $$(RX)/$(exe): $$(RX)/ov6_services.stamp))
 $(foreach exe,$(OV6_UTILS),$(eval $$(RX)/$(exe): $$(RX)/ov6_utilities.stamp))
 $(foreach exe,$(OV6_USER_TESTS),$(eval $$(RX)/$(exe): $$(RX)/ov6_user_tests.stamp))
