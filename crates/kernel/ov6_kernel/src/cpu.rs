@@ -1,7 +1,7 @@
 use core::{
     arch::asm,
     ptr::NonNull,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use ov6_types::process::ProcId;
@@ -9,6 +9,7 @@ use ov6_types::process::ProcId;
 use crate::{interrupt, param::NCPU, proc::Proc, sync::SpinLock};
 
 static CPUS: [Cpu; NCPU] = [const { Cpu::new() }; NCPU];
+static NUM_CPUS: AtomicUsize = AtomicUsize::new(0);
 
 /// Per-CPU state.
 pub struct Cpu {
@@ -43,6 +44,13 @@ pub unsafe fn set_id(id: usize) {
     unsafe {
         asm!("mv tp, {}", in(reg) id);
     }
+
+    let ncpu = NUM_CPUS.fetch_max(id + 1, Ordering::Relaxed);
+    assert!(ncpu <= NCPU, "Too many CPUs: {ncpu} > {NCPU}");
+}
+
+pub fn num_cpus() -> usize {
+    NUM_CPUS.load(Ordering::Relaxed)
 }
 
 pub fn is_idle(id: usize) -> bool {

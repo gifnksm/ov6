@@ -1,6 +1,5 @@
 use core::{cmp, ptr};
 
-use ov6_kernel_params::NCPU;
 use ov6_syscall::{RegisterValue as _, ReturnType, WaitTarget, syscall as sys};
 use ov6_types::{os_str::OsStr, path::Path, process::ProcId};
 
@@ -337,7 +336,7 @@ pub fn wakeup(cond: &SpinLockCondVar) {
     if wakeup > 0 {
         let mut woken = 0;
         let cpuid = cpu::id();
-        for i in 0..NCPU {
+        for i in 0..cpu::num_cpus() {
             if i == cpuid {
                 continue;
             }
