@@ -9,6 +9,8 @@ struct Run {
 pub struct PageFrameAllocator<const PAGE_SIZE: usize> {
     heap: Range<*mut u8>,
     free_list: Option<NonNull<Run>>,
+    total_pages: usize,
+    free_pages: usize,
 }
 
 impl<const PAGE_SIZE: usize> PageFrameAllocator<PAGE_SIZE> {
@@ -38,6 +40,7 @@ impl<const PAGE_SIZE: usize> PageFrameAllocator<PAGE_SIZE> {
         assert_eq!(heap.start.addr() % PAGE_SIZE, 0);
         assert_eq!(heap.end.addr() % PAGE_SIZE, 0);
 
+        let mut total_pages = 0;
         let mut free_list = None;
         let mut p = heap.end;
 
@@ -48,19 +51,44 @@ impl<const PAGE_SIZE: usize> PageFrameAllocator<PAGE_SIZE> {
                 run.as_mut().next = free_list;
             }
             free_list = Some(run);
+            total_pages += 1;
         }
 
-        Self { heap, free_list }
+        Self {
+            heap,
+            free_list,
+            total_pages,
+            free_pages: total_pages,
+        }
+    }
+
+    /// Returns the total number of pages managed by the allocator.
+    #[must_use]
+    pub fn total_pages(&self) -> usize {
+        self.total_pages
+    }
+
+    /// Returns the number of free pages currently available for allocation.
+    #[must_use]
+    pub fn free_pages(&self) -> usize {
+        self.free_pages
     }
 
     /// Allocates a page of physical memory.
+    ///
+    /// Returns `Some` with a pointer to the allocated page, or `None` if no
+    /// pages are available.
     pub fn alloc(&mut self) -> Option<NonNull<u8>> {
         let page = self.free_list.take()?;
         self.free_list = unsafe { page.as_ref().next };
+        self.free_pages -= 1;
         Some(page.cast())
     }
 
     /// Allocates a page of physical memory and zeroes it.
+    ///
+    /// Returns `Some` with a pointer to the allocated page, or `None` if no
+    /// pages are available.
     pub fn alloc_zeroed(&mut self) -> Option<NonNull<u8>> {
         let page = self.alloc()?;
         unsafe {
@@ -92,6 +120,7 @@ impl<const PAGE_SIZE: usize> PageFrameAllocator<PAGE_SIZE> {
             run.as_mut().next = self.free_list;
             self.free_list = Some(run);
         }
+        self.free_pages += 1;
     }
 }
 
@@ -138,6 +167,9 @@ mod tests {
         let mut pages = vec![];
         let mut addrs = HashSet::new();
 
+        assert_eq!(allocator.total_pages(), 100);
+        assert_eq!(allocator.free_pages(), 100);
+
         // allocate all pages
         for _ in 0..100 {
             let page = allocator.alloc().unwrap();
@@ -149,14 +181,19 @@ mod tests {
         // fail to allocate one more page
         assert!(allocator.alloc().is_none());
 
+        assert_eq!(allocator.free_pages(), 0);
+
         // free one page and allocate one page
         let page = pages.pop().unwrap();
         unsafe {
             allocator.free(page);
         }
+        assert_eq!(allocator.free_pages(), 1);
+
         let page = allocator.alloc().unwrap();
         assert_eq!(page.addr().get() % PAGE_SIZE, 0);
         pages.push(page);
+        assert_eq!(allocator.free_pages(), 0);
 
         // free all pages
         for page in pages {
@@ -164,5 +201,6 @@ mod tests {
                 allocator.free(page);
             }
         }
+        assert_eq!(allocator.free_pages(), 100);
     }
 }
