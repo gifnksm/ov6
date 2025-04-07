@@ -4,9 +4,8 @@ use alloc::{borrow::ToOwned as _, string::String, vec, vec::Vec};
 
 use ov6_user_lib::{
     env, eprint, eprintln,
-    io::{Read as _, Write as _, stdout},
     os::ov6::syscall,
-    process::{self, ProcessBuilder, Stdio},
+    process::{self, ProcessBuilder},
     time::Instant,
 };
 
@@ -60,45 +59,9 @@ impl TestEntry {
     }
 }
 
-/// Counts that the kernel can allocate and deallocate memory.
-///
-/// This uses `sbrt()` to count how many free physical memory pages there are.
-/// Touches the pages to force allocation.
-/// Because out of memory with lazy allocation results in the process
-/// taking a fault and being killed, fork and report back.
-fn count_free_pages() -> usize {
-    let mut child = process::ProcessBuilder::new()
-        .stdout(Stdio::Pipe)
-        .spawn_fn(|| {
-            loop {
-                unsafe {
-                    let Ok(a) = process::grow_break(4096) else {
-                        break;
-                    };
-                    // modify the memory to make sure it's really allocated.
-                    a.add(4096 - 1).write(1);
-                    // report back one more page.
-                    stdout().write_all(b"x").unwrap();
-                }
-            }
-            process::exit(0);
-        })
-        .unwrap();
-
-    let mut rx = child.stdout.take().unwrap();
-    let mut n = 0;
-    loop {
-        let mut buf = [0];
-        if rx.read(&mut buf).unwrap() == 0 {
-            break;
-        }
-        n += 1;
-    }
-    drop(rx);
-    let exit_status = child.wait().unwrap();
-    assert!(exit_status.success());
-
-    n
+fn get_free_pages() -> usize {
+    let sysinfo = syscall::get_system_info().unwrap();
+    sysinfo.memory.free_pages
 }
 
 enum TestNameMatchType {
@@ -236,7 +199,7 @@ impl TestParam {
         loop {
             eprint!("freepages: ");
             let start = Instant::now();
-            let free0 = count_free_pages();
+            let free0 = get_free_pages();
             let elapsed = start.elapsed();
             eprintln!(
                 "{free0} [{:3}.{:03}s]",
@@ -251,7 +214,7 @@ impl TestParam {
 
             eprint!("freepages: ");
             let start = Instant::now();
-            let free1 = count_free_pages();
+            let free1 = get_free_pages();
             let elapsed = start.elapsed();
             eprintln!(
                 "{free1} [{:3}.{:03}s]",

@@ -33,6 +33,7 @@ pub const TESTS: &[TestEntry] = &[
     quick!(memory::copy_u2k),
     quick!(memory::copy_k2u),
     quick!(memory::rw_sbrk),
+    quick!(memory::count_free_pages),
     quick!(simple_fs::open_test),
     quick!(simple_fs::too_many_open_files),
     quick!(simple_fs::too_many_open_files_in_system),
