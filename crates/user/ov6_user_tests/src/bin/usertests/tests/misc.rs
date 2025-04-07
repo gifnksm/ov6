@@ -1,7 +1,7 @@
 use core::{cell::UnsafeCell, mem::MaybeUninit, ptr, slice};
 
 use ov6_kernel_params::USER_STACK_PAGES;
-use ov6_syscall::{UserMutSlice, error::SyscallError, syscall};
+use ov6_syscall::{UserMutSlice, UserSlice, error::SyscallError, syscall};
 use ov6_user_lib::{
     error::Ov6Error,
     fs::{self, File},
@@ -19,12 +19,15 @@ pub fn validate() {
     let hi = 1100 * 1024;
     for p in (0..hi).step_by(PAGE_SIZE) {
         // try to crash the kernel by passing a bad string pointer
-        unsafe {
-            let s = &*{
-                ptr::slice_from_raw_parts(ptr::with_exposed_provenance::<u8>(p), 10) as *const Path
-            };
-            assert!(fs::link("nosuchfile", s).is_err());
-        }
+        let old = "nosuchfile";
+        expect!(
+            syscall::Link::call((UserSlice::new(old.as_bytes()), unsafe {
+                UserSlice::from_raw_parts(p, 10)
+            })),
+            Err(SyscallError::InvalidInput
+                | SyscallError::BadAddress
+                | SyscallError::FsEntryNotFound)
+        );
     }
 }
 
@@ -200,10 +203,13 @@ pub fn no_write() {
 /// the virtual page address to uint, which (with certain wild system
 /// call arguments) resulted in a kernel page faults.
 pub fn pg_bug() {
-    let big = ptr::with_exposed_provenance::<u8>(0xeaeb_0b5b_0000_2f5e);
-    let argv: &[&str] = &[];
-    let path = unsafe { &*(ptr::slice_from_raw_parts(big, 10) as *const OsStr) };
-    expect!(process::exec(path, argv), Err(Ov6Error::BadAddress));
+    expect!(
+        syscall::Exec::call((
+            unsafe { UserSlice::from_raw_parts(0xeaeb_0b5b_0000_2f5e, 10) },
+            UserSlice::new(&[])
+        )),
+        Err(SyscallError::BadAddress)
+    );
 }
 
 /// regression test. does the kernel panic if a process `sbrk()`s its
@@ -273,10 +279,10 @@ pub fn sbrk8000() {
 /// arguments is invalid. the test passes if the kernel doesn't panic.
 pub fn bad_arg() {
     for _ in 0..50000 {
-        let argv = [unsafe {
-            &*(ptr::slice_from_raw_parts::<u8>(ptr::with_exposed_provenance(0xffff_ffff), 1)
-                as *const OsStr)
-        }];
-        expect!(process::exec(ECHO_PATH, &argv), Err(Ov6Error::BadAddress));
+        let argv = [unsafe { UserSlice::from_raw_parts(0xffff_ffff, 1) }];
+        expect!(
+            syscall::Exec::call((UserSlice::new(ECHO_PATH.as_bytes()), UserSlice::new(&argv))),
+            Err(SyscallError::BadAddress),
+        );
     }
 }

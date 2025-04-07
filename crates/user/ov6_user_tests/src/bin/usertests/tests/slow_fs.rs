@@ -1,10 +1,10 @@
-use core::{ptr, slice};
-
 use ov6_fs_types::{FS_BLOCK_SIZE, MAX_FILE};
+use ov6_syscall::{UserSlice, error::SyscallError, syscall};
 use ov6_user_lib::{
     error::Ov6Error,
     fs::{self, File},
     io::Write as _,
+    os::{fd::AsRawFd as _, ov6::syscall::ffi::SyscallExt as _},
     os_str::OsStr,
     process::{self, ProcessBuilder},
 };
@@ -91,13 +91,15 @@ pub fn bad_write() {
 
     let _ = fs::remove_file(FILE_PATH);
     for _ in 0..assumed_free {
-        let mut file = File::create(FILE_PATH).unwrap();
-        unsafe {
-            let buf = slice::from_raw_parts(ptr::with_exposed_provenance(0xff_ffff_ffff), 1);
-            expect!(file.write(buf), Err(Ov6Error::BadAddress));
-            drop(file);
-            fs::remove_file(FILE_PATH).unwrap();
-        }
+        let file = File::create(FILE_PATH).unwrap();
+        expect!(
+            syscall::Write::call((file.as_raw_fd(), unsafe {
+                UserSlice::from_raw_parts(0xff_ffff_ffff, 1)
+            })),
+            Err(SyscallError::BadAddress)
+        );
+        drop(file);
+        fs::remove_file(FILE_PATH).unwrap();
     }
 
     let mut file = File::create(FILE_PATH).unwrap();
