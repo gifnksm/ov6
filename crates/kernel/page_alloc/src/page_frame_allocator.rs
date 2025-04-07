@@ -1,7 +1,4 @@
-use core::{
-    ops::{DerefMut, Range},
-    ptr::NonNull,
-};
+use core::{ops::Range, ptr::NonNull};
 
 struct Run {
     next: Option<NonNull<Run>>,
@@ -99,14 +96,6 @@ impl<const PAGE_SIZE: usize> PageFrameAllocator<PAGE_SIZE> {
 }
 
 unsafe impl<const PAGE_SIZE: usize> Send for PageFrameAllocator<PAGE_SIZE> {}
-
-/// A trait for types that can retrieve a [`PageFrameAllocator`].
-pub trait RetrievePageFrameAllocator<const PAGE_SIZE: usize> {
-    type AllocatorRef: DerefMut<Target = PageFrameAllocator<PAGE_SIZE>>;
-
-    /// Returns a mutable reference to a [`PageFrameAllocator`].
-    fn retrieve_allocator() -> Self::AllocatorRef;
-}
 
 #[cfg(test)]
 mod tests {
