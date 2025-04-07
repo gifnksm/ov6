@@ -1,7 +1,7 @@
 use core::{convert::Infallible, ptr, time::Duration};
 
 use dataview::PodMethods as _;
-pub use ov6_syscall::{OpenFlags, Stat, StatType, SyscallCode};
+pub use ov6_syscall::{MemoryInfo, OpenFlags, Stat, StatType, SyscallCode, SystemInfo};
 use ov6_syscall::{
     USYSCALL_ADDR, USyscallData, UserMutRef, UserMutSlice, UserRef, UserSlice, WaitTarget, syscall,
 };
@@ -149,6 +149,12 @@ pub fn alarm_clear() -> Result<(), Ov6Error> {
 pub fn signal_return() -> Result<Infallible, Ov6Error> {
     let _: Infallible = syscall::SignalReturn::call(())?;
     unreachable!()
+}
+
+pub fn get_system_info() -> Result<SystemInfo, Ov6Error> {
+    let mut info = SystemInfo::zeroed();
+    syscall::GetSystemInfo::call((UserMutRef::new(&mut info),))?;
+    Ok(info)
 }
 
 pub fn reboot() -> Result<Infallible, Ov6Error> {

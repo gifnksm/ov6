@@ -68,6 +68,7 @@ OV6_USER_TESTS=\
 	grind\
 	kpgtbl\
 	stressfs\
+	sysinfo\
 	upgtbl\
 	usertests\
 

@@ -1,3 +1,5 @@
+use ov6_syscall::MemoryInfo;
+
 pub use self::addr::{PageRound, PhysAddr, VirtAddr};
 
 /// Bytes per page
@@ -18,3 +20,7 @@ pub mod page;
 pub mod page_table;
 pub mod vm_kernel;
 pub mod vm_user;
+
+pub(crate) fn info() -> MemoryInfo {
+    page::info()
+}

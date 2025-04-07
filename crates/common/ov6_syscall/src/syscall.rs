@@ -3,8 +3,8 @@ use core::{convert::Infallible, time::Duration};
 use ov6_types::{fs::RawFd, process::ProcId};
 
 use crate::{
-    OpenFlags, Stat, Syscall, SyscallCode, UserMutRef, UserMutSlice, UserRef, UserSlice,
-    WaitTarget, error::SyscallError,
+    OpenFlags, Stat, Syscall, SyscallCode, SystemInfo, UserMutRef, UserMutSlice, UserRef,
+    UserSlice, WaitTarget, error::SyscallError,
 };
 
 macro_rules! syscall {
@@ -45,6 +45,7 @@ syscall! {
     struct AlarmSet(fn(Duration, UserRef<extern "C" fn () -> ()>) -> Result<(), SyscallError>);
     struct AlarmClear(fn() -> Result<(), SyscallError>);
     struct SignalReturn(fn() -> Result<Infallible, SyscallError>);
+    struct GetSystemInfo(fn(UserMutRef<SystemInfo>) -> Result<(), SyscallError>);
     struct Reboot(fn() -> Result<Infallible, SyscallError>);
     struct Halt(fn(u16) -> Result<Infallible, SyscallError>);
     struct Abort(fn(u16) -> Result<Infallible, SyscallError>);

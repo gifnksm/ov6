@@ -194,6 +194,7 @@ syscall!(Sleep);
 syscall!(AlarmSet);
 syscall!(AlarmClear);
 syscall!(SignalReturn);
+syscall!(GetSystemInfo);
 syscall!(Reboot);
 syscall!(Halt);
 syscall!(Abort);

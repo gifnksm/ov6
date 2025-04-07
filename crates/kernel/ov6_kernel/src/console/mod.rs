@@ -141,9 +141,9 @@ pub fn handle_interrupt(c: u8) {
     let mut cons = CONSOLE_BUFFER.lock();
 
     match c {
-        // Print process list.
+        // Prints process list.
         CTRL_P => proc::ops::dump(),
-        // Kill line.
+        // Kills line.
         CTRL_U => {
             while cons.e != cons.w && cons.buf[(cons.e - 1) % cons.buf.len()] != b'\n' {
                 cons.e -= 1;

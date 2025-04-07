@@ -61,6 +61,19 @@ pub enum WaitTarget {
     Process(ProcId),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Pod)]
+#[repr(C)]
+pub struct MemoryInfo {
+    pub free_pages: usize,
+    pub total_pages: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Pod)]
+#[repr(C)]
+pub struct SystemInfo {
+    pub memory: MemoryInfo,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr, EnumString, Display)]
 #[repr(usize)]
 #[strum(serialize_all = "snake_case")]
@@ -89,6 +102,7 @@ pub enum SyscallCode {
     AlarmClear,
     SignalReturn,
 
+    GetSystemInfo,
     Reboot,
     Halt,
     Abort,

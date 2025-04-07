@@ -1,11 +1,32 @@
-use ov6_syscall::syscall;
+use ov6_syscall::{SystemInfo, syscall};
 
 use super::SyscallExt;
 use crate::{
     device::test::{self, Finisher},
-    memory::vm_kernel,
+    memory::{self, addr::Validate as _, vm_kernel},
     proc::ProcPrivateData,
 };
+
+impl SyscallExt for syscall::GetSystemInfo {
+    type KernelArg = Self::Arg;
+    type KernelReturn = Self::Return;
+    type Private<'a> = ProcPrivateData;
+
+    fn call(
+        _p: &'static crate::proc::Proc,
+        private: &mut Self::Private<'_>,
+        (user_sysinfo,): Self::KernelArg,
+    ) -> Self::KernelReturn {
+        let mut user_sysinfo = user_sysinfo.validate(private.pagetable_mut())?;
+        let sysinfo = SystemInfo {
+            memory: memory::info(),
+        };
+        private
+            .pagetable_mut()
+            .copy_k2u(&mut user_sysinfo, &sysinfo);
+        Ok(())
+    }
+}
 
 impl SyscallExt for syscall::Reboot {
     type KernelArg = Self::Arg;

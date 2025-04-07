@@ -263,6 +263,7 @@ pub fn syscall(p: &'static Proc, private_opt: &mut Option<ProcPrivateDataGuard>)
         SyscallCode::AlarmSet => syscall::AlarmSet::handle(p, private),
         SyscallCode::AlarmClear => syscall::AlarmClear::handle(p, private),
         SyscallCode::SignalReturn => syscall::SignalReturn::handle(p, private),
+        SyscallCode::GetSystemInfo => syscall::GetSystemInfo::handle(p, private),
         SyscallCode::Reboot => syscall::Reboot::handle(p, private),
         SyscallCode::Halt => syscall::Halt::handle(p, private),
         SyscallCode::Abort => syscall::Abort::handle(p, private),
