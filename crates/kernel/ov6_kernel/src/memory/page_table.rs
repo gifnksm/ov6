@@ -746,7 +746,7 @@ impl PtEntry {
             drop(pt);
         } else {
             assert_eq!(level, 0, "super page is not supported yet");
-            if page::is_allocated_addr(pa.as_non_null()) {
+            if page::is_allocated_pointer(pa.as_non_null()) {
                 unsafe { page::free_page(pa.as_non_null()) }
             }
         }

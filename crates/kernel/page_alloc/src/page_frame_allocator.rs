@@ -1,15 +1,25 @@
 use core::{ops::Range, ptr::NonNull};
 
+/// Represents a single run in the free list of the page allocator.
 struct Run {
+    /// Pointer to the next run in the free list.
     next: Option<NonNull<Run>>,
 }
 
 /// A simple page allocator that allocates pages of physical memory.
+///
+/// This allocator manages a range of physical memory and provides methods
+/// for allocating and freeing pages. It uses a free list to track available
+/// pages.
 #[derive(Debug)]
 pub struct PageFrameAllocator<const PAGE_SIZE: usize> {
-    heap: Range<*mut u8>,
+    /// The range of physical memory managed by the allocator.
+    heap: Range<NonNull<u8>>,
+    /// The head of the free list.
     free_list: Option<NonNull<Run>>,
+    /// The total number of pages managed by the allocator.
     total_pages: usize,
+    /// The number of free pages currently available for allocation.
     free_pages: usize,
 }
 
@@ -31,14 +41,13 @@ impl<const PAGE_SIZE: usize> PageFrameAllocator<PAGE_SIZE> {
     /// - The start address of the heap is not greater than 0.
     /// - The start or end address of the heap is not page-aligned.
     #[must_use]
-    pub unsafe fn new(heap: Range<*mut u8>) -> Self {
+    pub unsafe fn new(heap: Range<NonNull<u8>>) -> Self {
         const {
             assert!(size_of::<Run>() <= PAGE_SIZE);
         }
 
-        assert!(heap.start.addr() > 0);
-        assert_eq!(heap.start.addr() % PAGE_SIZE, 0);
-        assert_eq!(heap.end.addr() % PAGE_SIZE, 0);
+        assert_eq!(heap.start.addr().get() % PAGE_SIZE, 0);
+        assert_eq!(heap.end.addr().get() % PAGE_SIZE, 0);
 
         let mut total_pages = 0;
         let mut free_list = None;
@@ -46,7 +55,7 @@ impl<const PAGE_SIZE: usize> PageFrameAllocator<PAGE_SIZE> {
 
         while p > heap.start {
             p = unsafe { p.byte_sub(PAGE_SIZE) };
-            let mut run = NonNull::new(p).unwrap().cast::<Run>();
+            let mut run = p.cast::<Run>();
             unsafe {
                 run.as_mut().next = free_list;
             }
@@ -63,15 +72,29 @@ impl<const PAGE_SIZE: usize> PageFrameAllocator<PAGE_SIZE> {
     }
 
     /// Returns the total number of pages managed by the allocator.
+    ///
+    /// This includes both allocated and free pages.
     #[must_use]
     pub fn total_pages(&self) -> usize {
         self.total_pages
     }
 
     /// Returns the number of free pages currently available for allocation.
+    ///
+    /// This value decreases as pages are allocated and increases as pages
+    /// are freed.
     #[must_use]
     pub fn free_pages(&self) -> usize {
         self.free_pages
+    }
+
+    /// Checks if the given pointer is within the range managed by the
+    /// allocator.
+    ///
+    /// The pointer must be page-aligned to be considered valid.
+    #[must_use]
+    pub fn is_allocated_pointer(&self, ptr: NonNull<u8>) -> bool {
+        ptr.addr().get() % PAGE_SIZE == 0 && self.heap.contains(&ptr)
     }
 
     /// Allocates a page of physical memory.
@@ -112,7 +135,7 @@ impl<const PAGE_SIZE: usize> PageFrameAllocator<PAGE_SIZE> {
     /// - The given page is not within the managed heap range.
     /// - The given page is not page-aligned.
     pub unsafe fn free(&mut self, page: NonNull<u8>) {
-        assert!(self.heap.contains(&page.as_ptr()));
+        assert!(self.heap.contains(&page));
         assert_eq!(page.addr().get() % PAGE_SIZE, 0);
 
         unsafe {
@@ -139,12 +162,17 @@ mod tests {
     struct Heap(UnsafeCell<[u8; PAGE_SIZE * 100]>);
     unsafe impl Sync for Heap {}
 
+    impl Heap {
+        fn range(&self) -> Range<NonNull<u8>> {
+            let heap_range = unsafe { (*self.0.get()).as_mut_ptr_range() };
+            NonNull::new(heap_range.start).unwrap()..NonNull::new(heap_range.end).unwrap()
+        }
+    }
+
     #[test]
     fn test_page_allocator() {
         let heap = Heap(UnsafeCell::new([0; PAGE_SIZE * 100]));
-        let heap_range = unsafe { (*heap.0.get()).as_mut_ptr_range() };
-
-        let mut allocator = unsafe { PageFrameAllocator::<PAGE_SIZE>::new(heap_range) };
+        let mut allocator = unsafe { PageFrameAllocator::<PAGE_SIZE>::new(heap.range()) };
 
         let page0 = allocator.alloc().unwrap();
         assert_eq!(page0.addr().get() % PAGE_SIZE, 0);
@@ -160,9 +188,7 @@ mod tests {
     #[test]
     fn test_all_pages() {
         let heap = Heap(UnsafeCell::new([0; PAGE_SIZE * 100]));
-        let heap_range = unsafe { (*heap.0.get()).as_mut_ptr_range() };
-
-        let mut allocator = unsafe { PageFrameAllocator::<PAGE_SIZE>::new(heap_range) };
+        let mut allocator = unsafe { PageFrameAllocator::<PAGE_SIZE>::new(heap.range()) };
 
         let mut pages = vec![];
         let mut addrs = HashSet::new();

@@ -6,7 +6,6 @@
 
 use core::{
     alloc::{AllocError, Allocator, Layout},
-    ops::Range,
     ptr::NonNull,
 };
 
@@ -35,8 +34,6 @@ fn top() -> PhysAddr {
 static PAGE_FRAME_ALLOCATOR: OnceInit<SpinLock<page_alloc::PageFrameAllocator<PAGE_SIZE>>> =
     OnceInit::new();
 
-static PAGE_ADDR_RANGE: OnceInit<Range<PhysAddr>> = OnceInit::new();
-
 /// Initializes the physical memory allocator.
 ///
 /// This function sets up the range of physical addresses available for
@@ -45,11 +42,9 @@ pub fn init() {
     let pa_start = end().page_roundup();
     let pa_end = top().page_rounddown();
 
-    PAGE_ADDR_RANGE.init(pa_start..pa_end);
-
     unsafe {
         PAGE_FRAME_ALLOCATOR.init(SpinLock::new(page_alloc::PageFrameAllocator::new(
-            pa_start.as_mut_ptr()..pa_end.as_mut_ptr(),
+            pa_start.as_non_null()..pa_end.as_non_null(),
         )));
     }
 }
@@ -57,9 +52,8 @@ pub fn init() {
 /// Checks if the given pointer is within the allocated address range.
 ///
 /// Returns `true` if the pointer is within the range, otherwise `false`.
-pub fn is_allocated_addr(ptr: NonNull<u8>) -> bool {
-    let range = PAGE_ADDR_RANGE.get();
-    range.contains(&ptr.into())
+pub fn is_allocated_pointer(ptr: NonNull<u8>) -> bool {
+    PAGE_FRAME_ALLOCATOR.get().lock().is_allocated_pointer(ptr)
 }
 
 /// Frees the page of physical memory pointed at by `pa`.
