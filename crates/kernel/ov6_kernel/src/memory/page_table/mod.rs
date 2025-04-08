@@ -1,36 +1,46 @@
-use alloc::boxed::Box;
-use core::{
-    alloc::AllocError,
-    fmt,
-    iter::{Peekable, Zip},
-    mem,
-    ops::{RangeBounds, RangeInclusive},
-    slice,
-};
+//! This module provides the implementation of a page table for managing
+//! virtual-to-physical address mappings in a RISC-V system. It includes
+//! functionality for allocation, mapping, validation, and manipulation of page
+//! table entries.
 
-use arrayvec::ArrayVec;
-use bitflags::bitflags;
+use alloc::boxed::Box;
+use core::{alloc::AllocError, fmt, ops::RangeBounds};
+
 use dataview::Pod;
 use riscv::register::satp::{self, Satp};
 
-use super::{
-    PhysAddr, VirtAddr,
-    addr::PhysPageNum,
-    page::{self, PageFrameAllocator},
+pub use self::entry::PtEntryFlags;
+use self::{
+    entry::PtEntry,
+    iter::{Entries, LeavesMut},
 };
+use super::{PhysAddr, VirtAddr, addr::PhysPageNum, page::PageFrameAllocator};
 use crate::{
     error::KernelError,
     memory::{self, PAGE_SIZE, PageRound as _, level_page_size, page_manager::Page},
     println,
 };
 
-pub struct PageTable(Box<PageTableBody, PageFrameAllocator>);
+mod entry;
+mod iter;
+
+/// Represents a page table, which manages virtual-to-physical address mappings.
+pub struct PageTable(Box<PageTableEntries, PageFrameAllocator>);
 
 impl PageTable {
+    /// Attempts to allocate a new page table.
+    ///
+    /// Returns a `Result` containing the newly allocated `PageTable` or a
+    /// `KernelError` if allocation fails.
     pub fn try_allocate() -> Result<Self, KernelError> {
-        Ok(Self(PageTableBody::try_allocate()?))
+        Ok(Self(PageTableEntries::try_allocate()?))
     }
 
+    /// Returns the SATP (Supervisor Address Translation and Protection)
+    /// register value for this page table.
+    ///
+    /// This function sets the mode to Sv39 and configures the physical page
+    /// number (PPN) for the page table.
     pub(super) fn satp(&self) -> Satp {
         let mut satp = Satp::from_bits(0);
         satp.set_mode(satp::Mode::Sv39);
@@ -38,29 +48,12 @@ impl PageTable {
         satp
     }
 
-    /// Validates that the virtual address range `va` at the specified `level`
-    /// is mapped with the required `flags`.
-    ///
-    /// This function ensures that all pages within the given range are mapped
-    /// and accessible with the specified permissions. If any page in the range
-    /// is not mapped or does not meet the required permissions, an error is
-    /// returned.
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(())` if all pages in the range are valid and meet the required
-    ///   permissions.
-    /// - `Err(KernelError)` if any page in the range is invalid or does not
-    ///   meet the required permissions.
+    /// Validates that the virtual address range `va_range` is mapped with the
+    /// required `flags`.
     ///
     /// # Panics
     ///
-    /// - Panics if `va.start > va.end`.
-    ///
-    /// # Notes
-    ///
-    /// - If the range is empty (`va.start == va.end`), the function returns
-    ///   `Ok(())` immediately.
+    /// Panics if `va_range.start > va_range.end`.
     pub(super) fn validate<R>(&self, va_range: R, flags: PtEntryFlags) -> Result<(), KernelError>
     where
         R: RangeBounds<VirtAddr>,
@@ -76,23 +69,29 @@ impl PageTable {
         })
     }
 
-    /// Creates PTEs for virtual addresses starting at `va` that refer to
-    /// physical addresses starting at `pa`.
+    /// Maps virtual addresses starting at `va` to physical addresses starting
+    /// at `pa`.
     ///
-    /// `size` MUST be page-aligned.
+    /// # Safety
     ///
-    /// Returns `Ok(())` on success, `Err()` if `walk()` couldn't
-    /// allocate a needed page-table page.
-    pub(super) fn map_addrs(
+    /// - The `size` parameter must be page-aligned.
+    /// - The caller must ensure that the virtual and physical addresses do not
+    ///   overlap with existing mappings unless explicitly intended.
+    pub(super) unsafe fn map_addrs(
         &mut self,
         va: VirtAddr,
         pa: MapTarget,
         size: usize,
         perm: PtEntryFlags,
     ) -> Result<(), KernelError> {
-        self.0.map_addrs(va, pa, size, perm)
+        unsafe { self.0.map_addrs(va, pa, size, perm) }
     }
 
+    /// Clones pages from another page table within the specified virtual
+    /// address range.
+    ///
+    /// Returns an error if the source pages are inaccessible or if the
+    /// operation fails.
     pub(super) fn clone_pages_from<R>(
         &mut self,
         other: &Self,
@@ -126,8 +125,10 @@ impl PageTable {
         Ok(())
     }
 
-    /// Unmaps the pages of memory starting at virtual page `vpn` and
-    /// covering `npages` pages.
+    /// Unmaps the pages of memory starting at virtual address `va` and covering
+    /// `size` bytes.
+    ///
+    /// Returns an error if the operation fails.
     pub(super) fn unmap_addrs(&mut self, va: VirtAddr, size: usize) -> Result<(), KernelError> {
         let start = va;
         let end = va.byte_add(size)?;
@@ -158,8 +159,10 @@ impl PageTable {
         LeavesMut::new(&mut self.0, va_range)
     }
 
-    /// Returns the leaf PTE in the page tables that corredponds to virtual
-    /// page `va`.
+    /// Returns the leaf page table entry (PTE) corresponding to the virtual
+    /// address `va`.
+    ///
+    /// Returns an error if the virtual address is not mapped.
     fn find_leaf_entry(&self, va: VirtAddr) -> Result<(usize, &PtEntry), KernelError> {
         let mut pt = &*self.0;
         for level in (0..=2).rev() {
@@ -177,8 +180,10 @@ impl PageTable {
         panic!("invalid page table");
     }
 
-    /// Returns the leaf PTE in the page tables that corredponds to virtual
-    /// page `va`.
+    /// Returns a mutable reference to the leaf page table entry (PTE)
+    /// corresponding to the virtual address `va`.
+    ///
+    /// Returns an error if the virtual address is not mapped.
     fn find_leaf_entry_mut(&mut self, va: VirtAddr) -> Result<(usize, &mut PtEntry), KernelError> {
         let mut pt = &mut *self.0;
         for level in (0..=2).rev() {
@@ -196,6 +201,10 @@ impl PageTable {
         panic!("invalid page table");
     }
 
+    /// Fetches a chunk of memory corresponding to the virtual address `va`.
+    ///
+    /// Returns a slice of bytes if the operation is successful, or an error
+    /// if the page is inaccessible.
     pub(super) fn fetch_chunk(
         &self,
         va: VirtAddr,
@@ -213,6 +222,11 @@ impl PageTable {
         Ok(&page[offset..])
     }
 
+    /// Fetches a mutable chunk of memory corresponding to the virtual address
+    /// `va`.
+    ///
+    /// Returns a mutable slice of bytes if the operation is successful, or an
+    /// error if the page is inaccessible.
     pub(super) fn fetch_chunk_mut(
         &mut self,
         va: VirtAddr,
@@ -237,6 +251,7 @@ impl Drop for PageTable {
     }
 }
 
+/// Represents a target for mapping physical addresses.
 #[derive(Debug, Clone, Copy)]
 pub enum MapTarget {
     AllocatedAddr { zeroed: bool, allocate_new: bool },
@@ -244,6 +259,7 @@ pub enum MapTarget {
 }
 
 impl MapTarget {
+    /// Creates a new `MapTarget` for a zeroed and newly allocated address.
     pub fn allocate_new_zeroed() -> Self {
         Self::AllocatedAddr {
             zeroed: true,
@@ -251,6 +267,8 @@ impl MapTarget {
         }
     }
 
+    /// Creates a new `MapTarget` for an allocated address with the specified
+    /// properties.
     pub fn allocated_addr(zeroed: bool, allocate_new: bool) -> Self {
         Self::AllocatedAddr {
             zeroed,
@@ -258,6 +276,7 @@ impl MapTarget {
         }
     }
 
+    /// Creates a new `MapTarget` for a fixed physical address.
     pub fn fixed_addr(addr: PhysAddr) -> Self {
         Self::FixedAddr { addr }
     }
@@ -319,25 +338,28 @@ impl MapTarget {
     }
 }
 
+/// Represents the entries in a page table.
 #[repr(transparent)]
 #[derive(Pod)]
-struct PageTableBody([PtEntry; 512]);
+struct PageTableEntries([PtEntry; 512]);
 
-impl PageTableBody {
+impl PageTableEntries {
     /// Allocates a new empty page table.
+    ///
+    /// Returns a boxed `PageTableEntries` or an error if allocation fails.
     fn try_allocate() -> Result<Box<Self, PageFrameAllocator>, KernelError> {
         let pt = Box::try_new_zeroed_in(PageFrameAllocator)
             .map_err(|AllocError| KernelError::NoFreePage)?;
         Ok(unsafe { pt.assume_init() })
     }
 
-    /// Returns the physical address containing this page table
+    /// Returns the physical address containing this page table.
     fn phys_addr(&self) -> PhysAddr {
         PhysAddr::from(self)
     }
 
     /// Returns the physical page number of the physical page containing this
-    /// page table
+    /// page table.
     fn phys_page_num(&self) -> PhysPageNum {
         self.phys_addr().phys_page_num()
     }
@@ -366,9 +388,6 @@ impl PageTableBody {
 
     /// Creates PTE for virtual page `vpn` that refer to
     /// physical page `ppn`.
-    ///
-    /// Returns `Ok(())` on success, `Err()` if `walk()` couldn't
-    /// allocate a needed page-table page.
     fn map_page(
         &mut self,
         level: usize,
@@ -394,7 +413,9 @@ impl PageTableBody {
         }
 
         let pa = pa.get_or_allocate(level)?;
-        pte.set_phys_page_num(pa.phys_page_num(), perm | PtEntryFlags::V);
+        unsafe {
+            pte.set_phys_page_num(pa.phys_page_num(), perm | PtEntryFlags::V);
+        }
         Ok(())
     }
 
@@ -425,11 +446,12 @@ impl PageTableBody {
     /// Creates PTEs for virtual addresses starting at `va` that refer to
     /// physical addresses starting at `pa`.
     ///
-    /// `size` MUST be page-aligned.
+    /// # Safety
     ///
-    /// Returns `Ok(())` on success, `Err()` if `walk()` couldn't
-    /// allocate a needed page-table page.
-    fn map_addrs(
+    /// - The `size` parameter must be page-aligned.
+    /// - The caller must ensure that the virtual and physical addresses do not
+    ///   overlap with existing mappings unless explicitly intended.
+    unsafe fn map_addrs(
         &mut self,
         mut va: VirtAddr,
         mut pa: MapTarget,
@@ -480,315 +502,7 @@ impl PageTableBody {
     }
 }
 
-bitflags! {
-    /// Page table entry flags
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct PtEntryFlags: usize {
-        /// Valid Bit of page table entry.
-        ///
-        /// If set, an entry for this virtual address exists.
-        const V = 1 << 0;
-
-        /// Read Bit of page table entry.
-        ///
-        /// If set, the CPU can read to this virtual address.
-        const R = 1 << 1;
-
-        /// Write Bit of page table entry.
-        ///
-        /// If set, the CPU can write to this virtual address.
-        const W = 1 << 2;
-
-        /// Executable Bit of page table entry.
-        ///
-        /// If set, the CPU can executes the instructions on this virtual address.
-        const X = 1 << 3;
-
-        /// UserMode Bit of page table entry.
-        ///
-        /// If set, userspace can access this virtual address.
-        const U = 1 << 4;
-
-        /// Global Mapping Bit of page table entry.
-        ///
-        /// If set, this virtual address exists in all address spaces.
-        const G = 1 << 5;
-
-        /// Access Bit of page table entry.
-        ///
-        /// If set, this virtual address have been accesses.
-        const A = 1 << 6;
-
-        /// Dirty Bit of page table entry.
-        ///
-        /// If set, this virtual address have been written.
-        const D = 1 << 7;
-
-        const RW = Self::R.bits() | Self::W.bits();
-        const RX = Self::R.bits() | Self::X.bits();
-        const RWX = Self::R.bits() | Self::W.bits() | Self::X.bits();
-        const UR = Self::U.bits() | Self::R.bits();
-        const UW = Self::U.bits() | Self::W.bits();
-        const URW = Self::U.bits() | Self::RW.bits();
-        const URX = Self::U.bits() | Self::RX.bits();
-        const URWX = Self::U.bits() | Self::RWX.bits();
-    }
-}
-
-type EntriesIter<'a> = Peekable<Zip<RangeInclusive<usize>, slice::Iter<'a, PtEntry>>>;
-type EntriesStack<'a> = ArrayVec<(usize, VirtAddr, EntriesIter<'a>), 3>;
-struct Entries<'a> {
-    state: Option<(RangeInclusive<VirtAddr>, EntriesStack<'a>)>,
-    last_item_is_non_leaf: bool,
-}
-
-impl<'a> Entries<'a> {
-    fn new<R>(pt: &'a PageTableBody, va_range: R) -> Self
-    where
-        R: RangeBounds<VirtAddr>,
-    {
-        let Some(va_range) = VirtAddr::range_inclusive(va_range) else {
-            return Self {
-                state: None,
-                last_item_is_non_leaf: false,
-            };
-        };
-
-        let min_va = *va_range.start();
-        let max_va = *va_range.end();
-        let level_min_idx = min_va.level_idx(2);
-        let level_max_idx = max_va.level_idx(2);
-        let mut stack = ArrayVec::<_, 3>::new();
-        let it = (level_min_idx..=level_max_idx)
-            .zip(&pt.0[level_min_idx..=level_max_idx])
-            .peekable();
-        stack.push((2, VirtAddr::ZERO, it));
-        Self {
-            state: Some((va_range, stack)),
-            last_item_is_non_leaf: false,
-        }
-    }
-}
-
-impl<'a> Iterator for Entries<'a> {
-    type Item = (usize, VirtAddr, &'a PtEntry);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let (va_range, stack) = self.state.as_mut()?;
-        let min_va = *va_range.start();
-        let max_va = *va_range.end();
-
-        if mem::take(&mut self.last_item_is_non_leaf) {
-            let (level, base_va, ptes) = stack.last_mut().unwrap();
-            let (idx, pte) = ptes.next().unwrap();
-            let level_va = base_va.with_level_idx(*level, idx);
-
-            assert_eq!(level_va.level_idx(*level - 1), 0);
-            let level_min_va = level_va.with_level_idx(*level - 1, 0);
-            let leval_max_va = level_va.with_level_idx(*level - 1, 511);
-            let level_min_idx = VirtAddr::max(min_va, level_min_va).level_idx(*level - 1);
-            let level_max_idx = VirtAddr::min(max_va, leval_max_va).level_idx(*level - 1);
-
-            let pt = pte.get_page_table().unwrap();
-            let it = (level_min_idx..=level_max_idx)
-                .zip(&pt.0[level_min_idx..=level_max_idx])
-                .peekable();
-            let elem = (*level - 1, level_min_va, it);
-            stack.push(elem);
-        }
-
-        while let Some((level, base_va, ptes)) = stack.last_mut() {
-            if let Some((idx, pte)) = ptes.next_if(|(_idx, pte)| !pte.is_valid() || pte.is_leaf()) {
-                let level_min_va = base_va.with_level_idx(*level, idx);
-                return Some((*level, level_min_va, pte));
-            }
-
-            let Some((idx, pte)) = ptes.peek() else {
-                stack.pop();
-                continue;
-            };
-
-            self.last_item_is_non_leaf = true;
-            let level_min_va = base_va.with_level_idx(*level, *idx);
-            return Some((*level, level_min_va, *pte));
-        }
-        None
-    }
-}
-
-type LeavesMutIter<'a> = Zip<RangeInclusive<usize>, slice::IterMut<'a, PtEntry>>;
-type LeavesMutStack<'a> = ArrayVec<(usize, VirtAddr, LeavesMutIter<'a>), 3>;
-
-struct LeavesMut<'a>(Option<(RangeInclusive<VirtAddr>, LeavesMutStack<'a>)>);
-
-impl<'a> LeavesMut<'a> {
-    fn new<R>(pt: &'a mut PageTableBody, va_range: R) -> Self
-    where
-        R: RangeBounds<VirtAddr>,
-    {
-        let Some(va_range) = VirtAddr::range_inclusive(va_range) else {
-            return Self(None);
-        };
-
-        let min_va = *va_range.start();
-        let max_va = *va_range.end();
-        let level_min_idx = min_va.level_idx(2);
-        let level_max_idx = max_va.level_idx(2);
-        let mut stack = ArrayVec::<_, 3>::new();
-        let it = (level_min_idx..=level_max_idx).zip(&mut pt.0[level_min_idx..=level_max_idx]);
-        stack.push((2, VirtAddr::ZERO, it));
-        Self(Some((va_range, stack)))
-    }
-}
-
-impl<'a> Iterator for LeavesMut<'a> {
-    type Item = (usize, VirtAddr, &'a mut PtEntry);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let (va_range, stack) = self.0.as_mut()?;
-        let min_va = *va_range.start();
-        let max_va = *va_range.end();
-        while let Some((level, base_va, ptes)) = stack.last_mut() {
-            let Some((idx, pte)) = ptes.next() else {
-                stack.pop();
-                continue;
-            };
-
-            let level_min_va = base_va.with_level_idx(*level, idx);
-            assert!(!pte.is_leaf() || va_range.contains(&level_min_va));
-
-            if !pte.is_valid() {
-                continue;
-            }
-
-            if pte.is_leaf() {
-                return Some((*level, level_min_va, pte));
-            }
-
-            let leval_max_va = level_min_va.with_level_idx(*level - 1, 511);
-            let level_min_idx = VirtAddr::max(min_va, level_min_va).level_idx(*level - 1);
-            let level_max_idx = VirtAddr::min(max_va, leval_max_va).level_idx(*level - 1);
-
-            let pt = pte.get_page_table_mut().unwrap();
-            let it = (level_min_idx..=level_max_idx).zip(&mut pt.0[level_min_idx..=level_max_idx]);
-            let elem = (*level - 1, level_min_va, it);
-            stack.push(elem);
-        }
-        None
-    }
-}
-
-#[repr(transparent)]
-#[derive(Pod)]
-struct PtEntry(usize);
-
-impl PtEntry {
-    const FLAGS_MASK: usize = 0x3FF;
-
-    fn new(ppn: PhysPageNum, flags: PtEntryFlags) -> Self {
-        assert_eq!(
-            flags.bits() & Self::FLAGS_MASK,
-            flags.bits(),
-            "flags: {flags:#x}={flags:?}"
-        );
-        let bits = (ppn.value() << 10) | (flags.bits() & 0x3FF);
-        Self(bits)
-    }
-
-    fn get_page_table(&self) -> Option<&PageTableBody> {
-        self.is_non_leaf()
-            .then(|| unsafe { self.phys_addr().as_non_null::<PageTableBody>().as_ref() })
-    }
-
-    fn get_page_table_mut(&mut self) -> Option<&mut PageTableBody> {
-        self.is_non_leaf()
-            .then(|| unsafe { self.phys_addr().as_non_null::<PageTableBody>().as_mut() })
-    }
-
-    fn set_page_table(&mut self, pt: Box<PageTableBody, PageFrameAllocator>) {
-        assert!(!self.is_valid());
-        let ppn = pt.phys_page_num();
-        Box::leak(pt);
-        *self = Self::new(ppn, PtEntryFlags::V);
-    }
-
-    fn get_page_bytes(&self, level: usize) -> Option<&[u8]> {
-        self.is_leaf().then(|| {
-            let pa = self.phys_addr();
-            let page_size = memory::level_page_size(level);
-            unsafe { slice::from_raw_parts(pa.as_ptr(), page_size) }
-        })
-    }
-
-    #[expect(clippy::needless_pass_by_ref_mut)]
-    fn get_page_bytes_mut(&mut self, level: usize) -> Option<&mut [u8]> {
-        self.is_leaf().then(|| {
-            let pa = self.phys_addr();
-            let page_size = memory::level_page_size(level);
-            unsafe { slice::from_raw_parts_mut(pa.as_mut_ptr(), page_size) }
-        })
-    }
-
-    fn free(&mut self, level: usize) {
-        if !self.is_valid() {
-            return;
-        }
-
-        let pa = self.phys_addr();
-        let is_non_leaf = self.is_non_leaf();
-        self.0 = 0;
-
-        if is_non_leaf {
-            assert!(level > 0);
-            let ptr = pa.as_mut_ptr::<PageTableBody>();
-            let mut pt = unsafe { Box::from_raw_in(ptr, PageFrameAllocator) };
-            pt.free(level - 1);
-            drop(pt);
-        } else {
-            assert_eq!(level, 0, "super page is not supported yet");
-            if page::is_heap_addr(pa) {
-                drop(Page::from_raw(pa));
-            }
-        }
-    }
-
-    /// Returns physical page number (PPN)
-    fn phys_page_num(&self) -> PhysPageNum {
-        PhysPageNum::new(self.0 >> 10)
-    }
-
-    fn set_phys_page_num(&mut self, ppn: PhysPageNum, flags: PtEntryFlags) {
-        assert!(!self.is_valid());
-        assert!(flags.contains(PtEntryFlags::V));
-        *self = Self::new(ppn, flags);
-    }
-
-    /// Returns physical address (PA)
-    fn phys_addr(&self) -> PhysAddr {
-        self.phys_page_num().phys_addr()
-    }
-
-    /// Returns `true` if this page is valid
-    fn is_valid(&self) -> bool {
-        self.flags().contains(PtEntryFlags::V)
-    }
-
-    /// Returns `true` if this page is a valid leaf entry.
-    fn is_leaf(&self) -> bool {
-        self.is_valid() && self.flags().intersects(PtEntryFlags::RWX)
-    }
-
-    /// Returns `true` if this page is a valid  non-leaf entry.
-    fn is_non_leaf(&self) -> bool {
-        self.is_valid() && !self.is_leaf()
-    }
-
-    /// Returns page table entry flags
-    fn flags(&self) -> PtEntryFlags {
-        PtEntryFlags::from_bits_retain(self.0 & Self::FLAGS_MASK)
-    }
-}
-
+/// Dumps the contents of the given page table for debugging purposes.
 pub(crate) fn dump_pagetable(pt: &PageTable) {
     println!("page table {:p}", pt);
 

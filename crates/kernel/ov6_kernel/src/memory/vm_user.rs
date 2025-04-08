@@ -43,19 +43,23 @@ impl UserPageTable {
 
         this.alloc_usyscall(pid)?;
 
-        this.pt.map_addrs(
-            TRAMPOLINE,
-            MapTarget::fixed_addr(PhysAddr::new(trampoline::trampoline as usize)),
-            TRAMPOLINE_SIZE,
-            PtEntryFlags::RX,
-        )?;
+        unsafe {
+            this.pt.map_addrs(
+                TRAMPOLINE,
+                MapTarget::fixed_addr(PhysAddr::new(trampoline::trampoline as usize)),
+                TRAMPOLINE_SIZE,
+                PtEntryFlags::RX,
+            )?;
+        }
 
-        this.pt.map_addrs(
-            TRAPFRAME,
-            MapTarget::allocate_new_zeroed(),
-            TRAPFRAME_SIZE,
-            PtEntryFlags::RW,
-        )?;
+        unsafe {
+            this.pt.map_addrs(
+                TRAPFRAME,
+                MapTarget::allocate_new_zeroed(),
+                TRAPFRAME_SIZE,
+                PtEntryFlags::RW,
+            )?;
+        }
 
         Ok(this)
     }
@@ -93,23 +97,27 @@ impl UserPageTable {
     }
 
     pub fn alloc_stack(&mut self) -> Result<(), KernelError> {
-        self.pt.map_addrs(
-            self.stack_start,
-            MapTarget::allocate_new_zeroed(),
-            self.stack_size,
-            PtEntryFlags::URW,
-        )
+        unsafe {
+            self.pt.map_addrs(
+                self.stack_start,
+                MapTarget::allocate_new_zeroed(),
+                self.stack_size,
+                PtEntryFlags::URW,
+            )
+        }
     }
 
     pub fn alloc_usyscall(&mut self, pid: ProcId) -> Result<(), KernelError> {
         let start_va = USYSCALL;
         let size = USYSCALL_SIZE;
-        self.pt.map_addrs(
-            start_va,
-            MapTarget::allocate_new_zeroed(),
-            size,
-            PtEntryFlags::UR,
-        )?;
+        unsafe {
+            self.pt.map_addrs(
+                start_va,
+                MapTarget::allocate_new_zeroed(),
+                size,
+                PtEntryFlags::UR,
+            )?;
+        }
 
         let bytes = self.fetch_chunk_mut(start_va, PtEntryFlags::U)?;
         assert!(bytes.len() >= size_of::<USyscallData>());
@@ -118,14 +126,14 @@ impl UserPageTable {
         Ok(())
     }
 
-    pub fn map_addrs(
+    pub unsafe fn map_addrs(
         &mut self,
         va: VirtAddr,
         pa: MapTarget,
         size: usize,
         flags: PtEntryFlags,
     ) -> Result<(), KernelError> {
-        self.pt.map_addrs(va, pa, size, flags)
+        unsafe { self.pt.map_addrs(va, pa, size, flags) }
     }
 
     pub fn grow_heap_by(
@@ -158,10 +166,10 @@ impl UserPageTable {
         let map_end = self.heap_start.byte_add(new_size)?;
         if map_start < map_end {
             let map_size = map_end.page_roundup().checked_sub(map_start).unwrap();
-            if let Err(e) =
+            if let Err(e) = unsafe {
                 self.pt
                     .map_addrs(map_start, MapTarget::allocate_new_zeroed(), map_size, xperm)
-            {
+            } {
                 self.shrink_heap_to_size(old_size);
                 return Err(e);
             }

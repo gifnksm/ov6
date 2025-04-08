@@ -48,12 +48,14 @@ unsafe fn ident_map(
     size: usize,
     perm: PtEntryFlags,
 ) -> Result<(), KernelError> {
-    kpgtbl.map_addrs(
-        VirtAddr::new(addr)?,
-        MapTarget::fixed_addr(PhysAddr::new(addr)),
-        size,
-        perm,
-    )
+    unsafe {
+        kpgtbl.map_addrs(
+            VirtAddr::new(addr)?,
+            MapTarget::fixed_addr(PhysAddr::new(addr)),
+            size,
+            perm,
+        )
+    }
 }
 
 pub struct KernelPageTable(PageTable);
@@ -114,14 +116,15 @@ impl KernelPageTable {
 fn map_proc_stacks(kpgtbl: &mut PageTable) {
     for i in (0..NPROC).rev() {
         let va = layout::kstack(i);
-        kpgtbl
-            .map_addrs(
+        unsafe {
+            kpgtbl.map_addrs(
                 va,
                 MapTarget::allocate_new_zeroed(),
                 KSTACK_PAGES * PAGE_SIZE,
                 PtEntryFlags::RW,
             )
-            .unwrap();
+        }
+        .unwrap();
     }
 }
 

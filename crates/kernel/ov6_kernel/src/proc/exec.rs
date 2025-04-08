@@ -139,12 +139,14 @@ fn load_segments<const READ_ONLY: bool>(
         let map_start = va_start.page_rounddown();
         let map_end = va_end.page_roundup();
         let map_size = map_end.checked_sub(map_start).unwrap();
-        new_pt.map_addrs(
-            map_start,
-            MapTarget::allocated_addr(true, false),
-            map_size,
-            perm,
-        )?;
+        unsafe {
+            new_pt.map_addrs(
+                map_start,
+                MapTarget::allocated_addr(true, false),
+                map_size,
+                perm,
+            )?;
+        }
 
         new_pt.validate(va_start..va_end, perm)?;
 
