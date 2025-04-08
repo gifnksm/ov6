@@ -18,7 +18,7 @@ use crate::{
         vm_user::UserPageTable,
     },
     proc,
-    sync::{SpinLock, SpinLockCondVar, WaitError},
+    sync::{SleepLock, SpinLock, SpinLockCondVar, WaitError},
 };
 
 pub mod print;
@@ -70,13 +70,25 @@ static CONSOLE_BUFFER_WRITTEN: SpinLockCondVar = SpinLockCondVar::new();
 /// Writes the bytes to the console.
 ///
 /// User write()s to the console go here.
-fn write(src: &GenericSlice<u8>) -> usize {
+fn write(src: &GenericSlice<u8>) -> Result<usize, KernelError> {
+    static CONSOLE_WRITE_LOCK: SleepLock<()> = SleepLock::new(());
+
+    // ensure that only one process can write to the console at a time,
+    // preventing output from being interleaved or corrupted
+    let _guard = CONSOLE_WRITE_LOCK.wait_lock()?;
+
     for i in 0..src.len() {
         let mut c: [u8; 1] = [0];
         UserPageTable::copy_x2k_bytes(&mut c, &src.skip(i).take(1));
-        uart::putc(c[0]);
+        if let Err(e) = uart::putc(c[0]) {
+            if i > 0 {
+                return Ok(i);
+            }
+            return Err(e);
+        }
     }
-    src.len()
+
+    Ok(src.len())
 }
 
 /// Reads the bytes from the console.
@@ -180,23 +192,8 @@ pub fn handle_interrupt(c: u8) {
     }
 }
 
-#[expect(clippy::unnecessary_wraps)]
-fn console_write(src: &GenericSlice<u8>) -> Result<usize, KernelError> {
-    Ok(write(src))
-}
-
-fn console_read(dst: &mut GenericMutSlice<u8>) -> Result<usize, KernelError> {
-    read(dst)
-}
-
 pub fn init() {
     uart::init();
 
-    file::register_device(
-        DeviceNo::CONSOLE,
-        Device {
-            read: console_read,
-            write: console_write,
-        },
-    );
+    file::register_device(DeviceNo::CONSOLE, Device { read, write });
 }

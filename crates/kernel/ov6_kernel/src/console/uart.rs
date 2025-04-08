@@ -4,7 +4,9 @@ use core::{hint, ptr, sync::atomic::Ordering};
 
 use super::print::PANICKED;
 use crate::{
-    console, interrupt,
+    console,
+    error::KernelError,
+    interrupt,
     memory::layout::UART0,
     sync::{SpinLock, SpinLockCondVar},
 };
@@ -125,7 +127,7 @@ pub fn init() {
 /// Because it may block, it can't be called
 /// from interrupts; it's only suitable for use
 /// by `write()`.
-pub fn putc(c: u8) {
+pub fn putc(c: u8) -> Result<(), KernelError> {
     let mut buffer = TX_BUFFER.lock();
 
     if PANICKED.load(Ordering::Relaxed) {
@@ -137,10 +139,13 @@ pub fn putc(c: u8) {
     while buffer.is_full() {
         // buffer is full
         // wait for start() to open up space in the buffer.
-        buffer = TX_BUFFER_SPACE_AVAILABLE.force_wait(buffer);
+        buffer = TX_BUFFER_SPACE_AVAILABLE
+            .wait(buffer)
+            .map_err(|(_guard, e)| e)?;
     }
     buffer.put(c);
     start(&mut buffer);
+    Ok(())
 }
 
 /// Sends a character to the UART synchronously.
