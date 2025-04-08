@@ -1,13 +1,16 @@
 //! Console input and output, to the UART.
 //!
-//! Reads are line at a time.
-//! Implements special input characters:
+//! This module provides functionality for console input and output through the
+//! UART interface. It supports line-based input and special control characters
+//! for editing and process management.
 //!
-//! * `newline` -- end of line
-//! * `control-h` -- backspace
-//! * `control-u` -- kill line
-//! * `control-d` -- end of file
-//! * `control-p` -- print process list
+//! Special input characters:
+//!
+//! * `newline` (`\n`) -- end of line
+//! * `control-h` (`CTRL_H`) -- backspace
+//! * `control-u` (`CTRL_U`) -- kill line
+//! * `control-d` (`CTRL_D`) -- end of file
+//! * `control-p` (`CTRL_P`) -- print process list
 
 use crate::{
     error::KernelError,
@@ -24,6 +27,13 @@ use crate::{
 pub mod print;
 pub mod uart;
 
+/// Converts a character to its control character equivalent.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(ctrl(b'H'), 8); // CTRL-H
+/// ```
 const fn ctrl(x: u8) -> u8 {
     x - b'@'
 }
@@ -35,27 +45,36 @@ const CTRL_P: u8 = ctrl(b'P');
 
 /// Send one character to the UART.
 ///
-/// Called by `println!()`, and to echo input characters,
-/// but not from `write()`.
+/// This function is used by macros like `println!()` to send characters to the
+/// UART. But not from `write()`, which is used by the user process.
+///
+/// This function is not intended for direct use in user code.
 pub fn put_char(c: char) {
     uart::putc_sync(c);
 }
 
-/// Sends backspace character to the UART.
+/// Sends a backspace character to the UART.
+///
+/// This function sends a backspace character followed by a space and another
+/// backspace to visually erase the last character on the console.
 fn put_backspace() {
     uart::putc_sync('\x08');
     uart::putc_sync(' ');
     uart::putc_sync('\x08');
 }
 
+/// Represents the console buffer.
+///
+/// This structure holds the input buffer and indices for reading, writing, and
+/// editing.
 struct Cons {
-    /// Input
+    /// Input buffer.
     buf: [u8; 128],
-    /// Read index
+    /// Read index.
     r: usize,
-    /// Write index
+    /// Write index.
     w: usize,
-    /// Edit index
+    /// Edit index.
     e: usize,
 }
 
@@ -69,7 +88,9 @@ static CONSOLE_BUFFER_WRITTEN: SpinLockCondVar = SpinLockCondVar::new();
 
 /// Writes the bytes to the console.
 ///
-/// User write()s to the console go here.
+/// This function handles user `write()` calls to the console. It ensures that
+/// only one process can write to the console at a time, preventing interleaved
+/// or corrupted output.
 fn write(src: &GenericSlice<u8>) -> Result<usize, KernelError> {
     static CONSOLE_WRITE_LOCK: SleepLock<()> = SleepLock::new(());
 
@@ -93,10 +114,9 @@ fn write(src: &GenericSlice<u8>) -> Result<usize, KernelError> {
 
 /// Reads the bytes from the console.
 ///
-/// User read()s to the console go here.
-/// Copy (up to) a whole input line to `dst`.
-/// `user_dst` indicates whether `dst` is a user
-/// or kernel address.
+/// This function handles user `read()` calls to the console. It copies up to a
+/// whole input line to the provided buffer. The `user_dst` parameter indicates
+/// whether the destination is a user or kernel address.
 fn read(dst: &mut GenericMutSlice<u8>) -> Result<usize, KernelError> {
     let mut i = 0;
     let mut cons = CONSOLE_BUFFER.lock();
@@ -146,9 +166,10 @@ fn read(dst: &mut GenericMutSlice<u8>) -> Result<usize, KernelError> {
 
 /// Handles console input interrupts.
 ///
-/// `uart::handle_interrupts()` calls this for input character.
-/// Do erase/kill processing, append to `cons.buf`,
-/// wake up `read()` if a whole line has arrived.
+/// This function is called by `uart::handle_interrupts()` for input characters.
+/// It processes special control characters for editing and process management,
+/// appends input to the console buffer, and wakes up `read()` if a whole line
+/// has been entered.
 pub fn handle_interrupt(c: u8) {
     let mut cons = CONSOLE_BUFFER.lock();
 
@@ -192,6 +213,10 @@ pub fn handle_interrupt(c: u8) {
     }
 }
 
+/// Initializes the console subsystem.
+///
+/// This function initializes the UART and registers the console as a device
+/// for reading and writing.
 pub fn init() {
     uart::init();
 

@@ -1,4 +1,8 @@
-//! low-level driver routines for 16550a UART.
+//! Low-level driver routines for 16550a UART.
+//!
+//! This module provides functions to initialize and interact with the UART
+//! hardware, including sending and receiving characters, handling interrupts,
+//! and managing transmit buffers.
 
 use core::{hint, ptr, sync::atomic::Ordering};
 
@@ -11,6 +15,13 @@ use crate::{
     sync::{SpinLock, SpinLockCondVar},
 };
 
+/// Returns a mutable pointer to the UART register at the given offset.
+///
+/// # Safety
+///
+/// This function is `unsafe` because it directly manipulates hardware
+/// registers. The caller must ensure that the offset is valid and that the UART
+/// hardware is properly initialized.
 unsafe fn reg(offset: usize) -> *mut u8 {
     unsafe { ptr::with_exposed_provenance_mut::<u8>(UART0).byte_add(offset) }
 }
@@ -47,15 +58,32 @@ const LSR_RX_READY: u8 = 1 << 0;
 /// THR can accept another character to send
 const LSR_TX_IDLE: u8 = 1 << 5;
 
+/// Reads a value from the UART register at the given offset.
+///
+/// # Safety
+///
+/// This function is `unsafe` because it directly reads from hardware registers.
+/// The caller must ensure that the offset is valid and that the UART hardware
+/// is properly initialized.
 unsafe fn read_reg(offset: usize) -> u8 {
     unsafe { reg(offset).read_volatile() }
 }
 
+/// Writes a value to the UART register at the given offset.
+///
+/// # Safety
+///
+/// This function is `unsafe` because it directly writes to hardware registers.
+/// The caller must ensure that the offset is valid and that the UART hardware
+/// is properly initialized.
 unsafe fn write_reg(offset: usize, data: u8) {
     unsafe { reg(offset).write_volatile(data) }
 }
 
 /// The transmit output buffer.
+///
+/// This buffer is used to store characters that are waiting to be sent
+/// to the UART hardware.
 struct TxBuffer {
     buf: [u8; 32],
     /// Write next to `buf[tx_w % buf.len()]`
@@ -65,20 +93,32 @@ struct TxBuffer {
 }
 
 impl TxBuffer {
+    /// Returns `true` if the buffer is full.
     fn is_full(&self) -> bool {
         self.tx_w == self.tx_r + self.buf.len()
     }
 
+    /// Returns `true` if the buffer is empty.
     fn is_empty(&self) -> bool {
         self.tx_w == self.tx_r
     }
 
+    /// Adds a character to the buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffer is full.
     fn put(&mut self, c: u8) {
         assert!(self.tx_w < self.tx_r + self.buf.len());
         self.buf[self.tx_w % self.buf.len()] = c;
         self.tx_w += 1;
     }
 
+    /// Removes and returns a character from the buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffer is empty.
     fn pop(&mut self) -> u8 {
         assert!(self.tx_r < self.tx_w);
         let c = self.buf[self.tx_r % self.buf.len()];
@@ -94,6 +134,10 @@ static TX_BUFFER: SpinLock<TxBuffer> = SpinLock::new(TxBuffer {
 });
 static TX_BUFFER_SPACE_AVAILABLE: SpinLockCondVar = SpinLockCondVar::new();
 
+/// Initializes the UART hardware.
+///
+/// This function configures the UART registers for communication, including
+/// setting the baud rate, enabling FIFOs, and enabling interrupts.
 pub fn init() {
     unsafe {
         // disable interrupts
@@ -120,13 +164,16 @@ pub fn init() {
     }
 }
 
-/// Adds a character to the output buffer and tell the
-/// UART to start sending if it isn't already.
+/// Adds a character to the output buffer and starts sending if the UART is
+/// idle.
 ///
-/// Blocks if the output buffer is full.
-/// Because it may block, it can't be called
-/// from interrupts; it's only suitable for use
-/// by `write()`.
+/// This function blocks if the output buffer is full. It is not suitable for
+/// use in interrupt handlers.
+///
+/// # Errors
+///
+/// Returns an error if the thread is interrupted while waiting for buffer
+/// space.
 pub fn putc(c: u8) -> Result<(), KernelError> {
     let mut buffer = TX_BUFFER.lock();
 
@@ -150,12 +197,9 @@ pub fn putc(c: u8) -> Result<(), KernelError> {
 
 /// Sends a character to the UART synchronously.
 ///
-/// Alternate version of `putc()` that doesn't
-/// use interrupts, for use by kernel `printf()` and
-/// to echo characters.
-///
-/// It spins waiting for the uart's
-/// output register to be empty.
+/// This function does not use interrupts and is suitable for use in kernel
+/// `printf()` and echoing characters. It spins until the UART's output register
+/// is empty.
 pub fn putc_sync(c: char) {
     interrupt::with_push_disabled(|| {
         if PANICKED.load(Ordering::Relaxed) {
@@ -180,11 +224,8 @@ pub fn putc_sync(c: char) {
 
 /// Starts sending characters from the output buffer.
 ///
-/// If the UART is idle, and a character is waiting
-/// in the transmit buffer, send it.
-///
-/// Caller must hold the `TX_BUFFER` lock.
-/// Called from both the top- and bottom-half.
+/// If the UART is idle and a character is waiting in the transmit buffer,
+/// this function sends it.
 fn start(buffer: &mut TxBuffer) {
     loop {
         if buffer.is_empty() {
@@ -215,16 +256,14 @@ fn start(buffer: &mut TxBuffer) {
 
 /// Reads one input character from the UART.
 ///
-/// Returns None if none is waiting.
+/// Returns `None` if no character is waiting.
 fn getc() -> Option<u8> {
     ((unsafe { read_reg(LSR) } & LSR_RX_READY) != 0).then(|| unsafe { read_reg(RHR) })
 }
 
-/// Handle a uart interrupt, raised because input
-/// has arrived, or the uart is ready for more output, or
-/// both.
+/// Handles a UART interrupt.
 ///
-/// Called from `devintr()`.
+/// This function processes incoming characters and sends buffered characters.
 pub fn handle_interrupt() {
     // read and process incoming characters.
     while let Some(c) = getc() {
