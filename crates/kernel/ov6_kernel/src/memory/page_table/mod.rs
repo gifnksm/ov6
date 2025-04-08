@@ -112,6 +112,21 @@ impl PageTable {
             let page_size = memory::level_page_size(level);
             let flags = src_pte.flags();
 
+            if !flags.contains(PtEntryFlags::W) {
+                // read-only page, no need to allocate new page
+                let mut dst_va = va;
+                let pa = src_pte.phys_addr();
+                let page = Page::from_raw(pa);
+                page.increment_ref();
+                let mut dst_pa = MapTarget::FixedAddr {
+                    addr: page.into_raw(),
+                };
+
+                self.0
+                    .map_addrs_level(level, &mut dst_va, &mut dst_pa, page_size, flags)?;
+                continue;
+            }
+
             let mut dst_va = va;
             let mut dst_pa = MapTarget::allocated_addr(false, true);
             self.0

@@ -135,6 +135,17 @@ impl Page<'_> {
         mem::forget(self);
         pa
     }
+
+    /// Increments the reference count atomically.
+    ///
+    /// Returns the previous value of the reference count before the increment.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the reference count is at its maximum value (`u32::MAX`).
+    pub(super) fn increment_ref(&self) -> u32 {
+        self.state.increment_ref()
+    }
 }
 
 /// Represents the state of a single page in memory.
