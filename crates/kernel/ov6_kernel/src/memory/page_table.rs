@@ -20,7 +20,7 @@ use super::{
 };
 use crate::{
     error::KernelError,
-    memory::{self, PAGE_SIZE, PageRound as _, level_page_size},
+    memory::{self, PAGE_SIZE, PageRound as _, level_page_size, page_manager::Page},
     println,
 };
 
@@ -308,11 +308,11 @@ impl MapTarget {
             Self::AllocatedAddr { zeroed, .. } => {
                 assert_eq!(level, 0, "super page is not supported yet");
                 let page = if *zeroed {
-                    page::alloc_zeroed_page()?
+                    Page::alloc_zeroed()?
                 } else {
-                    page::alloc_page()?
+                    Page::alloc()?
                 };
-                Ok(PhysAddr::from(page))
+                Ok(page.into_raw())
             }
             Self::FixedAddr { addr } => Ok(*addr),
         }
@@ -746,8 +746,8 @@ impl PtEntry {
             drop(pt);
         } else {
             assert_eq!(level, 0, "super page is not supported yet");
-            if page::is_allocated_pointer(pa.as_non_null()) {
-                unsafe { page::free_page(pa.as_non_null()) }
+            if page::is_heap_addr(pa) {
+                drop(Page::from_raw(pa));
             }
         }
     }

@@ -1,6 +1,7 @@
 #![feature(allocator_api)]
 #![feature(box_as_ptr)]
 #![feature(fn_align)]
+#![feature(maybe_uninit_slice)]
 #![feature(naked_functions)]
 #![no_std]
 #![no_main]

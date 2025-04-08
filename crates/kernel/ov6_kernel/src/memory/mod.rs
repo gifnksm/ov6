@@ -17,6 +17,8 @@ pub mod addr;
 pub mod heap;
 pub mod layout;
 pub mod page;
+mod page_allocator;
+mod page_manager;
 pub mod page_table;
 pub mod vm_kernel;
 pub mod vm_user;
