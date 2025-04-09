@@ -66,6 +66,7 @@ pub enum WaitTarget {
 pub struct MemoryInfo {
     pub free_pages: usize,
     pub total_pages: usize,
+    pub page_size: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Pod)]

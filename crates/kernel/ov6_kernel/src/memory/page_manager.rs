@@ -126,6 +126,10 @@ impl Page<'static> {
 }
 
 impl Page<'_> {
+    pub(super) fn ref_count(&self) -> u32 {
+        self.state.ref_count.load(Ordering::Acquire)
+    }
+
     /// Consumes the `Page` and returns the underlying physical address.
     ///
     /// The caller takes ownership of the memory page and is responsible for

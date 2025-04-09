@@ -5,11 +5,15 @@ use bitflags::bitflags;
 use dataview::Pod;
 
 use super::PageTableEntries;
-use crate::memory::{
-    self, PhysAddr,
-    addr::PhysPageNum,
-    page::{self, PageFrameAllocator},
-    page_manager::Page,
+use crate::{
+    error::KernelError,
+    memory::{
+        self, PhysAddr, VirtAddr,
+        addr::PhysPageNum,
+        level_page_size,
+        page::{self, PageFrameAllocator},
+        page_manager::Page,
+    },
 };
 
 bitflags! {
@@ -57,6 +61,11 @@ bitflags! {
         ///
         /// If set, this virtual address has been written to.
         const D = 1 << 7;
+
+        /// Copy-On-Write Bit of page table entry.
+        ///
+        /// If set, this virtual address is a copy-on-write mapping.
+        const C = 1 << 8;
 
         const RW = Self::R.bits() | Self::W.bits();
         const RX = Self::R.bits() | Self::X.bits();
@@ -222,5 +231,56 @@ impl PtEntry {
     /// Returns the flags associated with this entry.
     pub(super) fn flags(&self) -> PtEntryFlags {
         PtEntryFlags::from_bits_retain(self.0 & Self::FLAGS_MASK)
+    }
+
+    pub(crate) fn make_copy_on_write(&mut self) {
+        let mut flags = self.flags();
+        if flags.contains(PtEntryFlags::W) {
+            flags.remove(PtEntryFlags::W);
+            flags.insert(PtEntryFlags::C);
+            *self = unsafe { Self::new(self.phys_page_num(), flags) };
+        }
+    }
+
+    pub(crate) fn request_user_write(
+        &mut self,
+        level: usize,
+        va: VirtAddr,
+    ) -> Result<(), KernelError> {
+        let mut flags = self.flags();
+        if flags.contains(PtEntryFlags::UW) {
+            return Ok(());
+        }
+
+        if !flags.contains(PtEntryFlags::U | PtEntryFlags::C) {
+            return Err(KernelError::InaccessiblePage(va));
+        }
+
+        flags.remove(PtEntryFlags::C);
+        flags.insert(PtEntryFlags::W);
+
+        assert_eq!(level, 0, "super page is not supported yet");
+
+        let page = Page::from_raw(self.phys_addr());
+        if page.ref_count() == 1 {
+            let pa = page.into_raw();
+            *self = unsafe { Self::new(pa.phys_page_num(), flags) };
+            return Ok(());
+        }
+
+        let old_pa = self.phys_addr();
+        let new_page = Page::alloc()?;
+        let new_pa = new_page.into_raw();
+
+        unsafe {
+            new_pa
+                .as_mut_ptr::<u8>()
+                .copy_from(old_pa.as_ptr::<u8>(), level_page_size(level));
+        }
+        *self = unsafe { Self::new(new_pa.phys_page_num(), flags) };
+
+        drop(page);
+
+        Ok(())
     }
 }

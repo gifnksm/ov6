@@ -206,25 +206,23 @@ impl UserPageTable {
         self.heap_size = new_size;
     }
 
-    pub fn clone_from(&mut self, other: &Self) -> Result<(), KernelError> {
+    pub fn clone_from(&mut self, other: &mut Self) -> Result<(), KernelError> {
         self.pt.clone_pages_from(
-            &other.pt,
+            &mut other.pt,
             VirtAddr::MIN_AVA..other.heap_start,
             PtEntryFlags::U,
         )?;
 
-        self.pt.clone_pages_from(
-            &other.pt,
-            other.stack_start..other.stack_top(),
-            PtEntryFlags::U,
-        )?;
+        let stack_range = other.stack_start..other.stack_top();
+        self.pt
+            .clone_pages_from(&mut other.pt, stack_range, PtEntryFlags::U)?;
         self.stack_start = other.stack_start;
         self.stack_size = other.stack_size;
 
         let heap_start = other.heap_start;
         let heap_end = heap_start.byte_add(other.heap_size)?;
         self.pt
-            .clone_pages_from(&other.pt, heap_start..heap_end, PtEntryFlags::U)?;
+            .clone_pages_from(&mut other.pt, heap_start..heap_end, PtEntryFlags::U)?;
         self.heap_start = other.heap_start;
         self.heap_size = other.heap_size;
 
@@ -399,5 +397,9 @@ impl UserPageTable {
 
     pub fn dump(&self) {
         page_table::dump_pagetable(&self.pt);
+    }
+
+    pub(crate) fn request_user_write(&mut self, va: VirtAddr) -> Result<(), KernelError> {
+        self.pt.request_user_write(va)
     }
 }

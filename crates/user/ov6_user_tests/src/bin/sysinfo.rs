@@ -20,11 +20,12 @@ fn print_memory_info(info: &MemoryInfo) {
     let MemoryInfo {
         free_pages,
         total_pages,
+        page_size,
     } = info;
 
     println!("# Memory Information");
     println!("{:<12} {total_pages}", "PageTotal");
     println!("{:<12} {free_pages}", "PageFree");
-    println!("{:<12} {} kB", "MemTotal", total_pages * 4);
-    println!("{:<12} {} kB", "MemFree", free_pages * 4);
+    println!("{:<12} {} kB", "MemTotal", total_pages * page_size / 1024);
+    println!("{:<12} {} kB", "MemFree", free_pages * page_size / 1024);
 }

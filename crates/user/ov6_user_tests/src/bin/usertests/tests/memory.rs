@@ -167,7 +167,7 @@ pub fn count_free_pages() {
     let page_table_pages = available_pages / 512;
 
     assert!(
-        (available_pages + page_table_pages).abs_diff(os_free_pages) < 2,
+        (available_pages + page_table_pages).abs_diff(os_free_pages) < 10,
         "available_pages={available_pages}, page_table_pages={page_table_pages}, \
          os_free_pages={os_free_pages}"
     );

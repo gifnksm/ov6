@@ -76,14 +76,17 @@ pub fn resize_by(private: &mut ProcPrivateData, increment: isize) -> Result<(), 
 /// Creates a new process, copying the parent.
 ///
 /// Sets up child kernel stack to return as if from `fork()` system call.
-pub fn fork(p: &'static Proc, p_private: &ProcPrivateData) -> Result<ProcId, KernelError> {
+pub fn fork(p: &'static Proc, p_private: &mut ProcPrivateData) -> Result<ProcId, KernelError> {
     let parent_name = p.shared().lock().name.clone();
 
     // Allocate process.
     let (np, mut np_shared, mut np_private) = Proc::allocate()?;
 
     // Copy use memory from parent to child.
-    if let Err(e) = np_private.pagetable_mut().clone_from(p_private.pagetable()) {
+    if let Err(e) = np_private
+        .pagetable_mut()
+        .clone_from(p_private.pagetable_mut())
+    {
         np.free(&mut np_shared);
         drop(np_shared);
         return Err(e);

@@ -62,8 +62,14 @@ impl PageTable {
             if !pte.is_valid() {
                 return Err(KernelError::VirtualPageNotMapped(va));
             }
-            if pte.is_leaf() && !pte.flags().contains(flags) {
-                return Err(KernelError::InaccessiblePage(va));
+            if pte.is_leaf() {
+                let mut pte_flags = pte.flags();
+                if pte_flags.contains(PtEntryFlags::C) {
+                    pte_flags.insert(PtEntryFlags::W);
+                }
+                if !pte_flags.contains(flags) {
+                    return Err(KernelError::InaccessiblePage(va));
+                }
             }
             Ok(())
         })
@@ -94,14 +100,14 @@ impl PageTable {
     /// operation fails.
     pub(super) fn clone_pages_from<R>(
         &mut self,
-        other: &Self,
+        other: &mut Self,
         va_range: R,
         flags: PtEntryFlags,
     ) -> Result<(), KernelError>
     where
         R: RangeBounds<VirtAddr>,
     {
-        for (level, va, src_pte) in other.entries(va_range) {
+        for (level, va, src_pte) in other.leaves_mut(va_range) {
             if !src_pte.is_leaf() {
                 continue;
             }
@@ -110,31 +116,19 @@ impl PageTable {
             }
 
             let page_size = memory::level_page_size(level);
+            src_pte.make_copy_on_write();
             let flags = src_pte.flags();
 
-            if !flags.contains(PtEntryFlags::W) {
-                // read-only page, no need to allocate new page
-                let mut dst_va = va;
-                let pa = src_pte.phys_addr();
-                let page = Page::from_raw(pa);
-                page.increment_ref();
-                let mut dst_pa = MapTarget::FixedAddr {
-                    addr: page.into_raw(),
-                };
-
-                self.0
-                    .map_addrs_level(level, &mut dst_va, &mut dst_pa, page_size, flags)?;
-                continue;
-            }
-
             let mut dst_va = va;
-            let mut dst_pa = MapTarget::allocated_addr(false, true);
+            let pa = src_pte.phys_addr();
+            let page = Page::from_raw(pa);
+            page.increment_ref();
+            let mut dst_pa = MapTarget::FixedAddr {
+                addr: page.into_raw(),
+            };
+
             self.0
                 .map_addrs_level(level, &mut dst_va, &mut dst_pa, page_size, flags)?;
-
-            let src = other.fetch_chunk(va, PtEntryFlags::U)?;
-            let dst = self.fetch_chunk_mut(va, PtEntryFlags::U)?;
-            dst.copy_from_slice(src);
         }
 
         Ok(())
@@ -249,6 +243,9 @@ impl PageTable {
     ) -> Result<&mut [u8], KernelError> {
         let (level, pte) = self.find_leaf_entry_mut(va)?;
         assert!(pte.is_valid() && pte.is_leaf());
+        if pte.flags().contains(PtEntryFlags::C) {
+            pte.request_user_write(level, va)?;
+        }
         if !pte.flags().contains(flags) {
             return Err(KernelError::InaccessiblePage(va));
         }
@@ -257,6 +254,13 @@ impl PageTable {
         let page_size = page.len();
         let offset = va.addr() % page_size;
         Ok(&mut page[offset..])
+    }
+
+    pub(super) fn request_user_write(&mut self, va: VirtAddr) -> Result<(), KernelError> {
+        let (level, pte) = self.find_leaf_entry_mut(va)?;
+        pte.request_user_write(level, va)?;
+        assert!(pte.flags().contains(PtEntryFlags::W));
+        Ok(())
     }
 }
 

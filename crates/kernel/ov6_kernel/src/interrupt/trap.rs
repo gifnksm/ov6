@@ -18,7 +18,9 @@ use safe_cast::to_u32;
 use super::{clic, kernel_vec, plic, timer, trampoline};
 use crate::{
     console::uart,
-    cpu, fs,
+    cpu,
+    error::KernelError,
+    fs,
     interrupt::{self, timer::Uptime},
     memory::{
         PAGE_SIZE, VirtAddr,
@@ -27,7 +29,7 @@ use crate::{
         vm_user::UserPageTable,
     },
     println,
-    proc::{self, Proc, ProcPrivateDataGuard, scheduler},
+    proc::{self, Proc, ProcPrivateData, ProcPrivateDataGuard, scheduler},
     syscall,
 };
 
@@ -135,12 +137,15 @@ extern "C" fn trap_user() {
             syscall::syscall(p, &mut private_opt);
             private = private_opt.unwrap();
         }
+        Trap::Exception(Exception::StorePageFault)
+            if request_user_write(&mut private, stval::read()).is_ok() => {}
         Trap::Exception(e) => {
             let mut shared = p.shared().lock();
             let pid = shared.pid();
             let name = shared.name().display();
             let sepc = sepc::read();
             let stval = stval::read();
+
             println!("usertrap: exception {e:?} pid={pid} name={name}");
             println!("          sepc={sepc:#x} stval={stval:#x}");
             print_user_backtrace(sepc, private.trapframe(), private.pagetable());
@@ -183,6 +188,12 @@ extern "C" fn trap_user() {
     }
 
     trap_user_ret(private);
+}
+
+fn request_user_write(private: &mut ProcPrivateData, addr: usize) -> Result<(), KernelError> {
+    let va = VirtAddr::new(addr)?;
+    private.pagetable_mut().request_user_write(va)?;
+    Ok(())
 }
 
 fn fetch_usize(addr: usize, pt: &UserPageTable) -> Option<usize> {

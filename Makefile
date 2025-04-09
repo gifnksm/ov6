@@ -64,6 +64,7 @@ OV6_UTILS=\
 
 OV6_USER_TESTS=\
 	alarmtest\
+	cowtest\
 	forktest\
 	grind\
 	kpgtbl\

@@ -93,6 +93,7 @@ impl PageAllocator {
         MemoryInfo {
             free_pages: allocator.free_pages(),
             total_pages: allocator.total_pages(),
+            page_size: PAGE_SIZE,
         }
     }
 }
