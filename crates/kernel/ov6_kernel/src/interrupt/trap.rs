@@ -13,18 +13,18 @@ use riscv::{
         stvec::{self, Stvec, TrapMode},
     },
 };
-use safe_cast::to_u32;
+use safe_cast::SafeInto as _;
 
 use super::{clic, kernel_vec, plic, timer, trampoline};
 use crate::{
     console::uart,
-    cpu,
+    cpu, device,
     error::KernelError,
     fs,
     interrupt::{self, timer::Uptime},
     memory::{
         PAGE_SIZE, VirtAddr,
-        layout::{KSTACK_PAGES, UART0_IRQ, VIRTIO0_IRQ},
+        layout::{E1000_IRQ, KSTACK_PAGES, UART0_IRQ, VIRTIO0_IRQ},
         page_table::PtEntryFlags,
         vm_user::UserPageTable,
     },
@@ -369,12 +369,15 @@ fn handle_dev_interrupt(int: Interrupt) -> IntrKind {
             // irq indicates which device interrupted.
             let irq = plic::claim();
 
-            if irq == to_u32!(UART0_IRQ) {
-                uart::handle_interrupt();
-            } else if irq == to_u32!(VIRTIO0_IRQ) {
-                fs::virtio_disk::handle_interrupt();
-            } else if irq > 0 {
-                println!("unexpected interrupt irq={irq}");
+            match irq.safe_into() {
+                UART0_IRQ => uart::handle_interrupt(),
+                VIRTIO0_IRQ => fs::virtio_disk::handle_interrupt(),
+                E1000_IRQ => device::e1000::handle_interrupt(),
+                irq => {
+                    if irq > 0 {
+                        println!("unexpected interrupt irq={irq}");
+                    }
+                }
             }
 
             // the PLIC allows each device to raise at most one

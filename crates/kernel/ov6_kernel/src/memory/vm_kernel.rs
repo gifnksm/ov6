@@ -12,8 +12,8 @@ use crate::{
     memory::{
         PAGE_SIZE, PhysAddr, VirtAddr,
         layout::{
-            CLINT, CLINT_SIZE, KERNEL_BASE, PHYS_TOP, PLIC, PLIC_SIZE, TEXT_END, TRAMPOLINE, UART0,
-            VIRT_TEST, VIRTIO0,
+            CLINT, CLINT_SIZE, KERNEL_BASE, PCIE_ECAM, PCIE_ECAM_SIZE, PCIE_MMIO, PCIE_MMIO_SIZE,
+            PHYS_TOP, PLIC, PLIC_SIZE, TEXT_END, TRAMPOLINE, UART0, VIRT_TEST, VIRTIO0,
         },
         page_table::PtEntryFlags,
     },
@@ -81,6 +81,12 @@ impl KernelPageTable {
 
             // virtio mmio disk interface
             ident_map(&mut kpgtbl, VIRTIO0, PAGE_SIZE, rw).unwrap();
+
+            // PCIe ECAM (configuration space)
+            ident_map(&mut kpgtbl, PCIE_ECAM, PCIE_ECAM_SIZE, rw).unwrap();
+
+            // PCIe MMIO (device memory)
+            ident_map(&mut kpgtbl, PCIE_MMIO, PCIE_MMIO_SIZE, rw).unwrap();
 
             // CLINT
             ident_map(&mut kpgtbl, CLINT, CLINT_SIZE, rw).unwrap();

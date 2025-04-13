@@ -1,0 +1,17 @@
+[package]
+name = "ov6_net_utilities"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+readme.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+publish.workspace = true
+
+[dependencies]
+nix = { workspace = true, features = ["user"] }
+
+[lints]
+workspace = true

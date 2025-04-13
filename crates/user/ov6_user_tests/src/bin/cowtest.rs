@@ -167,7 +167,7 @@ fn three_3times() {
 
 static mut BUF: [u8; 4096] = [0; 4096];
 
-/// test whether copy_k2u simulates COW faults.
+/// test whether `copy_k2u` simulates COW faults.
 fn file() {
     let buf = unsafe { (&raw mut BUF).as_mut().unwrap() };
 

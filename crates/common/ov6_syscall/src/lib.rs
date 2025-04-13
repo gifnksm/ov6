@@ -1,6 +1,14 @@
 #![no_std]
 
-use core::{any, convert::Infallible, fmt, marker::PhantomData, num::TryFromIntError, ptr};
+use core::{
+    any,
+    convert::Infallible,
+    fmt,
+    marker::PhantomData,
+    net::{Ipv4Addr, SocketAddrV4},
+    num::TryFromIntError,
+    ptr,
+};
 
 use bitflags::bitflags;
 use dataview::Pod;
@@ -75,6 +83,31 @@ pub struct SystemInfo {
     pub memory: MemoryInfo,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Pod)]
+#[repr(C)]
+pub struct SocketAddrV4Pod {
+    addr: [u8; 4],
+    port: [u8; 2],
+}
+
+impl From<SocketAddrV4> for SocketAddrV4Pod {
+    fn from(value: SocketAddrV4) -> Self {
+        Self {
+            addr: value.ip().to_bits().to_ne_bytes(),
+            port: value.port().to_ne_bytes(),
+        }
+    }
+}
+
+impl From<SocketAddrV4Pod> for SocketAddrV4 {
+    fn from(value: SocketAddrV4Pod) -> Self {
+        Self::new(
+            Ipv4Addr::from_bits(u32::from_ne_bytes(value.addr)),
+            u16::from_ne_bytes(value.port),
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr, EnumString, Display)]
 #[repr(usize)]
 #[strum(serialize_all = "snake_case")]
@@ -102,6 +135,10 @@ pub enum SyscallCode {
     AlarmSet,
     AlarmClear,
     SignalReturn,
+    Bind,
+    Unbind,
+    Recv,
+    Send,
 
     GetSystemInfo,
     Reboot,

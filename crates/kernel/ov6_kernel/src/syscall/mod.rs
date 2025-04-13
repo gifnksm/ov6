@@ -13,6 +13,7 @@ use crate::{
 };
 
 mod file;
+mod net;
 mod proc;
 mod system;
 
@@ -82,6 +83,19 @@ where
     fn decode_arg(tf: &TrapFrame) -> Result<Self::Target, Self::DecodeError> {
         let ur = &tf.user_registers;
         Self::new([ur.a0, ur.a1, ur.a2, ur.a3]).try_decode()
+    }
+}
+
+impl<T> Arg for Register<T, 5>
+where
+    T: RegisterValue<Repr = Self>,
+{
+    type DecodeError = T::DecodeError;
+    type Target = T;
+
+    fn decode_arg(tf: &TrapFrame) -> Result<Self::Target, Self::DecodeError> {
+        let ur = &tf.user_registers;
+        Self::new([ur.a0, ur.a1, ur.a2, ur.a3, ur.a4]).try_decode()
     }
 }
 
@@ -263,6 +277,10 @@ pub fn syscall(p: &'static Proc, private_opt: &mut Option<ProcPrivateDataGuard>)
         SyscallCode::AlarmSet => syscall::AlarmSet::handle(p, private),
         SyscallCode::AlarmClear => syscall::AlarmClear::handle(p, private),
         SyscallCode::SignalReturn => syscall::SignalReturn::handle(p, private),
+        SyscallCode::Bind => syscall::Bind::handle(p, private),
+        SyscallCode::Unbind => syscall::Unbind::handle(p, private),
+        SyscallCode::Recv => syscall::Recv::handle(p, private),
+        SyscallCode::Send => syscall::Send::handle(p, private),
         SyscallCode::GetSystemInfo => syscall::GetSystemInfo::handle(p, private),
         SyscallCode::Reboot => syscall::Reboot::handle(p, private),
         SyscallCode::Halt => syscall::Halt::handle(p, private),

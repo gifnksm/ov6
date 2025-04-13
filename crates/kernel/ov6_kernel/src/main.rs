@@ -24,6 +24,7 @@ mod fs;
 mod init;
 mod interrupt;
 mod memory;
+mod net;
 mod proc;
 mod sync;
 mod syscall;
@@ -49,6 +50,8 @@ extern "C" fn main() -> ! {
         fs::init(); // file system (buffer cache and hard disk)
         file::init(); // file table
         proc::ops::spawn_init(); // first user process
+        device::pci::init(); // PCI device driver
+        net::init();
 
         STARTED.store(true, Ordering::Release);
     } else {

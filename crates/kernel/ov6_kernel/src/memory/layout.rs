@@ -10,6 +10,8 @@
 //! 0x0c00_0000 -- PLIC
 //! 0x1000_0000 -- UART0
 //! 0x1000_1000 -- virtio disk
+//! 0x3000_0000 -- PCIe ECAM
+//! 0x4000_0000 -- PCIe MMIO
 //! 0x8000_0000 -- boot ROM jumps here in machine mode
 //!                kernel loads the kernel here
 //! unused RAM after 0x8000_0000.
@@ -43,6 +45,14 @@ pub const UART0_IRQ: usize = 10;
 // virtio mmio interface
 pub const VIRTIO0: usize = 0x1000_1000;
 pub const VIRTIO0_IRQ: usize = 1;
+
+pub const PCIE_ECAM: usize = 0x3000_0000;
+pub const PCIE_ECAM_SIZE: usize = 0x1000_0000; // 256MB
+
+pub const PCIE_MMIO: usize = 0x4000_0000;
+pub const PCIE_MMIO_SIZE: usize = 0x4000_0000; // 1GB
+
+pub const E1000_IRQ: usize = 33;
 
 // SiFive CLINT (Core Local Interruptor)
 pub const CLINT: usize = 0x0200_0000;

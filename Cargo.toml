@@ -17,7 +17,7 @@ members = [
     "crates/user/ov6_user_tests",
     "crates/user/ov6_services",
     "crates/utils/ov6_fs_utilities",
-    "crates/utils/ov6_integration_tests",
+    "crates/utils/ov6_integration_tests", "crates/utils/ov6_net_utilities",
 ]
 resolver = "3"
 
@@ -34,12 +34,14 @@ publish = false
 
 [workspace.dependencies]
 anyhow = "1.0.97"
+arraydeque = { version = "0.5.1", default-features = false }
 arrayvec = { version = "0.7.6", default-features = false }
 bitflags = "2.9.0"
 dataview = "1.0.1"
 derive_more = { version = "2.0.1", default-features = false, features = ["from"] }
 fs4 = "0.13.1"
 memchr = { version = "2.7.4", default-features = false, features = ["alloc"] }
+nix = "0.29.0"
 rand = "0.9.0"
 riscv = "0.13.0"
 strum = { version = "0.27.1", default-features = false, features = ["derive"] }

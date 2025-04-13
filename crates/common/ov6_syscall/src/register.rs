@@ -1,4 +1,10 @@
-use core::{convert::Infallible, marker::PhantomData, num::NonZero, time::Duration};
+use core::{
+    convert::Infallible,
+    marker::PhantomData,
+    net::{Ipv4Addr, SocketAddrV4},
+    num::NonZero,
+    time::Duration,
+};
 
 use ov6_types::{fs::RawFd, process::ProcId};
 use safe_cast::SafeInto as _;
@@ -294,6 +300,38 @@ impl RegisterValue for OpenFlags {
     fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
         let bits = repr.map_type().try_decode()?;
         Self::from_bits(bits).ok_or(RegisterDecodeError::InvalidOpenFlags(bits))
+    }
+}
+
+impl RegisterValue for Ipv4Addr {
+    type DecodeError = RegisterDecodeError;
+    type Repr = Register<Self, 1>;
+
+    fn encode(self) -> Self::Repr {
+        self.to_bits().encode().map_type()
+    }
+
+    fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
+        let bits = repr.map_type().try_decode()?;
+        Ok(Self::from_bits(bits))
+    }
+}
+
+impl RegisterValue for SocketAddrV4 {
+    type DecodeError = RegisterDecodeError;
+    type Repr = Register<Self, 1>;
+
+    fn encode(self) -> Self::Repr {
+        let hi = u64::from(self.ip().to_bits());
+        let lo = u64::from(u32::from(self.port()));
+        ((hi << 32) | lo).encode().map_type()
+    }
+
+    fn try_decode(repr: Self::Repr) -> Result<Self, Self::DecodeError> {
+        let v = u64::try_decode(repr.map_type())?;
+        let hi = u32::try_from(v >> 32).unwrap();
+        let lo = v & 0xffff_ffff;
+        Ok(Self::new(Ipv4Addr::from_bits(hi), u16::try_from(lo)?))
     }
 }
 
@@ -617,6 +655,32 @@ where
     Ok((v0, v1, v2))
 }
 
+fn tuple_encode_112<T, U, V>((v0, v1, v2): (T, U, V)) -> Register<(T, U, V), 4>
+where
+    T: RegisterValue<Repr = Register<T, 1>>,
+    U: RegisterValue<Repr = Register<U, 1>>,
+    V: RegisterValue<Repr = Register<V, 2>>,
+{
+    let [a0] = v0.encode().a;
+    let [a1] = v1.encode().a;
+    let [a2, a3] = v2.encode().a;
+    Register::new([a0, a1, a2, a3])
+}
+
+fn tuple_decode_112<T, U, V, E>(repr: Register<(T, U, V), 4>) -> Result<(T, U, V), E>
+where
+    T: RegisterValue<Repr = Register<T, 1>>,
+    U: RegisterValue<Repr = Register<U, 1>>,
+    V: RegisterValue<Repr = Register<V, 2>>,
+    E: From<T::DecodeError> + From<U::DecodeError> + From<V::DecodeError>,
+{
+    let [a0, a1, a2, a3] = repr.a;
+    let v0 = Register::new([a0]).try_decode()?;
+    let v1 = Register::new([a1]).try_decode()?;
+    let v2 = Register::new([a2, a3]).try_decode()?;
+    Ok((v0, v1, v2))
+}
+
 impl_value!(
     [](u16,),
     RegisterDecodeError,
@@ -666,3 +730,5 @@ impl_value!([T] (RawFd, UserMutSlice<T>), Infallible, 3, tuple_encode_12, tuple_
 impl_value!([T: ?Sized, U] (UserRef<T>, UserSlice<U>), Infallible, 3, tuple_encode_12, tuple_decode_12);
 
 impl_value!([T] (UserSlice<T>, u32, u16), RegisterDecodeError, 4, tuple_encode_211, tuple_decode_211);
+impl_value!([T: ?Sized, U] (u16, UserMutRef<T>, UserMutSlice<U>), RegisterDecodeError, 4, tuple_encode_112, tuple_decode_112);
+impl_value!([T] (u16, SocketAddrV4, UserSlice<T>), RegisterDecodeError, 4, tuple_encode_112, tuple_decode_112);

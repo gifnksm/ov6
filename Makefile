@@ -28,7 +28,7 @@ RX=target/$(RUST_CROSS_TARGET)/$(PROFILE)
 RX_CARGO_FLAGS=$(CARGO_PROFILE_FLAG) --target $(RUST_CROSS_TARGET) -Z build-std=core,alloc,compiler_builtins
 RX_RUST_FLAGS=-C relocation-model=static -C force-frame-pointers=yes
 
-RN_PKGS=ov6_fs_utilities ov6_integration_tests
+RN_PKGS=ov6_fs_utilities ov6_integration_tests ov6_net_utilities
 
 OV6_KERNEL=\
 	kernel\
@@ -68,6 +68,7 @@ OV6_USER_TESTS=\
 	forktest\
 	grind\
 	kpgtbl\
+	nettest\
 	stressfs\
 	sysinfo\
 	upgtbl\
@@ -75,8 +76,6 @@ OV6_USER_TESTS=\
 
 OV6_FS_UTILS=\
 	mkfs\
-
-NATIVE_PKGS=ov6_fs_utilities ov6_integration_tests
 
 FS_CONTENTS=$(addprefix $R/,$(OV6_SERVICES) $(OV6_UTILS) $(OV6_USER_TESTS))
 
@@ -181,12 +180,17 @@ typos:
 cargo-doc:
 	cargo hack doc --workspace --no-deps --document-private-items
 	cargo hack doc --workspace --no-deps --document-private-items --target $(RUST_CROSS_TARGET) \
-		$(addprefix --exclude ,$(NATIVE_PKGS))
+		$(addprefix --exclude ,$(RN_PKGS))
 
 # try to generate a unique GDB port
 GDB_PORT = $(shell expr `id -u` % 5000 + 25000)
 QEMU_GDB_TCP = -gdb tcp::$(GDB_PORT)
 QEMU_GDB_SOCK = -chardev socket,path=$(GDB_SOCK),server=on,wait=off,id=gdb0 -gdb chardev:gdb0
+
+SERVER_PORT = $(shell expr `id -u` % 5000 + 25099)
+export SERVER_PORT
+FWD_PORT1 = $(shell expr `id -u` % 5000 + 25999)
+FWD_PORT2 = $(shell expr `id -u` % 5000 + 30999)
 
 ifndef CPUS
 CPUS := 3
@@ -199,6 +203,13 @@ QEMU_OPTS = -machine virt -bios none -kernel $(QEMU_KERNEL) -m 128M -smp $(CPUS)
 QEMU_OPTS += -global virtio-mmio.force-legacy=false
 QEMU_OPTS += -drive file=$(QEMU_FS),if=none,format=raw,id=x0
 QEMU_OPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
+ifdef QEMU_NET_FWD
+QEMU_OPTS += -netdev user,id=net0,hostfwd=udp::$(FWD_PORT1)-:2000,hostfwd=udp::$(FWD_PORT2)-:2001
+else
+QEMU_OPTS += -netdev user,id=net0
+endif
+QEMU_OPTS += -object filter-dump,id=net0,netdev=net0,file=target/packets.pcap
+QEMU_OPTS += -device e1000,netdev=net0,bus=pcie.0
 
 ifdef QEMU_LOG
 QEMU_OPTS += -d unimp,guest_errors,int -D target/qemu.log

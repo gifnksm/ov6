@@ -102,12 +102,24 @@ pub(crate) enum KernelError {
     CallerProcessAlreadyKilled,
     #[error("caller not in signal handler")]
     NotInSignalHandler,
+    #[error("too large UDP packet payload")]
+    TooLargeUdpPacket,
+    #[error("no send buffer available")]
+    NoSendBuffer,
+    #[error("port already bound")]
+    PortAlreadyBound,
+    #[error("no free port available")]
+    NoFreePort,
+    #[error("port not bound")]
+    PortNotBound,
 }
 
 impl From<KernelError> for SyscallError {
     fn from(error: KernelError) -> Self {
         match error {
-            KernelError::NoFreeProc => Self::ResourceTempolaryUnavailable,
+            KernelError::NoFreeProc | KernelError::NoSendBuffer | KernelError::NoFreePort => {
+                Self::ResourceTempolaryUnavailable
+            }
             KernelError::NoFreePage => Self::OutOfMemory,
             KernelError::ProcessNotFound(_) => Self::ProcessNotFound,
             KernelError::DeviceNotFound(_) => Self::DeviceNotFound,
@@ -132,7 +144,8 @@ impl From<KernelError> for SyscallError {
             KernelError::HeapSizeOverflow
             | KernelError::HeapSizeUnderflow
             | KernelError::UnlinkDots
-            | KernelError::NullInPath => Self::InvalidInput,
+            | KernelError::NullInPath
+            | KernelError::PortNotBound => Self::InvalidInput,
             KernelError::CreateRootDir
             | KernelError::CreateAlreadyExists
             | KernelError::LinkRootDir
@@ -149,6 +162,8 @@ impl From<KernelError> for SyscallError {
             KernelError::OpenDirAsWritable => Self::IsADirectory,
             KernelError::ArgumentListTooLarge => Self::ArgumentListTooLong,
             KernelError::InvalidExecutable => Self::ExecFormat,
+            KernelError::TooLargeUdpPacket => Self::MessageTooLong,
+            KernelError::PortAlreadyBound => Self::AddrInUse,
             KernelError::NotInSignalHandler
             | KernelError::SyscallDecode(_)
             | KernelError::CallerProcessAlreadyKilled => Self::Unknown,

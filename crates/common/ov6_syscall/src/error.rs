@@ -120,6 +120,10 @@ pub enum SyscallError {
     // ENOTEMPTY
     #[error("directory not empty")]
     DirectoryNotEmpty = 39,
+    #[error("message too long")]
+    MessageTooLong = 90,
+    #[error("address already in use")]
+    AddrInUse = 98,
     #[error("unknown error")]
     Unknown = -1,
 }

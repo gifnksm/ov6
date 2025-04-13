@@ -11,6 +11,7 @@ keywords.workspace = true
 publish.workspace = true
 
 [dependencies]
+dataview.workspace = true
 ov6_fs_types.workspace = true
 ov6_kernel_params.workspace = true
 ov6_syscall.workspace = true

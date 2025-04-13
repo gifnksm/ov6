@@ -83,6 +83,10 @@ pub enum Ov6Error {
     // FunctionNotImplemented,
     #[error("directory not empty")]
     DirectoryNotEmpty,
+    #[error("message too long")]
+    MessageTooLong,
+    #[error("address already in use")]
+    AddrInUse,
 
     #[error("stream did not contain valid UTF-8")]
     InvalidUtf8,
@@ -137,6 +141,8 @@ impl From<SyscallError> for Ov6Error {
             SyscallError::BrokenPipe => Self::BrokenPipe,
             SyscallError::InvalidFilename => Self::InvalidFilename,
             SyscallError::DirectoryNotEmpty => Self::DirectoryNotEmpty,
+            SyscallError::MessageTooLong => Self::MessageTooLong,
+            SyscallError::AddrInUse => Self::AddrInUse,
             SyscallError::Unknown => Self::Unknown,
         }
     }

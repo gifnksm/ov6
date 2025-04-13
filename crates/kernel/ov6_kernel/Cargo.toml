@@ -24,6 +24,7 @@ test = false
 bench = false
 
 [dependencies]
+arraydeque.workspace = true
 arrayvec.workspace = true
 bitflags.workspace = true
 block_io.workspace = true
@@ -39,5 +40,6 @@ page_alloc.workspace = true
 riscv.workspace = true
 safe_cast = { version = "0.1.0", path = "../../common/safe_cast" }
 slab_allocator.workspace = true
+strum.workspace = true
 thiserror.workspace = true
 vcell.workspace = true

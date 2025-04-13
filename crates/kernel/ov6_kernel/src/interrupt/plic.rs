@@ -12,6 +12,11 @@ pub fn init() {
     unsafe {
         ptr::with_exposed_provenance_mut::<u32>(PLIC + UART0_IRQ * 4).write_volatile(1);
         ptr::with_exposed_provenance_mut::<u32>(PLIC + VIRTIO0_IRQ * 4).write_volatile(1);
+
+        // PCIe IRQs are 32 to 35
+        for irq in 1..0x35 {
+            ptr::with_exposed_provenance_mut::<u32>(PLIC + irq * 4).write_volatile(1);
+        }
     }
 }
 
@@ -23,6 +28,11 @@ pub fn init_hart() {
     unsafe {
         ptr::with_exposed_provenance_mut::<u32>(plic_senable(hart))
             .write_volatile((1 << UART0_IRQ) | (1 << VIRTIO0_IRQ));
+    }
+
+    // hack to get at next 32 IRQs for E1000
+    unsafe {
+        ptr::with_exposed_provenance_mut::<u32>(plic_senable(hart) + 4).write_volatile(0xffff_ffff);
     }
 
     // set this hart's S-mode priority threshold to 0

@@ -1,4 +1,9 @@
-use core::{convert::Infallible, ptr, time::Duration};
+use core::{
+    convert::Infallible,
+    net::{Ipv4Addr, SocketAddrV4},
+    ptr,
+    time::Duration,
+};
 
 use dataview::PodMethods as _;
 pub use ov6_syscall::{MemoryInfo, OpenFlags, Stat, StatType, SyscallCode, SystemInfo};
@@ -149,6 +154,27 @@ pub fn alarm_clear() -> Result<(), Ov6Error> {
 pub fn signal_return() -> Result<Infallible, Ov6Error> {
     let _: Infallible = syscall::SignalReturn::call(())?;
     unreachable!()
+}
+
+pub fn bind(port: u16) -> Result<(), Ov6Error> {
+    syscall::Bind::call((port,))?;
+    Ok(())
+}
+
+pub fn unbind(port: u16) -> Result<(), Ov6Error> {
+    syscall::Unbind::call((port,))?;
+    Ok(())
+}
+
+pub fn recv(port: u16, bytes: &mut [u8]) -> Result<(usize, SocketAddrV4), Ov6Error> {
+    let mut src = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0).into();
+    let len = syscall::Recv::call((port, UserMutRef::new(&mut src), UserMutSlice::new(bytes)))?;
+    Ok((len, src.into()))
+}
+
+pub fn send(src_port: u16, dst: SocketAddrV4, bytes: &[u8]) -> Result<usize, Ov6Error> {
+    let len = syscall::Send::call((src_port, dst, UserSlice::new(bytes)))?;
+    Ok(len)
 }
 
 pub fn get_system_info() -> Result<SystemInfo, Ov6Error> {

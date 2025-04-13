@@ -125,6 +125,33 @@ impl<T> CallWithArg for Register<T, 4> {
     }
 }
 
+impl<T> CallWithArg for Register<T, 5> {
+    #[cfg(not(target_arch = "riscv64"))]
+    fn call_with_arg(self, _code: SyscallCode) -> [usize; 2] {
+        unimplemented!()
+    }
+
+    #[cfg(target_arch = "riscv64")]
+    fn call_with_arg(self, code: SyscallCode) -> [usize; 2] {
+        let [a0, a1, a2, a3, a4] = self.a;
+        let mut out = [0, 0];
+        unsafe {
+            core::arch::asm!(
+                "ecall",
+                in("a0") a0,
+                in("a1") a1,
+                in("a2") a2,
+                in("a3") a3,
+                in("a4") a4,
+                in("a7") code as usize,
+                lateout("a0") out[0],
+                lateout("a1") out[1],
+            );
+        }
+        out
+    }
+}
+
 trait FromArray {
     fn from_array(a: [usize; 2]) -> Self;
 }
@@ -194,6 +221,10 @@ syscall!(Sleep);
 syscall!(AlarmSet);
 syscall!(AlarmClear);
 syscall!(SignalReturn);
+syscall!(Bind);
+syscall!(Unbind);
+syscall!(Recv);
+syscall!(Send);
 syscall!(GetSystemInfo);
 syscall!(Reboot);
 syscall!(Halt);
