@@ -74,6 +74,10 @@ const TESTS: &[TestEntry] = &[
     },
 ];
 
+fn server_ip() -> Ipv4Addr {
+    Ipv4Addr::new(10, 0, 2, 2)
+}
+
 fn server_port() -> u16 {
     option_env!("SERVER_PORT")
         .unwrap_or("0")
@@ -82,7 +86,7 @@ fn server_port() -> u16 {
 }
 
 fn server_addr() -> SocketAddrV4 {
-    SocketAddrV4::new(Ipv4Addr::new(10, 0, 2, 2), server_port())
+    SocketAddrV4::new(server_ip(), server_port())
 }
 
 fn txone() {
@@ -99,7 +103,7 @@ fn rx() {
     for _ in 0..4 {
         let mut ibuf = [0; 128];
         let (cc, src) = sock.recv_from(&mut ibuf).unwrap();
-        assert_eq!(*src.ip(), Ipv4Addr::new(10, 0, 2, 2));
+        assert_eq!(*src.ip(), server_ip());
         let ibuf = str::from_utf8(&ibuf[..cc]).unwrap();
         let seq: usize = ibuf.strip_prefix("packet ").unwrap().parse().unwrap();
         assert!(last_seq.is_none() || last_seq.unwrap() + 1 == seq);
@@ -115,7 +119,7 @@ fn rx2() {
     for _ in 0..3 {
         let mut ibuf = [0; 128];
         let (cc, src) = sock0.recv_from(&mut ibuf).unwrap();
-        assert_eq!(*src.ip(), Ipv4Addr::new(10, 0, 2, 2));
+        assert_eq!(*src.ip(), server_ip());
         let ibuf = str::from_utf8(&ibuf[..cc]).unwrap();
         assert!(ibuf.starts_with("one "));
         eprint!(".");
@@ -124,7 +128,7 @@ fn rx2() {
     for _ in 0..3 {
         let mut ibuf = [0; 128];
         let (cc, src) = sock1.recv_from(&mut ibuf).unwrap();
-        assert_eq!(*src.ip(), Ipv4Addr::new(10, 0, 2, 2));
+        assert_eq!(*src.ip(), server_ip());
         let ibuf = str::from_utf8(&ibuf[..cc]).unwrap();
         assert!(ibuf.starts_with("two "));
         eprint!(".");
@@ -133,7 +137,7 @@ fn rx2() {
     for _ in 0..3 {
         let mut ibuf = [0; 128];
         let (cc, src) = sock0.recv_from(&mut ibuf).unwrap();
-        assert_eq!(*src.ip(), Ipv4Addr::new(10, 0, 2, 2));
+        assert_eq!(*src.ip(), server_ip());
         let ibuf = str::from_utf8(&ibuf[..cc]).unwrap();
         assert!(ibuf.starts_with("one "));
         eprint!(".");
