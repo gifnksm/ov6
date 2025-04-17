@@ -49,7 +49,8 @@ where
 }
 
 fn main() {
-    let args = env::args_os();
+    let mut args = env::args_os();
+    let _ = args.next(); // skip the program name
 
     if args.len() == 0 {
         wc(io::stdin(), "", "standard input");

@@ -4,7 +4,8 @@ use ov6_user_lib::{env, process};
 use ov6_utilities::{message_err, usage_and_exit};
 
 fn main() {
-    let args = env::args();
+    let mut args = env::args();
+    let _ = args.next(); // skip the program name
 
     if args.len() == 0 {
         usage_and_exit!("pid...");

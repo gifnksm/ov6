@@ -5,6 +5,7 @@ use ov6_user_tests::{OrExit as _, exit_err, usage_and_exit};
 
 fn main() {
     let mut args = env::args();
+    let _ = args.next(); // skip the program name
 
     if args.len() > 2 {
         usage_and_exit!("[sbrk_size]");

@@ -145,6 +145,7 @@ impl TestParam {
     #[must_use]
     pub fn parse() -> Self {
         let mut args = env::args();
+        let _ = args.next(); // skip the program name
 
         let mut param = Self {
             filter: TestFilter {

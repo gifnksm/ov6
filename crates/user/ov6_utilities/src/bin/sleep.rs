@@ -7,6 +7,7 @@ use ov6_utilities::usage_and_exit;
 
 fn main() {
     let mut args = env::args();
+    let _ = args.next(); // skip the program name
 
     if args.len() != 1 {
         usage_and_exit!("seconds");

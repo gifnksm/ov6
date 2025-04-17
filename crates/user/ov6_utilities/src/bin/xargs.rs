@@ -91,6 +91,8 @@ fn parse_arg(args: &mut Peekable<ArgsOs>) -> Params {
 
 fn main() {
     let mut args = env::args_os().peekable();
+    let _ = args.next(); // skip the program name
+
     let params = parse_arg(&mut args);
 
     let mut base_cmd = args.map(Cow::Borrowed).collect::<Vec<_>>();

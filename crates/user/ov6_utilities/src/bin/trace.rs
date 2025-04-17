@@ -14,6 +14,8 @@ use ov6_utilities::{exit, message_err, usage_and_exit};
 
 fn main() {
     let mut args = env::args_os();
+    let _ = args.next(); // skip the program name
+
     if args.len() < 2 {
         usage_and_exit!("<mask> [command...]");
     }

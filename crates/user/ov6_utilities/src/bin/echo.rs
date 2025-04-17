@@ -3,12 +3,16 @@
 use ov6_user_lib::{env, print, println};
 
 fn main() {
-    for (i, arg) in env::args().enumerate() {
-        if i > 0 {
-            print!(" {arg}");
-        } else {
-            print!("{arg}");
-        }
+    let mut args = env::args();
+    let _ = args.next(); // skip the program name
+
+    if let Some(arg) = args.next() {
+        print!("{arg}");
     }
+
+    for arg in args {
+        print!(" {arg}");
+    }
+
     println!();
 }

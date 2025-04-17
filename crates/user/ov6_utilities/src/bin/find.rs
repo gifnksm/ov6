@@ -36,6 +36,8 @@ fn find(path: &Path, pattern: &Path) {
 
 fn main() {
     let mut args = env::args_os();
+    let _ = args.next(); // skip the program name
+
     match args.len() {
         0 => find(".".as_ref(), "".as_ref()),
         1 => find(args.next().unwrap().as_ref(), "".as_ref()),

@@ -43,16 +43,14 @@ pub fn arg0() -> &'static OsStr {
 #[must_use]
 pub fn args() -> Args {
     let args = argv();
-    let mut iter = args.iter();
-    iter.next(); // Skip the program name
+    let iter = args.iter();
     Args { iter }
 }
 
 #[must_use]
 pub fn args_os() -> ArgsOs {
     let args = argv();
-    let mut iter = args.iter();
-    iter.next(); // Skip the program name
+    let iter = args.iter();
     ArgsOs { iter }
 }
 

@@ -43,6 +43,7 @@ fn main() {
     let mut buf = [0; 1024];
 
     let mut args = env::args_os();
+    let _ = args.next(); // skip the program name
 
     let Some(pattern) = args.next() else {
         usage_and_exit!("pattern [file...]");
