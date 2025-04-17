@@ -6,14 +6,19 @@ pub use self::{gdb::Gdb, qemu::Qemu, runner::Runner};
 
 mod gdb;
 pub mod helper;
+pub mod logged_command;
 pub mod monitor;
 mod qemu;
 mod runner;
 
-fn make_command(project_root: &Path) -> Command {
-    let mut cmd = Command::new("make");
+pub fn project_root_command(command: &str, project_root: &Path) -> Command {
+    let mut cmd = Command::new(command);
     cmd.current_dir(project_root);
     cmd
+}
+
+pub fn make_command(project_root: &Path) -> Command {
+    project_root_command("make", project_root)
 }
 
 #[macro_export]

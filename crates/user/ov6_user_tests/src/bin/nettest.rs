@@ -3,21 +3,45 @@
 
 use core::{
     net::{Ipv4Addr, SocketAddrV4},
+    sync::atomic::{AtomicU16, Ordering},
     time::Duration,
 };
 
 use dataview::{DataView, Pod};
 use ov6_user_lib::{
-    eprint, eprintln,
+    env, eprint, eprintln,
     io::{self, Read as _, Write as _},
     net::UdpSocket,
     os::ov6::syscall,
     process::{ProcessBuilder, Stdio},
     thread,
 };
-use ov6_user_tests::test_runner::{TestEntry, TestParam};
+use ov6_user_tests::{
+    OrExit as _, exit_err,
+    test_runner::{TestEntry, TestParam},
+};
+
+static SERVER_PORT: AtomicU16 = AtomicU16::new(0);
 
 fn main() {
+    let mut args = env::args().skip_while(|s| *s != "--").skip(1);
+
+    while let Some(arg) = args.next() {
+        match arg {
+            "-p" => {
+                let Some(s) = args.next() else {
+                    eprintln!("Missing argument for -p");
+                    TestParam::usage_and_exit();
+                };
+                let p = s.parse().or_exit(|e| {
+                    exit_err!(e, "Invalid port number: `{s}`");
+                });
+                SERVER_PORT.store(p, Ordering::Relaxed);
+            }
+            _ => TestParam::usage_and_exit(),
+        }
+    }
+
     TestParam::parse().run(TESTS);
 }
 
@@ -79,6 +103,11 @@ fn server_ip() -> Ipv4Addr {
 }
 
 fn server_port() -> u16 {
+    let port = SERVER_PORT.load(Ordering::Relaxed);
+    if port != 0 {
+        return port;
+    }
+
     option_env!("SERVER_PORT")
         .unwrap_or("0")
         .parse::<u16>()

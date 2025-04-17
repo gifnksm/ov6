@@ -11,7 +11,7 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 #[tokio::test]
 async fn trace_read_grep() -> Result<(), anyhow::Error> {
     let r = runner!("trace_read_grep").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["trace read grep hello README", "halt"]).await?;
         Ok(())
     })
@@ -35,7 +35,7 @@ async fn trace_read_grep() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn trace_close_grep() -> Result<(), anyhow::Error> {
     let r = runner!("trace_close_grep").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["trace close grep hello README", "halt"]).await?;
         Ok(())
     })
@@ -54,7 +54,7 @@ async fn trace_close_grep() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn trace_exec_open_grep() -> Result<(), anyhow::Error> {
     let r = runner!("trace_exec_open_grep").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["trace exec,open grep hello README", "halt"]).await?;
         Ok(())
     })
@@ -78,7 +78,7 @@ async fn trace_exec_open_grep() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn trace_all_grep() -> Result<(), anyhow::Error> {
     let r = runner!("trace_all_grep").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["trace all grep hello README", "halt"]).await?;
         Ok(())
     })
@@ -122,7 +122,7 @@ async fn trace_all_grep() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn not_trace() -> Result<(), anyhow::Error> {
     let r = runner!("not_trace").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["grep hello README", "halt"]).await?;
         Ok(())
     })
@@ -141,7 +141,7 @@ async fn not_trace() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn trace_children() -> Result<(), anyhow::Error> {
     let r = runner!("trace_children").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(
             qemu,
             0,

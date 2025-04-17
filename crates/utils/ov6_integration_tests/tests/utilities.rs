@@ -10,7 +10,7 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 #[tokio::test]
 async fn sleep_no_arguments() -> Result<(), anyhow::Error> {
     let r = runner!("sleep_no_arguments").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["sleep", "halt"]).await?;
         Ok(())
     })
@@ -25,7 +25,7 @@ async fn sleep_no_arguments() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn sleep_race() -> Result<(), anyhow::Error> {
     let r = runner!("sleep_race").await?;
-    let (exit_status, _stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, _stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(
             qemu,
             0,
@@ -43,7 +43,7 @@ async fn sleep_race() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn pingpong() -> Result<(), anyhow::Error> {
     let r = runner!("pingpong").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["pingpong", "halt"]).await?;
         Ok(())
     })
@@ -59,7 +59,7 @@ async fn pingpong() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn primes() -> Result<(), anyhow::Error> {
     let r = runner!("primes").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["primes", "halt"]).await?;
         Ok(())
     })
@@ -82,7 +82,7 @@ async fn primes() -> Result<(), anyhow::Error> {
 async fn find_current_dir() -> Result<(), anyhow::Error> {
     let r = runner!("find_current_dir").await?;
     let file = helper::random_str(8);
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(
             qemu,
             0,
@@ -105,7 +105,7 @@ async fn find_subdir() -> Result<(), anyhow::Error> {
     let r = runner!("find_subdir").await?;
     let dir = helper::random_str(8);
     let file = helper::random_str(8);
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(
             qemu,
             0,
@@ -138,7 +138,7 @@ async fn find_recursive() -> Result<(), anyhow::Error> {
         helper::random_str(8),
         helper::random_str(8),
     ];
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(
             qemu,
             0,
@@ -169,7 +169,7 @@ async fn find_recursive() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn xargs() -> Result<(), anyhow::Error> {
     let r = runner!("xargs").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(
             qemu,
             0,
@@ -197,7 +197,7 @@ async fn xargs() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn xargs_multi_line_echo() -> Result<(), anyhow::Error> {
     let r = runner!("xargs_multi_line_echo").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["(echo 1 ; echo 2) | xargs -n 1 echo", "halt"]).await?;
         Ok(())
     })
@@ -213,7 +213,7 @@ async fn xargs_multi_line_echo() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn sh_and() -> Result<(), anyhow::Error> {
     let r = runner!("sh_and").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(
             qemu,
             0,
@@ -235,7 +235,7 @@ async fn sh_and() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn sh_or() -> Result<(), anyhow::Error> {
     let r = runner!("sh_or").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(
             qemu,
             0,

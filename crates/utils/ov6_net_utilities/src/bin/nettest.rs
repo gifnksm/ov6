@@ -2,52 +2,107 @@ use std::{env, net::UdpSocket, process, thread, time::Duration};
 
 fn usage() -> ! {
     let arg0 = env::args().next().unwrap();
-    eprintln!("Usage: {arg0} txone");
-    eprintln!("       {arg0} rxone");
-    eprintln!("       {arg0} rx");
-    eprintln!("       {arg0} rx2");
-    eprintln!("       {arg0} rxburst");
-    eprintln!("       {arg0} tx");
-    eprintln!("       {arg0} ping");
+    eprintln!(
+        "Usage: {arg0} [--fwd-port1 <port>] [--fwd-port2 <port>] [--server-port <port>] <command>"
+    );
     process::exit(1);
 }
 
-fn main() {
-    let args = env::args().collect::<Vec<String>>();
-    if args.len() != 2 {
-        usage();
+fn bind_server(command: &str, server_port: u16) -> UdpSocket {
+    let sock = UdpSocket::bind(("127.0.0.1", server_port)).unwrap();
+    let port = sock.local_addr().unwrap().port();
+    println!("{command}: server UDP port is {port}");
+    sock
+}
+
+struct Args {
+    server_port: u16,
+    fwd_port1: u16,
+    fwd_port2: u16,
+    command: String,
+}
+
+impl Args {
+    fn parse() -> Self {
+        let mut args = env::args();
+        let _ = args.next(); // skip the program name
+
+        let uid = u16::try_from(nix::unistd::getuid().as_raw() % 5000).unwrap();
+        let mut server_port = uid + 25099;
+        let mut fwd_port1 = uid + 25999;
+        let mut fwd_port2 = uid + 30999;
+
+        let mut command = None;
+
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--server-port" => {
+                    let Some(arg) = args.next().and_then(|s| s.parse().ok()) else {
+                        usage();
+                    };
+                    server_port = arg;
+                }
+                "--fwd-port1" => {
+                    let Some(arg) = args.next().and_then(|s| s.parse().ok()) else {
+                        usage();
+                    };
+                    fwd_port1 = arg;
+                }
+                "--fwd-port2" => {
+                    let Some(arg) = args.next().and_then(|s| s.parse().ok()) else {
+                        usage();
+                    };
+                    fwd_port2 = arg;
+                }
+                s if s.starts_with('-') => usage(),
+                _ => command = Some(arg),
+            }
+        }
+
+        let Some(command) = command else {
+            usage();
+        };
+
+        Self {
+            server_port,
+            fwd_port1,
+            fwd_port2,
+            command,
+        }
     }
+}
 
-    let uid = u16::try_from(nix::unistd::getuid().as_raw() % 5000).unwrap();
-    let server_port = uid + 25099;
-    let fwd_port1 = uid + 25999;
-    let fwd_port2 = uid + 30999;
+fn main() {
+    let Args {
+        server_port,
+        fwd_port1,
+        fwd_port2,
+        command,
+    } = Args::parse();
 
-    let command = args[1].as_str();
-
-    match command {
+    match command.as_str() {
         "txone" => {
             // Listen for a single UDP packet sent by ov6's nettest txone.
-            let sock = UdpSocket::bind(("127.0.0.1", server_port)).unwrap();
-            eprintln!("{command}: listening on a UDP packet");
+            let sock = bind_server(&command, server_port);
+            println!("{command}: listening on a UDP packet");
             let mut buf = [0; 4096];
             let (len, _addr) = sock.recv_from(&mut buf).unwrap();
             let received = &buf[..len];
             assert_eq!(received, b"txone", "{command}: unexpected payload");
-            eprintln!("{command}: OK");
+            println!("{command}: OK");
         }
         "rxone" => {
             // sending a single UDP packet to ov6
-            eprintln!("{command}: sending one UDP packet");
-            let sock = UdpSocket::bind(("127.0.0.1", server_port)).unwrap();
+            println!("{command}: sending one UDP packet");
+            let sock = bind_server(&command, server_port);
             sock.send_to(b"xyz", ("127.0.0.1", fwd_port1)).unwrap();
         }
         "rx" => {
             // sending a slow stream of UDP packets, which should appear on port 2000
-            let sock = UdpSocket::bind(("127.0.0.1", server_port)).unwrap();
+            let sock = bind_server(&command, server_port);
             for i in 0.. {
                 let txt = format!("packet {i}");
-                eprintln!("{txt}");
+                println!("{txt}");
                 sock.send_to(txt.as_bytes(), ("127.0.0.1", fwd_port1))
                     .unwrap();
                 thread::sleep(Duration::from_secs(1));
@@ -55,15 +110,15 @@ fn main() {
         }
         "rx2" => {
             // sending to two different UDP ports
-            let sock = UdpSocket::bind(("127.0.0.1", server_port)).unwrap();
+            let sock = bind_server(&command, server_port);
             for i in 0.. {
                 let txt = format!("one {i}");
-                eprintln!("{txt}");
+                println!("{txt}");
                 sock.send_to(txt.as_bytes(), ("127.0.0.1", fwd_port1))
                     .unwrap();
 
                 let txt = format!("two {i}");
-                eprintln!("{txt}");
+                println!("{txt}");
                 sock.send_to(txt.as_bytes(), ("127.0.0.1", fwd_port2))
                     .unwrap();
 
@@ -72,17 +127,17 @@ fn main() {
         }
         "rxburst" => {
             // sending a big burst of packets to 2001, then a packet to 2000.
-            let sock = UdpSocket::bind(("127.0.0.1", server_port)).unwrap();
+            let sock = bind_server(&command, server_port);
             for i in 0.. {
                 for _ in 0..32 {
                     let txt = format!("packet {i}");
-                    eprintln!("{txt}");
+                    println!("{txt}");
                     sock.send_to(txt.as_bytes(), ("127.0.0.1", fwd_port2))
                         .unwrap();
                 }
 
                 let txt = format!("packet {i}");
-                eprintln!("{txt}");
+                println!("{txt}");
                 sock.send_to(txt.as_bytes(), ("127.0.0.1", fwd_port1))
                     .unwrap();
 
@@ -90,8 +145,8 @@ fn main() {
             }
         }
         "tx" => {
-            let sock = UdpSocket::bind(("127.0.0.1", server_port)).unwrap();
-            eprintln!("{command} Listening for UDP packets");
+            let sock = bind_server(&command, server_port);
+            println!("{command} Listening for UDP packets");
 
             let mut buf0 = [0; 4096];
             let (len0, _addr0) = sock.recv_from(&mut buf0).unwrap();
@@ -102,10 +157,11 @@ fn main() {
             let (len1, _addr1) = sock.recv_from(&mut buf1).unwrap();
             let received1 = &buf1[..len1];
             assert_eq!(received1, b"t 1");
+            println!("{command}: OK");
         }
         "ping" => {
-            let sock = UdpSocket::bind(("127.0.0.1", server_port)).unwrap();
-            eprintln!("{command}: listening for UDP packets");
+            let sock = bind_server(&command, server_port);
+            println!("{command}: listening for UDP packets");
             loop {
                 let mut buf = [0; 4096];
                 let (len, raddr) = sock.recv_from(&mut buf).unwrap();

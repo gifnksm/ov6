@@ -31,24 +31,25 @@ where
         output_start = qemu.stdout_pos();
 
         let msg = format!("{cmd}\n").into_bytes();
-        qemu.stdin_tx().send(msg).await?;
+        qemu.stdin_tx().unwrap().send(msg).await?;
     }
 
     Ok(output_start)
 }
 
-pub async fn run_test<F>(
+pub async fn run_test<F, T>(
     r: Runner,
     timeout: Duration,
     f: F,
-) -> Result<(ExitStatus, String), anyhow::Error>
+) -> Result<(ExitStatus, String, T), anyhow::Error>
 where
-    F: AsyncFnOnce(&Qemu, &Gdb) -> Result<(), anyhow::Error>,
+    F: AsyncFnOnce(&Qemu, &Gdb) -> Result<T, anyhow::Error>,
 {
     time::timeout(timeout, async {
         let (qemu, gdb) = r.launch().await?;
-        f(&qemu, &gdb).await?;
-        qemu.wait_terminate().await
+        let ret = f(&qemu, &gdb).await?;
+        let (exit_status, stdout) = qemu.wait_terminate().await?;
+        Ok((exit_status, stdout, ret))
     })
     .await
     .context("test timeout")?

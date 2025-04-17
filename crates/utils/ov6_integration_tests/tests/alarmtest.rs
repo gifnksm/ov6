@@ -10,7 +10,7 @@ const TIMEOUT: Duration = Duration::from_secs(60);
 #[tokio::test]
 async fn alarmtest() -> Result<(), anyhow::Error> {
     let r = runner!("alarmtest").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["alarmtest -T"]).await?;
         Ok(())
     })

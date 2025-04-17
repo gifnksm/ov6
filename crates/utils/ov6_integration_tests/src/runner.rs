@@ -62,8 +62,26 @@ impl Runner {
         })
     }
 
+    pub fn id(&self) -> usize {
+        self.id
+    }
+
+    pub fn project_root(&self) -> &'static Path {
+        self.project_root
+    }
+
+    pub fn workspace_dir(&self) -> &Path {
+        &self.workspace_dir
+    }
+
     pub async fn launch(self) -> Result<(Qemu, Gdb), anyhow::Error> {
-        let gdb_sock = env::temp_dir().join(format!("ov6.{}.{}.socket", process::id(), self.id));
+        let temp_dir = env::temp_dir();
+        let gdb_sock = temp_dir.join(format!("ov6.{}.{}.gdb.socket", process::id(), self.id));
+        let qemu_monitor_sock = temp_dir.join(format!(
+            "ov6.{}.{}.qemu-monitor.socket",
+            process::id(),
+            self.id
+        ));
 
         let qemu = Qemu::new(
             self.id,
@@ -72,6 +90,7 @@ impl Runner {
             &self.kernel_path,
             &self.fs_path,
             &gdb_sock,
+            &qemu_monitor_sock,
         )?;
 
         let mut gdb = Gdb::connect(gdb_sock).await?;

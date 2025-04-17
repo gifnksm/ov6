@@ -10,7 +10,7 @@ const TIMEOUT: Duration = Duration::from_secs(60);
 #[tokio::test]
 async fn memory() -> Result<(), anyhow::Error> {
     let r = runner!("memory").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["usertests -T -t memory"]).await?;
         Ok(())
     })
@@ -25,7 +25,7 @@ async fn memory() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn simple_fs() -> Result<(), anyhow::Error> {
     let r = runner!("simple_fs").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["usertests -T -t simple_fs"]).await?;
         Ok(())
     })
@@ -40,7 +40,7 @@ async fn simple_fs() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn simple_fork() -> Result<(), anyhow::Error> {
     let r = runner!("simple_fork").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["usertests -T -t simple_fork"]).await?;
         Ok(())
     })
@@ -55,7 +55,7 @@ async fn simple_fork() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn more_fs() -> Result<(), anyhow::Error> {
     let r = runner!("more_fs").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["usertests -T -t more_fs"]).await?;
         Ok(())
     })
@@ -70,7 +70,7 @@ async fn more_fs() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn more_fork() -> Result<(), anyhow::Error> {
     let r = runner!("more_fork").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["usertests -T -t more_fork"]).await?;
         Ok(())
     })
@@ -85,7 +85,7 @@ async fn more_fork() -> Result<(), anyhow::Error> {
 #[tokio::test]
 async fn misc() -> Result<(), anyhow::Error> {
     let r = runner!("misc").await?;
-    let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+    let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
         monitor::run_commands(qemu, 0, ["usertests -T -t misc"]).await?;
         Ok(())
     })
@@ -103,7 +103,7 @@ mod slow_fs {
     #[tokio::test]
     async fn big_dir() -> Result<(), anyhow::Error> {
         let r = runner!("big_dir").await?;
-        let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+        let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
             monitor::run_commands(qemu, 0, ["usertests -T slow_fs::big_dir"]).await?;
             Ok(())
         })
@@ -118,7 +118,7 @@ mod slow_fs {
     #[tokio::test]
     async fn many_writes() -> Result<(), anyhow::Error> {
         let r = runner!("many_writes").await?;
-        let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+        let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
             monitor::run_commands(qemu, 0, ["usertests -T slow_fs::many_writes"]).await?;
             Ok(())
         })
@@ -133,7 +133,7 @@ mod slow_fs {
     #[tokio::test]
     async fn bad_write() -> Result<(), anyhow::Error> {
         let r = runner!("bad_write").await?;
-        let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+        let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
             monitor::run_commands(qemu, 0, ["usertests -T slow_fs::bad_write"]).await?;
             Ok(())
         })
@@ -148,7 +148,7 @@ mod slow_fs {
     #[tokio::test]
     async fn diskf_full() -> Result<(), anyhow::Error> {
         let r = runner!("disk_full").await?;
-        let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+        let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
             monitor::run_commands(qemu, 0, ["usertests -T slow_fs::disk_full"]).await?;
             Ok(())
         })
@@ -163,7 +163,7 @@ mod slow_fs {
     #[tokio::test]
     async fn out_of_inodes() -> Result<(), anyhow::Error> {
         let r = runner!("out_of_inodes").await?;
-        let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+        let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
             monitor::run_commands(qemu, 0, ["usertests -T slow_fs::out_of_inodes"]).await?;
             Ok(())
         })
@@ -182,7 +182,7 @@ mod slow_proc {
     #[tokio::test]
     async fn execout() -> Result<(), anyhow::Error> {
         let r = runner!("execout").await?;
-        let (exit_status, stdout) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
+        let (exit_status, stdout, ()) = monitor::run_test(r, TIMEOUT, async |qemu, _gdb| {
             monitor::run_commands(qemu, 0, ["usertests -T slow_proc::execout"]).await?;
             Ok(())
         })

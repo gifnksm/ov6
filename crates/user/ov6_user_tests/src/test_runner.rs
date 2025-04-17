@@ -125,7 +125,7 @@ pub struct TestParam {
 const USAGE_ARGS: &str = "[-c] [-C] [-q] [-b] [-T] [-t tag] [-h] [testname]";
 
 impl TestParam {
-    fn usage_and_exit() -> ! {
+    pub fn usage_and_exit() -> ! {
         eprintln!("Usage: {} {USAGE_ARGS}", env::arg0().display());
         process::exit(1);
     }
@@ -171,6 +171,7 @@ impl TestParam {
                 }
                 "-T" => param.shutdown_after_tests = true,
                 "-h" => Self::help_and_exit(),
+                "--" => break,
                 _ if !arg.starts_with('-') => param.filter.name = Some(arg.to_owned()),
                 _ => Self::usage_and_exit(),
             }

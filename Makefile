@@ -198,18 +198,18 @@ endif
 
 QEMU_KERNEL=$R/kernel
 QEMU_FS=$R/fs.img
+QEMU_MONITOR_SOCK=target/qemu-monitor.socket
 
 QEMU_OPTS = -machine virt -bios none -kernel $(QEMU_KERNEL) -m 128M -smp $(CPUS) -nographic
 QEMU_OPTS += -global virtio-mmio.force-legacy=false
 QEMU_OPTS += -drive file=$(QEMU_FS),if=none,format=raw,id=x0
 QEMU_OPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
-ifdef QEMU_NET_FWD
 QEMU_OPTS += -netdev user,id=net0,hostfwd=udp::$(FWD_PORT1)-:2000,hostfwd=udp::$(FWD_PORT2)-:2001
-else
-QEMU_OPTS += -netdev user,id=net0
-endif
 QEMU_OPTS += -object filter-dump,id=net0,netdev=net0,file=target/packets.pcap
 QEMU_OPTS += -device e1000,netdev=net0,bus=pcie.0
+ifdef QEMU_MONITOR_FWD
+QEMU_OPTS += -monitor unix:$(QEMU_MONITOR_SOCK),server,nowait
+endif
 
 ifdef QEMU_LOG
 QEMU_OPTS += -d unimp,guest_errors,int -D target/qemu.log
