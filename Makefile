@@ -184,8 +184,8 @@ cargo-doc:
 
 # try to generate a unique GDB port
 GDB_PORT = $(shell expr `id -u` % 5000 + 25000)
-QEMU_GDB_TCP = -gdb tcp::$(GDB_PORT)
-QEMU_GDB_SOCK = -chardev socket,path=$(GDB_SOCK),server=on,wait=off,id=gdb0 -gdb chardev:gdb0
+QEMU_GDB_TCP_OPTS = -gdb tcp::$(GDB_PORT)
+QEMU_GDB_SOCK_OPTS = -chardev socket,path=$(GDB_SOCK),server=on,wait=off,id=gdb0 -gdb chardev:gdb0
 
 SERVER_PORT = $(shell expr `id -u` % 5000 + 25099)
 export SERVER_PORT
@@ -225,14 +225,14 @@ qemu: $(QEMU_KERNEL) $(QEMU_FS)
 .PHONY: qemu-gdb
 qemu-gdb: $(QEMU_KERNEL) $(QEMU_FS) .gdbinit
 	@echo "*** Now run 'gdb' in another window." 1>&2
-	$(QEMU) $(QEMU_OPTS) -S $(QEMU_GDB_TCP)
+	$(QEMU) $(QEMU_OPTS) -S $(QEMU_GDB_TCP_OPTS)
 
 .PHONY: qemu-gdb-noinit
 qemu-gdb-noinit: $(QEMU_KERNEL) $(QEMU_FS)
 	@echo "*** Running qemu ***" 1>&2
 	@echo "kernel: $(QEMU_KERNEL:$(CURDIR)/%=%)" 1>&2
 	@echo "fs: $(QEMU_FS:$(CURDIR)/%=%)" 1>&2
-	$(QEMU) $(QEMU_OPTS) -S $(QEMU_GDB_SOCK)
+	$(QEMU) $(QEMU_OPTS) -S $(QEMU_GDB_SOCK_OPTS)
 
 FORCE:
 .PHONY: FORCE
