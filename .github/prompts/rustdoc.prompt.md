@@ -99,20 +99,21 @@ Requirements for changes:
     ```
 
 * **Module-level comments**: Add module-level comments at the top of each module. Use `//!`-style comments for module-level documentation. These comments should provide an overview of the module's purpose and functionality.
+  * The first sentence of the module-level comment should succinctly describe the module's role or purpose, such as `Memory Allocation APIs` or `Utilities for dynamic typing or type reflection.`.
   * Example:
 
     ```rust
-    //! This module provides utilities for working with strings.
+    //! Utilities for working with strings.
     //!
-    //! It includes functions for trimming, splitting, and joining strings.
+    //! This module provides functions for trimming, splitting, and joining strings.
     ```
 
     For more complex modules:
 
     ```rust
-    //! This module implements a multi-threaded task scheduler.
+    //! Multi-threaded task scheduler.
     //!
-    //! The scheduler allows tasks to be executed concurrently across multiple threads.
+    //! This module implements a scheduler that allows tasks to be executed concurrently across multiple threads.
     //! It provides APIs for task creation, synchronization, and communication.
     //!
     //! # Examples

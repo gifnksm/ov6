@@ -1,3 +1,8 @@
+//! Utilities for managing and logging subprocess commands.
+//!
+//! This module provides the `LoggedCommand` struct, which wraps a subprocess
+//! and handles its input/output streams, logging, and lifecycle management.
+
 use std::{
     fs::File,
     io::Write as _,
@@ -15,20 +20,32 @@ use tokio::{
 };
 
 pub struct LoggedCommand {
+    /// The child process being managed.
     proc: Child,
+    /// Handle for managing the stdin task.
     stdin_handle: JoinHandle<Result<(), anyhow::Error>>,
+    /// Handle for managing the stdout task.
     stdout_handle: JoinHandle<Result<(), anyhow::Error>>,
+    /// Handle for managing the stderr task.
     stderr_handle: JoinHandle<Result<(), anyhow::Error>>,
-
+    /// Sender for writing to the child process's stdin.
     stdin_tx: Option<mpsc::Sender<Vec<u8>>>,
+    /// Buffer for storing the child process's stdout content.
     stdout_content: Arc<Mutex<String>>,
+    /// Watcher for tracking changes in the stdout content length.
     stdout_rx: watch::Receiver<usize>,
 }
 
 impl LoggedCommand {
-    pub const BOOT_MSG: &str = "ov6 kernel is booting";
-
-    #[expect(clippy::missing_panics_doc)]
+    /// Creates a new `LoggedCommand` instance.
+    ///
+    /// This spawns a subprocess using the provided `Command` and sets up
+    /// logging and communication channels for its stdin, stdout, and stderr.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the subprocess cannot be spawned or if any
+    /// required resources cannot be initialized.
     pub fn new(
         mut command: Command,
         runner_id: usize,
@@ -53,8 +70,11 @@ impl LoggedCommand {
             .spawn()
             .context("spawn command failed")?;
 
+        #[expect(clippy::missing_panics_doc, reason = "infallible")]
         let stdin = proc.stdin.take().unwrap();
+        #[expect(clippy::missing_panics_doc, reason = "infallible")]
         let stdout = proc.stdout.take().unwrap();
+        #[expect(clippy::missing_panics_doc, reason = "infallible")]
         let stderr = proc.stderr.take().unwrap();
 
         let (stdin_tx, stdin_rx) = mpsc::channel(1);
@@ -83,30 +103,41 @@ impl LoggedCommand {
         })
     }
 
+    /// Returns a reference to the stdin sender, if available.
     #[must_use]
     pub fn stdin_tx(&self) -> Option<&mpsc::Sender<Vec<u8>>> {
         self.stdin_tx.as_ref()
     }
 
+    /// Closes the stdin channel, preventing further input to the subprocess.
     pub fn close_stdin(&mut self) {
         let _ = self.stdin_tx.take();
     }
 
+    /// Returns a reference to the stdout content buffer.
     #[must_use]
     pub fn stdout(&self) -> &Arc<Mutex<String>> {
         &self.stdout_content
     }
 
+    /// Returns a clone of the stdout watcher.
     #[must_use]
     pub fn stdout_watch(&self) -> watch::Receiver<usize> {
         self.stdout_rx.clone()
     }
 
+    /// Returns the current position of the stdout content.
     #[must_use]
     pub fn stdout_pos(&self) -> usize {
         *self.stdout_rx.borrow()
     }
 
+    /// Waits for the stdout content to satisfy a given condition.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the watcher fails or if the condition cannot be
+    /// evaluated.
     #[expect(clippy::missing_panics_doc)]
     pub async fn wait_output<F>(&self, start: usize, mut cond: F) -> Result<(), anyhow::Error>
     where
@@ -123,6 +154,12 @@ impl LoggedCommand {
         Ok(())
     }
 
+    /// Waits for the subprocess to terminate and collects its output.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any of the subprocess tasks fail or if the process
+    /// cannot be awaited.
     #[expect(clippy::missing_panics_doc)]
     pub async fn wait_terminate(mut self) -> Result<(ExitStatus, String), anyhow::Error> {
         drop(self.stdin_tx);

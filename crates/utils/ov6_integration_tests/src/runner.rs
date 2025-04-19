@@ -1,3 +1,9 @@
+//! Test runner for integration tests.
+//!
+//! This module provides the `Runner` struct, which manages the setup and
+//! execution of integration tests. It handles workspace preparation, QEMU
+//! and GDB initialization, and test lifecycle management.
+
 use std::{
     env,
     fs::{self, File},
@@ -12,19 +18,39 @@ use tokio::task;
 
 use crate::{Gdb, Qemu, monitor};
 
+/// The default build profile used for the test runner.
 const DEFAULT_MAKE_PROFILE: &str = "release";
 
+/// A global atomic counter for assigning unique runner IDs.
 static RUNNER_ID: AtomicUsize = AtomicUsize::new(0);
 
+/// Represents a test runner for integration tests.
+///
+/// The `Runner` struct manages the workspace, QEMU instance, and GDB
+/// connection required for running integration tests.
 pub struct Runner {
+    /// The unique ID of the runner.
     id: usize,
+    /// The root directory of the project.
     project_root: &'static Path,
+    /// The workspace directory for the test.
     workspace_dir: PathBuf,
+    /// The path to the kernel binary.
     kernel_path: PathBuf,
+    /// The path to the filesystem image.
     fs_path: PathBuf,
 }
 
 impl Runner {
+    /// Creates a new `Runner` instance.
+    ///
+    /// This function initializes the test workspace and prepares the kernel
+    /// and filesystem artifacts for testing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the workspace setup fails or if required artifacts
+    /// cannot be prepared.
     #[expect(clippy::missing_panics_doc)]
     pub async fn new(
         pkg_name: &str,
@@ -62,18 +88,33 @@ impl Runner {
         })
     }
 
+    /// Returns the unique ID of the runner.
+    #[must_use]
     pub fn id(&self) -> usize {
         self.id
     }
 
+    /// Returns the root directory of the project.
+    #[must_use]
     pub fn project_root(&self) -> &'static Path {
         self.project_root
     }
 
+    /// Returns the workspace directory for the test.
+    #[must_use]
     pub fn workspace_dir(&self) -> &Path {
         &self.workspace_dir
     }
 
+    /// Launches the QEMU and GDB instances for the test.
+    ///
+    /// This function initializes the QEMU and GDB instances, waits for the
+    /// kernel to boot, and prepares the test environment.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the QEMU or GDB instances fail to initialize or if
+    /// the kernel boot process fails.
     pub async fn launch(self) -> Result<(Qemu, Gdb), anyhow::Error> {
         let temp_dir = env::temp_dir();
         let gdb_sock = temp_dir.join(format!("ov6.{}.{}.gdb.socket", process::id(), self.id));
@@ -102,6 +143,15 @@ impl Runner {
     }
 }
 
+/// Sets up the test workspace.
+///
+/// This function prepares the workspace directory, locks the build process,
+/// and copies the kernel and filesystem artifacts to the workspace.
+///
+/// # Errors
+///
+/// Returns an error if the workspace setup fails or if the artifacts cannot
+/// be copied.
 fn setup_workspace(
     project_root: &Path,
     workspace_dir: &Path,
