@@ -19,6 +19,10 @@ use tokio::{
     task::JoinHandle,
 };
 
+/// A struct for managing and logging subprocess commands.
+///
+/// This struct wraps a subprocess and provides utilities for handling its
+/// input/output streams, logging, and lifecycle management.
 pub struct LoggedCommand {
     /// The child process being managed.
     proc: Child,
@@ -104,35 +108,49 @@ impl LoggedCommand {
     }
 
     /// Returns a reference to the stdin sender, if available.
+    ///
+    /// This allows sending data to the subprocess's stdin asynchronously.
     #[must_use]
     pub fn stdin_tx(&self) -> Option<&mpsc::Sender<Vec<u8>>> {
         self.stdin_tx.as_ref()
     }
 
     /// Closes the stdin channel, preventing further input to the subprocess.
+    ///
+    /// This method ensures that no more data can be sent to the subprocess's
+    /// stdin.
     pub fn close_stdin(&mut self) {
         let _ = self.stdin_tx.take();
     }
 
     /// Returns a reference to the stdout content buffer.
+    ///
+    /// This provides access to the buffered output of the subprocess.
     #[must_use]
     pub fn stdout(&self) -> &Arc<Mutex<String>> {
         &self.stdout_content
     }
 
     /// Returns a clone of the stdout watcher.
+    ///
+    /// This allows monitoring changes to the length of the stdout content.
     #[must_use]
     pub fn stdout_watch(&self) -> watch::Receiver<usize> {
         self.stdout_rx.clone()
     }
 
     /// Returns the current position of the stdout content.
+    ///
+    /// This indicates the length of the stdout content buffered so far.
     #[must_use]
     pub fn stdout_pos(&self) -> usize {
         *self.stdout_rx.borrow()
     }
 
     /// Waits for the stdout content to satisfy a given condition.
+    ///
+    /// This method blocks until the specified condition is met in the stdout
+    /// content of the subprocess.
     ///
     /// # Errors
     ///
@@ -154,7 +172,20 @@ impl LoggedCommand {
         Ok(())
     }
 
+    /// Sends a kill signal to the subprocess.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the kill signal cannot be sent.
+    pub async fn kill(&mut self) -> Result<(), anyhow::Error> {
+        self.proc.kill().await.context("kill command failed")?;
+        Ok(())
+    }
+
     /// Waits for the subprocess to terminate and collects its output.
+    ///
+    /// This method blocks until the subprocess exits and collects its
+    /// stdout content and exit status.
     ///
     /// # Errors
     ///

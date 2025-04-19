@@ -325,6 +325,7 @@ name = "ov6_net_utilities"
 version = "0.1.0"
 dependencies = [
  "nix",
+ "regex",
 ]
 
 [[package]]

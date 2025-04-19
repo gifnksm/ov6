@@ -1,9 +1,20 @@
-use std::{env, net::UdpSocket, process, thread, time::Duration};
+use std::{
+    env,
+    io::{BufRead as _, BufReader, Write as _},
+    net::{Shutdown, UdpSocket},
+    os::unix::net::UnixStream,
+    path::Path,
+    process, thread,
+    time::Duration,
+};
+
+use regex::Regex;
 
 fn usage() -> ! {
     let arg0 = env::args().next().unwrap();
     eprintln!(
-        "Usage: {arg0} [--fwd-port1 <port>] [--fwd-port2 <port>] [--server-port <port>] <command>"
+        "Usage: {arg0} [--fwd-port1 <port>] [--fwd-port2 <port>] [--server-port <port>] \
+         [--qemu-monitor <path>] <command>"
     );
     process::exit(1);
 }
@@ -13,6 +24,77 @@ fn bind_server(command: &str, server_port: u16) -> UdpSocket {
     let port = sock.local_addr().unwrap().port();
     println!("{command}: server UDP port is {port}");
     sock
+}
+
+fn listen_start(command: &str) {
+    println!("{command}: listening for UDP packets");
+}
+
+fn listen_completed(command: &str) {
+    println!("{command}: OK");
+}
+
+fn get_port_from_sock(qemu_monitor_sock: &Path) -> (u16, u16) {
+    let mut monitor_sock = UnixStream::connect(qemu_monitor_sock).unwrap();
+    monitor_sock.write_all(b"info usernet\n").unwrap();
+    monitor_sock.flush().unwrap();
+    monitor_sock.shutdown(Shutdown::Write).unwrap();
+
+    // ```
+    // QEMU 9.2.3 monitor - type 'help' for more information
+    // (qemu) info usernet
+    // Hub -1 (net0):
+    //   Protocol[State]    FD  Source Address  Port   Dest. Address  Port RecvQ SendQ
+    //   UDP[HOST_FORWARD]  10               * 26999       10.0.2.15  2000     0     0
+    //   UDP[HOST_FORWARD]   9               * 31999       10.0.2.15  2001     0     0
+    // (qemu)
+    // ```
+    let re = Regex::new(
+        r"(?x)
+            UDP\[HOST_FORWARD\]      # Protocol[State]
+            \s+
+            \d+                      # FD
+            \s+
+            \*                       # Source Address
+            \s+
+            (?P<src_port>\d+)        # (Source) Port
+            \s+
+            10\.0\.2\.15             # Dest. Address
+            \s+
+            (?P<dest_port>\d+)       # (Dest.) Port
+            ",
+    )
+    .unwrap();
+
+    let mut fwd_port1 = None;
+    let mut fwd_port2 = None;
+
+    let reader = BufReader::new(monitor_sock);
+    for line in reader.lines() {
+        let line = line.unwrap();
+
+        if let Some(captures) = re.captures(&line) {
+            let src_port = captures
+                .name("src_port")
+                .unwrap()
+                .as_str()
+                .parse::<u16>()
+                .unwrap();
+            let dest_port = captures
+                .name("dest_port")
+                .unwrap()
+                .as_str()
+                .parse::<u16>()
+                .unwrap();
+            match dest_port {
+                2000 => fwd_port1 = Some(src_port),
+                2001 => fwd_port2 = Some(src_port),
+                _ => {}
+            }
+        }
+    }
+
+    (fwd_port1.unwrap(), fwd_port2.unwrap())
 }
 
 struct Args {
@@ -41,6 +123,12 @@ impl Args {
                         usage();
                     };
                     server_port = arg;
+                }
+                "--qemu-monitor" => {
+                    let Some(arg) = args.next() else {
+                        usage();
+                    };
+                    (fwd_port1, fwd_port2) = get_port_from_sock(Path::new(&arg));
                 }
                 "--fwd-port1" => {
                     let Some(arg) = args.next().and_then(|s| s.parse().ok()) else {
@@ -84,12 +172,12 @@ fn main() {
         "txone" => {
             // Listen for a single UDP packet sent by ov6's nettest txone.
             let sock = bind_server(&command, server_port);
-            println!("{command}: listening on a UDP packet");
+            listen_start(&command);
             let mut buf = [0; 4096];
             let (len, _addr) = sock.recv_from(&mut buf).unwrap();
             let received = &buf[..len];
             assert_eq!(received, b"txone", "{command}: unexpected payload");
-            println!("{command}: OK");
+            listen_completed(&command);
         }
         "rxone" => {
             // sending a single UDP packet to ov6
@@ -146,7 +234,7 @@ fn main() {
         }
         "tx" => {
             let sock = bind_server(&command, server_port);
-            println!("{command} Listening for UDP packets");
+            listen_start(&command);
 
             let mut buf0 = [0; 4096];
             let (len0, _addr0) = sock.recv_from(&mut buf0).unwrap();
@@ -157,11 +245,11 @@ fn main() {
             let (len1, _addr1) = sock.recv_from(&mut buf1).unwrap();
             let received1 = &buf1[..len1];
             assert_eq!(received1, b"t 1");
-            println!("{command}: OK");
+            listen_completed(&command);
         }
-        "ping" => {
+        "ping" | "ping0" | "ping1" | "ping2" | "ping3" => {
             let sock = bind_server(&command, server_port);
-            println!("{command}: listening for UDP packets");
+            listen_start(&command);
             loop {
                 let mut buf = [0; 4096];
                 let (len, raddr) = sock.recv_from(&mut buf).unwrap();

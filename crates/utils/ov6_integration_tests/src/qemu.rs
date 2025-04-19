@@ -5,7 +5,7 @@
 //! with QEMU's standard input, output, and lifecycle.
 
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     process::ExitStatus,
     sync::{Arc, Mutex},
 };
@@ -23,6 +23,8 @@ use crate::logged_command::LoggedCommand;
 pub struct Qemu {
     /// The underlying logged command managing the QEMU process.
     command: LoggedCommand,
+    /// The path to the QEMU monitor socket.
+    monitor_sock: PathBuf,
 }
 
 impl Qemu {
@@ -43,7 +45,7 @@ impl Qemu {
         qemu_kernel: &Path,
         qemu_fs: &Path,
         gdb_sock: &Path,
-        qemu_monitor_sock: &Path,
+        monitor_sock: PathBuf,
     ) -> Result<Self, anyhow::Error> {
         let mut command = crate::make_command(project_root);
         command.args([
@@ -52,7 +54,7 @@ impl Qemu {
             &format!("QEMU_FS={}", qemu_fs.display()),
             &format!("GDB_SOCK={}", gdb_sock.display()),
             "QEMU_MONITOR_FWD=1",
-            &format!("QEMU_MONITOR_SOCK={}", qemu_monitor_sock.display()),
+            &format!("QEMU_MONITOR_SOCK={}", monitor_sock.display()),
             "FWD_PORT1=0",
             "FWD_PORT2=0",
         ]);
@@ -60,7 +62,18 @@ impl Qemu {
         let command = LoggedCommand::new(command, runner_id, "qemu", workspace_dir)
             .context("spawn qemu failed")?;
 
-        Ok(Self { command })
+        Ok(Self {
+            command,
+            monitor_sock,
+        })
+    }
+
+    /// Returns the path to the QEMU monitor socket.
+    ///
+    /// This socket is used for communicating with the QEMU monitor.
+    #[must_use]
+    pub fn monitor_sock(&self) -> &Path {
+        &self.monitor_sock
     }
 
     /// Returns a sender for writing to the QEMU process's standard input.

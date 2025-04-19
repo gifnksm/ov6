@@ -131,7 +131,7 @@ impl Runner {
             &self.kernel_path,
             &self.fs_path,
             &gdb_sock,
-            &qemu_monitor_sock,
+            qemu_monitor_sock,
         )?;
 
         let mut gdb = Gdb::connect(gdb_sock).await?;
