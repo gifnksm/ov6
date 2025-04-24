@@ -25,34 +25,32 @@ static mut KERNEL_STACK: [KernelStack; NCPU] = [const {
     }
 }; NCPU];
 
-#[naked]
+#[unsafe(naked)]
 #[unsafe(link_section = ".text.init")]
 #[unsafe(export_name = "boot")]
 extern "C" fn boot() {
-    unsafe {
-        naked_asm!(
-            // Workaround for spurious LLVM error
-            // See also:
-            //  - <https://github.com/rust-embedded/riscv/issues/175>
-            //  - <https://github.com/rust-embedded/riscv/pull/176>
-            r#".attribute arch, "rv64imac""#,
+    naked_asm!(
+        // Workaround for spurious LLVM error
+        // See also:
+        //  - <https://github.com/rust-embedded/riscv/issues/175>
+        //  - <https://github.com/rust-embedded/riscv/pull/176>
+        r#".attribute arch, "rv64imac""#,
 
-            // set up a stack for kernel.
-            // sp = kernel_stack + ((hartid + 1) * stack_size)
-            "la sp, {kernel_stack}",
-            "li a0, {stack_size}",
-            "csrr a1, mhartid",
-            "addi a1, a1, 1",
-            "mul a0, a0, a1",
-            "add sp, sp, a0",
+        // set up a stack for kernel.
+        // sp = kernel_stack + ((hartid + 1) * stack_size)
+        "la sp, {kernel_stack}",
+        "li a0, {stack_size}",
+        "csrr a1, mhartid",
+        "addi a1, a1, 1",
+        "mul a0, a0, a1",
+        "add sp, sp, a0",
 
-            // jump to init
-            "call {init}",
-            kernel_stack = sym KERNEL_STACK,
-            stack_size = const size_of::<KernelStack>(),
-            init = sym init,
-        );
-    }
+        // jump to init
+        "call {init}",
+        kernel_stack = sym KERNEL_STACK,
+        stack_size = const size_of::<KernelStack>(),
+        init = sym init,
+    );
 }
 
 extern "C" fn init() -> ! {
@@ -107,30 +105,28 @@ extern "C" fn init() -> ! {
     }
 }
 
-#[naked]
+#[unsafe(naked)]
 extern "C" fn entry() -> ! {
-    unsafe {
-        naked_asm!(
-            // set up stack for kernel
-            // sp = kernel_stack + ((tp + 1) * stack_size)
-            // where tp = mhartid
-            "la sp, {kernel_stack}",
-            "li a0, {stack_size}",
-            "addi a1, tp, 1",
-            "mul a0, a0, a1",
-            "add sp, sp, a0",
+    naked_asm!(
+        // set up stack for kernel
+        // sp = kernel_stack + ((tp + 1) * stack_size)
+        // where tp = mhartid
+        "la sp, {kernel_stack}",
+        "li a0, {stack_size}",
+        "addi a1, tp, 1",
+        "mul a0, a0, a1",
+        "add sp, sp, a0",
 
-            // set up stack frame
-            "mv fp, sp",
-            "addi sp, sp, -16",
-            "sd zero, 0(sp)",
-            "sd zero, 8(sp)",
+        // set up stack frame
+        "mv fp, sp",
+        "addi sp, sp, -16",
+        "sd zero, 0(sp)",
+        "sd zero, 8(sp)",
 
-            // jump to main
-            "call {main}",
-            kernel_stack = sym KERNEL_STACK,
-            stack_size = const size_of::<KernelStack>(),
-            main = sym crate::main,
-        );
-    }
+        // jump to main
+        "call {main}",
+        kernel_stack = sym KERNEL_STACK,
+        stack_size = const size_of::<KernelStack>(),
+        main = sym crate::main,
+    );
 }

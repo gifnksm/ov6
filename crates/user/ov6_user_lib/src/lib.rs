@@ -1,6 +1,5 @@
 #![feature(core_io_borrowed_buf)]
 #![feature(lang_items)]
-#![feature(naked_functions)]
 #![feature(maybe_uninit_slice)]
 #![allow(internal_features)]
 #![no_std]
@@ -44,17 +43,15 @@ mod entry {
     // explicitly defined instead of relying on `.equiv`.
     //#[cfg(debug_assertions)]
     #[unsafe(no_mangle)]
-    #[naked]
+    #[unsafe(naked)]
     extern "C" fn _start(argc: isize, argv: *const *const u8, auxv: u8) -> ! {
-        unsafe {
-            core::arch::naked_asm!(
-                "addi sp, sp, -16",
-                "sd zero, 0(sp)",
-                "sd zero, 8(sp)",
-                "addi fp, sp, 16",
-                "call main",
-            );
-        }
+        core::arch::naked_asm!(
+            "addi sp, sp, -16",
+            "sd zero, 0(sp)",
+            "sd zero, 8(sp)",
+            "addi fp, sp, 16",
+            "call main",
+        );
     }
 
     #[lang = "start"]
