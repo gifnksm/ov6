@@ -99,7 +99,7 @@ pub fn schedule() -> ! {
             shared.state = ProcState::Running;
             cpu.set_proc(Some((shared.pid.unwrap(), p)));
             unsafe {
-                switch(&raw mut SCHED_CONTEXT[cpuid], &shared.context);
+                switch(&raw mut SCHED_CONTEXT[cpuid], &raw const shared.context);
             }
 
             // Process is done running for now.
@@ -144,7 +144,7 @@ pub(super) fn sched(shared: &mut SpinLockGuard<ProcSharedData>) {
 
     let int_enabled = interrupt::is_enabled_before_push();
     unsafe {
-        switch(&mut shared.context, &raw const SCHED_CONTEXT[cpuid]);
+        switch(&raw mut shared.context, &raw const SCHED_CONTEXT[cpuid]);
     }
     unsafe {
         interrupt::force_set_before_push(int_enabled);

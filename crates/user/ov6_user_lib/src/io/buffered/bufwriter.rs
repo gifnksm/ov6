@@ -56,7 +56,7 @@ where
 
         // SAFETY: double-drops are prevented by putting `this` in a `ManuallyDrop` that
         // is never dropped.
-        let inner = unsafe { ptr::read(&this.inner) };
+        let inner = unsafe { ptr::read(&raw const this.inner) };
 
         (inner, buf)
     }
